@@ -55,10 +55,12 @@ class YouTubeMusicPlayer:
             
             # Start VLC in remote control (rc) mode without video, silently
             self.process = subprocess.Popen(
-                [self.vlc_path, "-I", "rc", "--no-video", "--dummy-quiet", stream_url],
+                [self.vlc_path, "-I", "rc", "--rc-fake-tty", "--no-video", "--dummy-quiet", stream_url],
                 stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                text=True,
+                bufsize=1,
                 creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
             )
             self.is_paused = False
@@ -87,7 +89,7 @@ class YouTubeMusicPlayer:
     def pause_song(self) -> str:
         if self.process and not self.is_paused:
             try:
-                self.process.stdin.write(b"pause\n")
+                self.process.stdin.write("pause\n")
                 self.process.stdin.flush()
                 self.is_paused = True
                 return "Playback paused, sir."
@@ -98,7 +100,7 @@ class YouTubeMusicPlayer:
     def resume_song(self) -> str:
         if self.process and self.is_paused:
             try:
-                self.process.stdin.write(b"pause\n") # In VLC rc, "pause" toggles play/pause state
+                self.process.stdin.write("pause\n") # In VLC rc, "pause" toggles play/pause state
                 self.process.stdin.flush()
                 self.is_paused = False
                 return "Playback resumed, sir."
@@ -125,7 +127,7 @@ class YouTubeMusicPlayer:
     def adjust_volume(self, change: int) -> str:
         if self.process:
             try:
-                cmd = b"volup 1\n" if change > 0 else b"voldown 1\n"
+                cmd = "volup 1\n" if change > 0 else "voldown 1\n"
                 for _ in range(abs(change)):
                     self.process.stdin.write(cmd)
                 self.process.stdin.flush()
