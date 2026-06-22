@@ -51,11 +51,25 @@ class YouTubeMusicPlayer:
                 title_raw = first_entry.get('title', query)
                 self.current_song = "".join(c for c in title_raw if ord(c) < 65536)
                 
+                # Extract HTTP headers from yt-dlp to authorize streaming in VLC
+                http_headers = first_entry.get('http_headers', {})
+                user_agent = http_headers.get('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36')
+                referer = http_headers.get('Referer', 'https://www.youtube.com/')
+                
             logger.info(f"Streaming audio in background: {self.current_song}")
             
             # Start VLC in remote control (rc) mode without video, silently
             self.process = subprocess.Popen(
-                [self.vlc_path, "-I", "rc", "--rc-fake-tty", "--no-video", "--dummy-quiet", stream_url],
+                [
+                    self.vlc_path, 
+                    "-I", "rc", 
+                    "--rc-fake-tty", 
+                    "--no-video", 
+                    "--dummy-quiet", 
+                    f"--http-user-agent={user_agent}",
+                    f"--http-referrer={referer}",
+                    stream_url
+                ],
                 stdin=subprocess.PIPE,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
