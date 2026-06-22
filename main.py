@@ -101,7 +101,9 @@ class JARVIS:
         _p("INIT: AudioEngine"); self.audio = AudioEngine(silence_sec=self.config["audio"]["silence_threshold"])
         _p("INIT: TTSEngine"); self.tts = TTSEngine(
             model_path=self.config["tts"].get("voice_model", "kokoro-v1.0.onnx"),
-            voices_path=self.config["tts"].get("voices_json", "voices-v1.0.bin")
+            voices_path=self.config["tts"].get("voices_json", "voices-v1.0.bin"),
+            default_voice=self.config["tts"].get("default_voice", "af_heart"),
+            default_speed=self.config["tts"].get("speaking_rate", 1.25)
         )
         _p("INIT: WakeWordDetector"); self.wake = WakeWordDetector()
         _p("INIT: IntentRouter"); self.router = IntentRouter()

@@ -33,10 +33,11 @@ FILLER_PHRASES = [
 class TTSEngine:
     """Kokoro TTS for human-like voice output with support for multiple languages and accents."""
 
-    def __init__(self, model_path: str = "kokoro-v1.0.onnx", voices_path: str = "voices-v1.0.bin", default_voice: str = "af_heart"):
+    def __init__(self, model_path: str = "kokoro-v1.0.onnx", voices_path: str = "voices-v1.0.bin", default_voice: str = "af_heart", default_speed: float = 1.0):
         self.model_path = model_path
         self.voices_path = voices_path
         self.default_voice = default_voice
+        self.default_speed = default_speed
         self.kokoro = None
         self.interrupted = False
         
@@ -74,7 +75,7 @@ class TTSEngine:
         except Exception as e:
             logger.error(f"Failed to load Kokoro: {e}")
 
-    def speak(self, text: str, voice: str = None, speed: float = 1.0, lang: str = "en-us", volume: float = 1.0, whisper: bool = False):
+    def speak(self, text: str, voice: str = None, speed: float = None, lang: str = "en-us", volume: float = 1.0, whisper: bool = False):
         """Speak text aloud using Kokoro with adjustable speed, volume, and whisper support."""
         if not text:
             return
@@ -83,10 +84,11 @@ class TTSEngine:
         self.speak_start_time = time.time()
         self.interrupted = False
         use_voice = voice if voice else self.default_voice
+        use_speed = speed if speed is not None else self.default_speed
         
         if whisper:
             volume = 0.25
-            speed = 0.8
+            use_speed = 0.8
             logger.info("Whisper mode enabled for speech output.")
             
         try:
@@ -97,7 +99,7 @@ class TTSEngine:
                         use_voice = 'hf_alpha'
                 
                 samples, sample_rate = self.kokoro.create(
-                    text, voice=use_voice, speed=speed, lang=lang 
+                    text, voice=use_voice, speed=use_speed, lang=lang 
                 )
                 
                 # Apply volume adjustment

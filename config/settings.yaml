@@ -22,7 +22,7 @@ tts:
   voice_model: kokoro-v1.0.onnx  # Ensure model downloaded
   voices_json: voices-v1.0.bin       # Voices file for Kokoro
   default_voice: af_heart        # Default English voice
-  speaking_rate: 1.0
+  speaking_rate: 1.25
 
 ui:
   orb_size_idle: 80
