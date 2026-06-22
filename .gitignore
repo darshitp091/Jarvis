@@ -1,0 +1,41 @@
+# Python environment
+jarvis_env/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+ENV/
+
+# Large Model Weights (Downloaded separately)
+*.onnx
+*.bin
+!voices.json
+
+# Caches and logs
+.cache
+.pytest_cache/
+*.log
+error.log
+error2.log
+pip_list.log
+test_jarvis_brain_numpy/
+voices.json
+
+# Operating System Files
+.DS_Store
+Thumbs.db
+
+# User data and dynamic settings
+config/kpis.db
+config/chart.png
+jarvis_brain/
+notes.txt
+*.db
+*.sqlite
+
+# IDEs
+.vscode/
+.idea/

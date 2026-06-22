@@ -1,0 +1,43 @@
+jarvis:
+  name: JARVIS
+  wake_word: hey jarvis
+  user_name: Sir
+  pin_enabled: false  # set true after first run
+
+models:
+  main_brain: yasserrmd/Human-Like-Qwen2.5-1.5B-Instruct:latest
+  vision: moondream:latest
+  code: codegemma:2b
+  medical: medgemma:latest
+  safety: shieldgemma:2b
+  filler: gemma2:2b
+  embeddings: nomic-embed-text:latest
+
+audio:
+  sample_rate: 16000
+  silence_threshold: 1.5     # seconds of silence to stop listening
+  wake_word_sensitivity: 0.5
+
+tts:
+  voice_model: kokoro-v1.0.onnx  # Ensure model downloaded
+  voices_json: voices-v1.0.bin       # Voices file for Kokoro
+  default_voice: af_heart        # Default English voice
+  speaking_rate: 1.0
+
+ui:
+  orb_size_idle: 80
+  orb_size_listening: 120
+  position: top_center
+  always_on_top: true
+
+memory:
+  db_path: ./jarvis_brain/lancedb
+  max_memories: 10000
+  retrieve_top_k: 5
+  memory_ttl_days: 90
+
+spotify:
+  client_id: "6b90c3f3520640519bebd531906f7d88"
+  client_secret: "1188d32323e14d9fa98ec7ec6a262855"
+  redirect_uri: "http://127.0.0.1:8888/callback"
+  api_enabled: false
