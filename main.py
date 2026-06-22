@@ -19,6 +19,22 @@ def _excepthook(exc_type, exc_value, exc_tb):
     traceback.print_exception(exc_type, exc_value, exc_tb)
 sys.excepthook = _excepthook
 
+# ── Register local NVIDIA CUDA/cuDNN DLLs on Windows ─────────────────────────
+import platform
+if platform.system() == "Windows":
+    import site
+    for _p_dir in site.getsitepackages():
+        _nv = os.path.join(_p_dir, "nvidia")
+        if os.path.exists(_nv):
+            for _sub in ["cublas", "cudnn", "cuda_runtime", "cuda_nvrtc"]:
+                _bin = os.path.join(_nv, _sub, "bin")
+                if os.path.exists(_bin):
+                    try:
+                        os.add_dll_directory(_bin)
+                        _p(f"DLL PATH: Added {_bin}")
+                    except Exception as _err:
+                        _p(f"DLL PATH ERR: {_err} for {_bin}")
+
 from loguru import logger; _p("DBG: loguru ok")
 from PyQt6.QtWidgets import QApplication; _p("DBG: PyQt6 ok")
 from core.audio_engine import AudioEngine
