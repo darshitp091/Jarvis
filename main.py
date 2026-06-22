@@ -34,6 +34,7 @@ from skills.web_research import WebResearch; _p("DBG: web_research ok")
 from skills.media_summarizer import MediaSummarizer; _p("DBG: media_summarizer ok")
 from skills.app_mapper import AppMapper; _p("DBG: app_mapper ok")
 from skills.spotify_control import SpotifyControl; _p("DBG: spotify_control ok")
+from skills.youtube_music import YouTubeMusicPlayer; _p("DBG: youtube_music ok")
 from auth.local_auth import LocalAuth; _p("DBG: local_auth ok")
 from domains.medical import MedicalDomain; _p("DBG: medical ok")
 from domains.business import BusinessDomain; _p("DBG: business ok")
@@ -99,6 +100,7 @@ class JARVIS:
         _p("INIT: MediaSummarizer"); self.media = MediaSummarizer()
         _p("INIT: AppMapper"); self.app_map = AppMapper()
         _p("INIT: SpotifyControl"); self.spotify_ctrl = SpotifyControl()
+        _p("INIT: YouTubeMusicPlayer"); self.youtube_music = YouTubeMusicPlayer()
         _p("INIT: MarketAnalyzer"); self.market_analyzer = MarketAnalyzer()
         _p("INIT: GestureController"); self.gesture_ctrl = GestureController(self.camera, canvas=self.canvas)
         self.gesture_ctrl.start()
@@ -827,12 +829,31 @@ class JARVIS:
             elif skill == "spotify":
                 action = params.get("action", "")
                 query = params.get("query", "")
-                if action == "play":
-                    response = self.spotify_ctrl.play_song(query)
-                elif action in ["pause", "resume", "next", "previous", "volume_up", "volume_down"]:
-                    response = self.spotify_ctrl.control_media(action)
+                use_spotify = "spotify" in text.lower() or self.spotify_ctrl.use_api
+                if not use_spotify:
+                    if action == "play":
+                        response = self.youtube_music.play_song(query)
+                    elif action in ["pause", "resume", "next", "previous", "volume_up", "volume_down"]:
+                        if action == "pause":
+                            if "stop" in text.lower():
+                                response = self.youtube_music.control_media("stop")
+                            else:
+                                response = self.youtube_music.control_media("pause")
+                        elif action == "resume":
+                            response = self.youtube_music.control_media("resume")
+                        elif action in ["volume_up", "volume_down"]:
+                            response = self.youtube_music.control_media(action)
+                        else:
+                            response = self.spotify_ctrl.control_media(action)
+                    else:
+                        response = self._generate_response(text, domain)
                 else:
-                    response = self._generate_response(text, domain)
+                    if action == "play":
+                        response = self.spotify_ctrl.play_song(query)
+                    elif action in ["pause", "resume", "next", "previous", "volume_up", "volume_down"]:
+                        response = self.spotify_ctrl.control_media(action)
+                    else:
+                        response = self._generate_response(text, domain)
 
             elif skill == "memory_ops":
                 action = params.get("action", "")
