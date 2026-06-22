@@ -7,10 +7,10 @@ jarvis:
 models:
   main_brain: yasserrmd/Human-Like-Qwen2.5-1.5B-Instruct:latest
   vision: moondream:latest
-  code: codegemma:2b
-  medical: medgemma:latest
-  safety: shieldgemma:2b
-  filler: gemma2:2b
+  code: yasserrmd/Human-Like-Qwen2.5-1.5B-Instruct:latest
+  medical: yasserrmd/Human-Like-Qwen2.5-1.5B-Instruct:latest
+  safety: yasserrmd/Human-Like-Qwen2.5-1.5B-Instruct:latest
+  filler: yasserrmd/Human-Like-Qwen2.5-1.5B-Instruct:latest
   embeddings: nomic-embed-text:latest
 
 audio:
