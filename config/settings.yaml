@@ -39,8 +39,8 @@ memory:
   memory_ttl_days: 90
 
 spotify:
-  client_id: "6b90c3f3520640519bebd531906f7d88"
-  client_secret: "1188d32323e14d9fa98ec7ec6a262855"
+  client_id: ""
+  client_secret: ""
   redirect_uri: "http://127.0.0.1:8888/callback"
   api_enabled: false
 
