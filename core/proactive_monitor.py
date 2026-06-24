@@ -8,13 +8,15 @@ from loguru import logger
 class ProactiveMonitor:
     """Monitors system resources, battery levels, and local calendar events in the background."""
 
-    def __init__(self, config_dir: str = "config", camera_engine=None, alert_callback=None):
+    def __init__(self, config_dir: str = "config", camera_engine=None, alert_callback=None, compiler_repair=None):
         self.config_dir = config_dir
         self.calendar_path = os.path.join(self.config_dir, "calendar.json")
         self.camera = camera_engine
         self.alert_callback = alert_callback
+        self.compiler_repair = compiler_repair
         self.is_running = False
         self.thread = None
+        self.watcher_thread = None
 
         # Lock for thread safety on calendar updates
         self.lock = threading.Lock()
@@ -24,6 +26,7 @@ class ProactiveMonitor:
         self.last_power_plugged = None
         self.cpu_high_ticks = 0
         self.confusion_ticks = 0
+        self.last_perf_alert_time = 0.0
 
         # Initialize calendar file if missing
         os.makedirs(self.config_dir, exist_ok=True)
@@ -37,13 +40,19 @@ class ProactiveMonitor:
         self.is_running = True
         self.thread = threading.Thread(target=self._monitor_loop, daemon=True)
         self.thread.start()
-        logger.info("Proactive Monitor background thread started.")
+        
+        # Start file watcher thread
+        self.watcher_thread = threading.Thread(target=self._file_watcher_loop, daemon=True)
+        self.watcher_thread.start()
+        logger.info("Proactive Monitor background threads started.")
 
     def stop(self):
         self.is_running = False
         if self.thread:
             self.thread.join(timeout=2)
-        logger.info("Proactive Monitor background thread stopped.")
+        if self.watcher_thread:
+            self.watcher_thread.join(timeout=2)
+        logger.info("Proactive Monitor background threads stopped.")
 
     def _trigger_alert(self, text: str):
         logger.info(f"[PROACTIVE ALERT]: {text}")
@@ -85,16 +94,21 @@ class ProactiveMonitor:
             import psutil
             cpu = psutil.cpu_percent()
             ram = psutil.virtual_memory().percent
+            now = time.time()
 
             if cpu > 90:
                 self.cpu_high_ticks += 1
                 if self.cpu_high_ticks == 3:  # high for ~30 seconds (10s checks)
-                    self._trigger_alert("Sir, CPU workload is exceptionally heavy. Temperatures may rise.")
+                    if now - self.last_perf_alert_time > 300:
+                        self._trigger_alert("Sir, CPU workload is exceptionally heavy. Temperatures may rise.")
+                        self.last_perf_alert_time = now
             else:
                 self.cpu_high_ticks = 0
 
             if ram > 92:
-                self._trigger_alert("Warning, sir. System memory utilization is exceeding 92 percent.")
+                if now - self.last_perf_alert_time > 300:
+                    self._trigger_alert("Warning, sir. System memory utilization is exceeding 92 percent.")
+                    self.last_perf_alert_time = now
         except Exception as e:
             logger.debug(f"Performance check error: {e}")
 
@@ -226,6 +240,101 @@ class ProactiveMonitor:
                 if not self.is_running:
                     break
                 time.sleep(1)
+
+    def _file_watcher_loop(self):
+        # Initial scan of Python files
+        file_mtimes = {}
+        ignored_dirs = {".git", "__pycache__", "jarvis_env", ".agents", ".gemini", "auth", ".idea"}
+        
+        def scan_files():
+            found = {}
+            for root, dirs, files in os.walk("."):
+                # Prune ignored directories in place
+                dirs[:] = [d for d in dirs if d not in ignored_dirs and not d.startswith(".")]
+                for file in files:
+                    if file.endswith(".py"):
+                        path = os.path.join(root, file)
+                        try:
+                            found[path] = os.path.getmtime(path)
+                        except Exception:
+                            pass
+            return found
+
+        # Initialize mtimes
+        try:
+            file_mtimes = scan_files()
+        except Exception as e:
+            logger.error(f"Error in initial file scan: {e}")
+
+        while self.is_running:
+            time.sleep(2.0)
+            try:
+                current_files = scan_files()
+            except Exception as e:
+                logger.debug(f"Error scanning files in watcher: {e}")
+                continue
+
+            for path, mtime in current_files.items():
+                old_mtime = file_mtimes.get(path)
+                # If file is new or modified
+                if old_mtime is None or mtime > old_mtime:
+                    file_mtimes[path] = mtime
+                    # Read and check syntax
+                    try:
+                        with open(path, "r", encoding="utf-8") as f:
+                            content = f.read()
+                    except Exception:
+                        continue
+
+                    # Don't check empty files
+                    if not content.strip():
+                        continue
+
+                    import ast
+                    try:
+                        ast.parse(content)
+                    except SyntaxError as e:
+                        # Syntax error detected!
+                        filename = os.path.basename(path)
+                        error_msg = f"SyntaxError: {e.msg} at line {e.lineno}, column {e.offset}"
+                        logger.warning(f"Proactive Sentinel: Syntax error detected in {path} -> {error_msg}")
+                        
+                        # Generate self-healed version using Groq in memory
+                        if self.compiler_repair:
+                            logger.info(f"Proactive Sentinel: Triggering Groq repair for {path}")
+                            system_prompt = (
+                                "You are JARVIS's Compiler Repair Agent. Your task is to correct syntax errors in a Python file. "
+                                "Output ONLY the entire corrected python code. Use a ```python ... ``` block. "
+                                "Do not include explanation, preamble, or any conversational text."
+                            )
+                            user_prompt = (
+                                f"File: '{path}'\n"
+                                f"Syntax Error details:\n{error_msg}\n\n"
+                                f"Original Code:\n```python\n{content}\n```\n\n"
+                                "Please output the corrected version of the entire file."
+                            )
+                            # Call Groq via the sandbox connection
+                            response = self.compiler_repair.sandbox._call_groq(system_prompt, user_prompt)
+                            
+                            if response and not response.startswith("ERROR"):
+                                # Extract Python code
+                                import re
+                                code_match = re.search(r"```python(.*?)```", response, re.DOTALL)
+                                if code_match:
+                                    patched_code = code_match.group(1).strip()
+                                else:
+                                    patched_code = response.replace("```", "").strip()
+                                
+                                # Send alert structured as JSON
+                                alert_payload = {
+                                    "type": "confirm_file_patch",
+                                    "file_path": os.path.abspath(path),
+                                    "patched_content": patched_code,
+                                    "warning_text": f"Sir, I notice a syntax fault in file {filename}. I've prepared a patch to restore compiles. Shall I write it to disk?"
+                                }
+                                self._trigger_alert(json.dumps(alert_payload))
+                            else:
+                                logger.error(f"Proactive Sentinel: Failed to generate patch: {response}")
 
 
 if __name__ == "__main__":

@@ -73,6 +73,32 @@ class SelfHealingVision:
             return x, y
 
         logger.info(f"Locating '{element_name}' visually on the screen...")
+        
+        # Check pytesseract OCR first as a fast-path
+        try:
+            import pytesseract
+            from PIL import Image
+            import platform
+            if platform.system() == "Windows":
+                tesseract_path = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+                if os.path.exists(tesseract_path):
+                    pytesseract.pytesseract.tesseract_cmd = tesseract_path
+            
+            screenshot = pyautogui.screenshot()
+            data = pytesseract.image_to_data(screenshot, output_type=pytesseract.Output.DICT)
+            n_boxes = len(data['text'])
+            for i in range(n_boxes):
+                if data['text'][i] and element_name.lower() in data['text'][i].lower():
+                    x = data['left'][i] + data['width'][i] // 2
+                    y = data['top'][i] + data['height'][i] // 2
+                    logger.info(f"OCR Match found for '{element_name}' at {x}, {y}")
+                    width, height = pyautogui.size()
+                    self.cache[element_key] = [x / width, y / height]
+                    self._save_cache()
+                    return x, y
+        except Exception as ocr_err:
+            logger.debug(f"Pytesseract fast path failed: {ocr_err}")
+
         path, img_b64 = self._get_screenshot_b64()
         
         try:
@@ -90,7 +116,8 @@ class SelfHealingVision:
                     "content": prompt,
                     "images": [img_b64]
                 }],
-                options={"temperature": 0.1}
+                options={"temperature": 0.1},
+                keep_alive="10s"
             )
             
             raw_content = response["message"]["content"].strip()

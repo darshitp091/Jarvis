@@ -15,6 +15,7 @@ class AudioEngine:
         self.silence_sec = silence_sec
         # We use a simple RMS energy threshold for Voice Activity Detection
         self.energy_threshold = 100  
+        self.last_avg_rms = 100.0
         logger.info("Loading Whisper model (base)...")
         try:
             # Try to load Whisper on GPU (CUDA)
@@ -54,7 +55,7 @@ class AudioEngine:
 
     def listen(self, timeout_sec: float = 4.0) -> str | None:
         """Record until silence, return transcribed text"""
-        logger.info("Listening...")
+        logger.info("JARVIS: Listening...")
         frame_duration = 30  # ms
         frame_size = int(self.sample_rate * frame_duration / 1000)
         silence_frames_needed = int(self.silence_sec * 1000 / frame_duration)
@@ -95,7 +96,7 @@ class AudioEngine:
                 
             # Threshold is 3x the ambient noise floor, or at least 30 to support quiet microphones
             self.energy_threshold = max(avg_noise_rms * 3.0, 30.0)
-            logger.info(f"VAD Calibrated: Ambient Noise RMS = {avg_noise_rms:.1f}, Energy Threshold = {self.energy_threshold:.1f}")
+            logger.debug(f"VAD Calibrated: Ambient Noise RMS = {avg_noise_rms:.1f}, Energy Threshold = {self.energy_threshold:.1f}")
 
             pre_start_count = 0
             while True:
@@ -115,12 +116,12 @@ class AudioEngine:
                 else:
                     pre_start_count += 1
                     if pre_start_count > max_silence_before_start:
-                        logger.info("No speech detected (timeout).")
+                        logger.debug("No speech detected (timeout).")
                         return None  # no speech detected
                 
                 # Check maximum recording duration
                 if len(audio_frames) >= max_frames:
-                    logger.info("Maximum command recording duration reached (12s). Stopping.")
+                    logger.debug("Maximum command recording duration reached (12s). Stopping.")
                     break
 
         if not audio_frames:
@@ -129,14 +130,15 @@ class AudioEngine:
         # Calculate average RMS of all recorded frames to filter out silence hallucinations
         all_data = np.frombuffer(b"".join(audio_frames), dtype=np.int16)
         avg_rms = np.sqrt(np.mean(np.square(all_data.astype(np.float32))))
+        self.last_avg_rms = avg_rms
         
         # Discard if the overall average RMS is below our speech threshold
         min_speech_rms = max(self.energy_threshold * 1.3, 50.0)
         if avg_rms < min_speech_rms:
-            logger.info(f"Recorded audio average RMS {avg_rms:.1f} is below speech threshold {min_speech_rms:.1f}. Discarding as silence.")
+            logger.debug(f"Recorded audio average RMS {avg_rms:.1f} is below speech threshold {min_speech_rms:.1f}. Discarding as silence.")
             return None
             
-        logger.info(f"Transcribing audio with average RMS: {avg_rms:.1f}")
+        logger.debug(f"Transcribing audio with average RMS: {avg_rms:.1f}")
 
         # Save to temp wav and transcribe
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
@@ -148,22 +150,34 @@ class AudioEngine:
                 wav.writeframes(b"".join(audio_frames))
 
         try:
-            segments, _ = self.whisper.transcribe(tmp_path)
+            # Set initial prompt to guide Whisper towards correct English and Hinglish song names in Roman script
+            initial_prompt = "Hey JARVIS, play some songs, gaana bajao, lagao, Arijit Singh, Shreya Ghoshal, Kaise Hua, Tum Hi Ho, Apna Bana Le, play music, play bollywood songs"
+            segments, info = self.whisper.transcribe(tmp_path, language="en", initial_prompt=initial_prompt)
             text = " ".join(s.text for s in segments).strip()
             
             # Post-processing filter for common Whisper hallucinations on low-energy signals
-            hallucinations = {"thank you very much.", "thank you.", "and listen to today.", "you.", "and listen to today"}
+            hallucinations = {"thank you very much.", "thank you.", "and listen to today.", "you.", "and listen to today", "please.", "please"}
             if text.lower().strip(" .!,?") in hallucinations and avg_rms < min_speech_rms * 1.5:
-                logger.info(f"Discarding suspected Whisper hallucination: '{text}' (RMS: {avg_rms:.1f})")
+                logger.debug(f"Discarding suspected Whisper hallucination: '{text}' (RMS: {avg_rms:.1f})")
                 return None
                 
+            # Filter out repetitive phrase hallucinations (e.g. "play music, play music, play music")
+            words = text.lower().replace(",", "").replace(".", "").replace("!", "").replace("?", "").split()
+            if len(words) > 3:
+                from collections import Counter
+                counts = Counter(words)
+                most_common_word, count = counts.most_common(1)[0]
+                if count / len(words) > 0.5:
+                    logger.debug(f"Discarding suspected repetitive word/phrase hallucination: '{text}' (RMS: {avg_rms:.1f})")
+                    return None
+                    
             # Filter out numeric hallucinations (e.g. "4-0-0-0-0-0-0-0" or "1 0 0 0 0 0") on low-energy signals
             clean_text = text.replace("-", "").replace(" ", "").strip()
             if clean_text.isdigit() and len(clean_text) > 4 and avg_rms < min_speech_rms * 2.0:
-                logger.info(f"Discarding suspected numeric Whisper hallucination: '{text}' (RMS: {avg_rms:.1f})")
+                logger.debug(f"Discarding suspected numeric Whisper hallucination: '{text}' (RMS: {avg_rms:.1f})")
                 return None
                 
-            logger.info(f"Heard: {text}")
+            logger.info(f"JARVIS Heard: {text}")
             return text if text else None
         except Exception as e:
             logger.error(f"Transcription error: {e}")
@@ -173,6 +187,77 @@ class AudioEngine:
                 os.unlink(tmp_path)
             except Exception:
                 pass
+
+    def listen_raw(self, timeout_sec: float = 4.0) -> np.ndarray | None:
+        """Records until silence (VAD) and returns the raw float32 normalized audio data."""
+        frame_duration = 30  # ms
+        frame_size = int(self.sample_rate * frame_duration / 1000)
+        silence_frames_needed = int(self.silence_sec * 1000 / frame_duration)
+        
+        max_duration_sec = 8.0
+        max_frames = int(max_duration_sec * 1000 / frame_duration)
+
+        audio_frames = []
+        silence_count = 0
+        speaking = False
+        max_silence_before_start = int(timeout_sec * 1000 / frame_duration) 
+
+        with sd.RawInputStream(
+            samplerate=self.sample_rate,
+            channels=1,
+            dtype="int16",
+            blocksize=frame_size,
+        ) as stream:
+            # Calibrate threshold on the fly using the first 5 frames (150ms)
+            calibration_rms = []
+            for _ in range(5):
+                try:
+                    data, _ = stream.read(frame_size)
+                    chunk = bytes(data)
+                    audio_data = np.frombuffer(chunk, dtype=np.int16)
+                    rms = np.sqrt(np.mean(np.square(audio_data.astype(np.float32))))
+                    calibration_rms.append(rms)
+                except Exception:
+                    calibration_rms.append(100.0)
+            
+            avg_noise_rms = np.mean(calibration_rms)
+            if avg_noise_rms > 25.0:
+                avg_noise_rms = 25.0
+                
+            self.energy_threshold = max(avg_noise_rms * 3.0, 30.0)
+
+            pre_start_count = 0
+            while True:
+                data, _ = stream.read(frame_size)
+                chunk = bytes(data)
+                is_speech = self._is_speech(chunk)
+
+                if is_speech:
+                    speaking = True
+                    silence_count = 0
+                    audio_frames.append(chunk)
+                elif speaking:
+                    silence_count += 1
+                    audio_frames.append(chunk)
+                    if silence_count >= silence_frames_needed:
+                        break
+                else:
+                    pre_start_count += 1
+                    if pre_start_count > max_silence_before_start:
+                        return None
+                
+                if len(audio_frames) >= max_frames:
+                    break
+
+        if not audio_frames:
+            return None
+
+        # Convert to float32 normalized
+        all_bytes = b"".join(audio_frames)
+        audio_np = np.frombuffer(all_bytes, dtype=np.int16).astype(np.float32) / 32768.0
+        return audio_np
+
+
 
 
 if __name__ == "__main__":

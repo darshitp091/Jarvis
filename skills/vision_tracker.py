@@ -92,7 +92,8 @@ class VisionTracker:
             prompt = "What objects do you identify in the room? List them clearly."
             response = ollama.chat(
                 model=self.model,
-                messages=[{"role": "user", "content": prompt, "images": [b64]}]
+                messages=[{"role": "user", "content": prompt, "images": [b64]}],
+                keep_alive="10s"
             )
             return response["message"]["content"].strip()
         except Exception as e:
@@ -119,12 +120,39 @@ class VisionTracker:
             )
             response = ollama.chat(
                 model=self.model,
-                messages=[{"role": "user", "content": prompt, "images": [b64]}]
+                messages=[{"role": "user", "content": prompt, "images": [b64]}],
+                keep_alive="10s"
             )
             return response["message"]["content"].strip()
         except Exception as e:
             logger.error(f"Fatigue analysis failed: {e}")
             return "I had trouble analyzing your fatigue levels, sir."
+        finally:
+            try: os.remove(path)
+            except Exception: pass
+
+    def analyze_user_appearance(self, prompt: str = "Analyze the person's clothing and suggest matching colors") -> str:
+        """Uses the webcam feed to analyze the user's outfit and make color recommendations."""
+        logger.info("Analyzing user clothing appearance...")
+        res = self._get_active_frame_b64(night_vision=False)
+        if not res:
+            return "Sir, I cannot access your camera feed to analyze your attire."
+            
+        path, b64 = res
+        try:
+            full_prompt = (
+                f"Analyze the person in this image. {prompt}. "
+                "Describe what they are wearing (colors, style) and recommend 2-3 colors that would match or fit well on them."
+            )
+            response = ollama.chat(
+                model=self.model,
+                messages=[{"role": "user", "content": full_prompt, "images": [b64]}],
+                keep_alive="10s"
+            )
+            return response["message"]["content"].strip()
+        except Exception as e:
+            logger.error(f"User appearance analysis failed: {e}")
+            return "I had trouble analyzing your appearance, sir."
         finally:
             try: os.remove(path)
             except Exception: pass

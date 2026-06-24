@@ -1,6 +1,7 @@
 jarvis:
   name: JARVIS
   wake_word: hey jarvis
+  wake_word_mode: auto
   user_name: Sir
   pin_enabled: false  # set true after first run
 
@@ -12,10 +13,11 @@ models:
   safety: yasserrmd/Human-Like-Qwen2.5-1.5B-Instruct:latest
   filler: yasserrmd/Human-Like-Qwen2.5-1.5B-Instruct:latest
   embeddings: nomic-embed-text:latest
+  science: yasserrmd/Human-Like-Qwen2.5-1.5B-Instruct:latest
 
 audio:
   sample_rate: 16000
-  silence_threshold: 1.5     # seconds of silence to stop listening
+  silence_threshold: 0.8     # seconds of silence to stop listening
   wake_word_sensitivity: 0.5
 
 tts:
@@ -41,3 +43,7 @@ spotify:
   client_secret: "1188d32323e14d9fa98ec7ec6a262855"
   redirect_uri: "http://127.0.0.1:8888/callback"
   api_enabled: false
+
+groq:
+  api_key: ""
+  model: "llama-3.3-70b-versatile"

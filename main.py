@@ -21,12 +21,20 @@ sys.excepthook = _excepthook
 
 # ── Register local NVIDIA CUDA/cuDNN DLLs on Windows ─────────────────────────
 import platform
+import sys
 if platform.system() == "Windows":
     import site
-    for _p_dir in site.getsitepackages():
+    # Scan both global and virtual environment site-packages
+    _paths = set(site.getsitepackages())
+    _paths.add(os.path.join(sys.prefix, "Lib", "site-packages"))
+    for p in sys.path:
+        if p.endswith("site-packages"):
+            _paths.add(p)
+            
+    for _p_dir in _paths:
         _nv = os.path.join(_p_dir, "nvidia")
         if os.path.exists(_nv):
-            for _sub in ["cublas", "cudnn", "cuda_runtime", "cuda_nvrtc"]:
+            for _sub in ["cublas", "cudnn", "cuda_runtime", "cuda_nvrtc", "cufft", "curand", "cusolver", "cusparse", "nvjitlink"]:
                 _bin = os.path.join(_nv, _sub, "bin")
                 if os.path.exists(_bin):
                     try:
@@ -36,6 +44,8 @@ if platform.system() == "Windows":
                         _p(f"DLL PATH ERR: {_err} for {_bin}")
 
 from loguru import logger; _p("DBG: loguru ok")
+logger.remove()
+logger.add(sys.stderr, level="INFO")
 from PyQt6.QtWidgets import QApplication; _p("DBG: PyQt6 ok")
 from core.audio_engine import AudioEngine
 from core.tts_engine import TTSEngine
@@ -51,12 +61,16 @@ from skills.media_summarizer import MediaSummarizer; _p("DBG: media_summarizer o
 from skills.app_mapper import AppMapper; _p("DBG: app_mapper ok")
 from skills.spotify_control import SpotifyControl; _p("DBG: spotify_control ok")
 from skills.youtube_music import YouTubeMusicPlayer; _p("DBG: youtube_music ok")
+from ui.overlay_widgets import IronManHUDOverlay; _p("DBG: IronManHUDOverlay ok")
+from skills.macro_recorder import MacroRecorder; _p("DBG: MacroRecorder ok")
 from auth.local_auth import LocalAuth; _p("DBG: local_auth ok")
 from domains.medical import MedicalDomain; _p("DBG: medical ok")
 from domains.business import BusinessDomain; _p("DBG: business ok")
 from domains.finance import FinanceDomain; _p("DBG: finance ok")
 from domains.security import SecurityDomain; _p("DBG: security ok")
 from domains.development import DevelopmentDomain; _p("DBG: development ok")
+from domains.science import ScienceDomain; _p("DBG: science ok")
+from domains.engineering import EngineeringDomain; _p("DBG: engineering ok")
 from core.proactive_monitor import ProactiveMonitor
 from skills.workspace_context import WorkspaceContext
 from skills.self_healing_vision import SelfHealingVision
@@ -72,6 +86,14 @@ from skills.market_analyzer import MarketAnalyzer; _p("DBG: market_analyzer ok")
 from skills.gesture_control import GestureController; _p("DBG: gesture_control ok")
 from ui.air_canvas import AirCanvas; _p("DBG: air_canvas ok")
 from skills.code_runner import CodeRunner; _p("DBG: code_runner ok")
+from skills.product_comparator import ProductComparator; _p("DBG: product_comparator ok")
+from skills.food_comparator import FoodComparator; _p("DBG: food_comparator ok")
+from skills.coding_sandbox import AutonomousCodingSandbox, CompilerRepairEngine; _p("DBG: coding_sandbox ok")
+from ui.hologram import HologramSimWidget; _p("DBG: HologramSimWidget ok")
+from skills.polyglot_engineer import PolyglotEngineer; _p("DBG: PolyglotEngineer ok")
+from skills.research_prodigy import ResearchProdigy; _p("DBG: ResearchProdigy ok")
+from skills.emergency_sentinel import EmergencySentinel; _p("DBG: EmergencySentinel ok")
+
 
 class JARVIS:
     """The master JARVIS integration"""
@@ -81,6 +103,11 @@ class JARVIS:
             self.config = yaml.safe_load(f)
         with open("./config/prompts.yaml") as f:
             self.prompts = yaml.safe_load(f)
+            
+        # Set Groq API Key in environment variables for subprocesses
+        groq_cfg = self.config.get("groq", {})
+        if groq_cfg and groq_cfg.get("api_key"):
+            os.environ["GROQ_API_KEY"] = groq_cfg.get("api_key")
 
         self.models = self.config["models"]
 
@@ -106,6 +133,7 @@ class JARVIS:
             default_speed=self.config["tts"].get("speaking_rate", 1.25)
         )
         _p("INIT: WakeWordDetector"); self.wake = WakeWordDetector()
+        self.wake.is_music_playing_cb = self._is_music_playing
         _p("INIT: IntentRouter"); self.router = IntentRouter()
         _p("INIT: JarvisBrain"); self.brain = JarvisBrain()
         _p("INIT: CameraEngine"); self.camera = CameraEngine()
@@ -119,8 +147,19 @@ class JARVIS:
         _p("INIT: AppMapper"); self.app_map = AppMapper()
         _p("INIT: SpotifyControl"); self.spotify_ctrl = SpotifyControl()
         _p("INIT: YouTubeMusicPlayer"); self.youtube_music = YouTubeMusicPlayer()
+        self.youtube_music.on_song_change = lambda title, msg: self.orb.notification_signal.emit(title, msg)
+        self.tts.on_speak_start = self._duck_audio
+        self.tts.on_speak_end = self._unduck_audio
+        
+        # Initialize futuristic Iron Man HUD overlay and Macro Recorder
+        _p("INIT: IronManHUDOverlay"); self.hud_overlay = IronManHUDOverlay()
+        # self.hud_overlay.show()
+        self.orb.state_changed.connect(self.hud_overlay.set_hud_state)
+        
+        _p("INIT: MacroRecorder"); self.macro_recorder = MacroRecorder(vision_engine=self.vision)
+        
         _p("INIT: MarketAnalyzer"); self.market_analyzer = MarketAnalyzer()
-        _p("INIT: GestureController"); self.gesture_ctrl = GestureController(self.camera, canvas=self.canvas)
+        _p("INIT: GestureController"); self.gesture_ctrl = GestureController(self.camera, canvas=self.canvas, youtube_music=self.youtube_music)
         self.gesture_ctrl.start()
 
         # Domains
@@ -130,7 +169,9 @@ class JARVIS:
             "business": BusinessDomain(),
             "finance": FinanceDomain(),
             "security": SecurityDomain(),
-            "development": DevelopmentDomain()
+            "development": DevelopmentDomain(),
+            "science": ScienceDomain(),
+            "engineering": EngineeringDomain()
         }
 
         _p("INIT: WorkspaceContext"); self.workspace_context = WorkspaceContext()
@@ -153,6 +194,13 @@ class JARVIS:
         _p("INIT: SecurityAuditor"); self.security_auditor = SecurityAuditor()
         _p("INIT: VisionTracker"); self.vision_tracker = VisionTracker(camera_engine=self.camera)
         _p("INIT: CodeRunner"); self.code_runner = CodeRunner()
+        _p("INIT: ProductComparator"); self.product_comparator = ProductComparator()
+        _p("INIT: FoodComparator"); self.food_comparator = FoodComparator()
+        _p("INIT: AutonomousCodingSandbox"); self.coding_sandbox = AutonomousCodingSandbox()
+        _p("INIT: CompilerRepairEngine"); self.compiler_repair = CompilerRepairEngine(self.coding_sandbox)
+        
+        # Connect AirCanvas air signature detection signal
+        self.canvas.signals.signature_detected.connect(self.on_air_signature_detected)
 
         # Link OSControl to Orb for signals
         self.os_ctrl.orb = self.orb
@@ -161,10 +209,14 @@ class JARVIS:
         self.orb.eyecare_toggle_signal.connect(self._execute_eyecare_toggle)
         self.orb.ruler_toggle_signal.connect(self._execute_ruler_toggle)
         self.orb.snipping_tool_signal.connect(self._execute_snipping_tool)
+        self.orb.notification_signal.connect(self._show_hud_notification)
+        self.orb.hologram_toggle_signal.connect(self._execute_hologram_toggle)
 
         self.eyecare_overlay = None
         self.screen_ruler = None
         self.snipping_overlay = None
+        self.was_yt_playing_before_wake = False
+        self.is_listening_to_command = False
         threading.Thread(target=self._phone_monitor, daemon=True).start()
         threading.Thread(target=self._interruption_monitor, daemon=True).start()
 
@@ -172,9 +224,39 @@ class JARVIS:
 
         self.alert_queue = []
         self.alert_lock = threading.Lock()
+        self.active_context = None
+        self.is_asleep = True
+
+        # Import cognitive tracker
+        from core.cognitive import CognitiveSentimentTracker
+        self.sentiment_tracker = CognitiveSentimentTracker()
+        self.cognitive_state = "calm"
+
+        # Initialize HologramSimWidget
+        _p("INIT: HologramSimWidget")
+        self.hologram_widget = HologramSimWidget(self.camera)
+        self.domains["engineering"].hologram_widget = self.hologram_widget
+
         _p("INIT: ProactiveMonitor")
-        self.proactive_monitor = ProactiveMonitor(camera_engine=self.camera, alert_callback=self.on_proactive_alert)
+        self.proactive_monitor = ProactiveMonitor(
+            camera_engine=self.camera,
+            alert_callback=self.on_proactive_alert,
+            compiler_repair=self.compiler_repair
+        )
         self.proactive_monitor.start()
+        _p("INIT: Security Sentry")
+        self.security_auditor.start_sentry(self.on_proactive_alert)
+
+        _p("INIT: PolyglotEngineer")
+        self.polyglot_engineer = PolyglotEngineer()
+
+        _p("INIT: ResearchProdigy")
+        self.research_prodigy = ResearchProdigy(web_research_engine=self.web)
+
+        _p("INIT: EmergencySentinel")
+        self.emergency_sentinel = EmergencySentinel()
+
+        self._prewarm_models()
 
         logger.info("JARVIS initialized successfully.")
         _p("INIT: starting background thread")
@@ -236,6 +318,41 @@ class JARVIS:
         except Exception as e:
             logger.error(f"Failed to auto-start Ollama server: {e}")
 
+    def _duck_audio(self):
+        """Ducks the background music volume when JARVIS speaks."""
+        if hasattr(self, "youtube_music") and self.youtube_music:
+            self.youtube_music.duck()
+
+    def _unduck_audio(self):
+        """Restores the background music volume after JARVIS finishes speaking."""
+        if hasattr(self, "youtube_music") and self.youtube_music:
+            if getattr(self, "is_listening_to_command", False):
+                logger.debug("Still listening to command. Keeping music ducked.")
+                return
+            self.youtube_music.unduck()
+
+    def _is_music_playing(self) -> bool:
+        """Helper callback to tell the wake word detector if music is active."""
+        if hasattr(self, "youtube_music") and self.youtube_music:
+            return self.youtube_music.process is not None and not self.youtube_music.is_paused
+        return False
+
+    def _prewarm_models(self):
+        """Pre-warms the Ollama brain model by sending dummy requests in a background thread."""
+        def prewarm():
+            logger.info("Starting background pre-warming of Ollama brain model...")
+            brain_model = self.models.get("main_brain", "yasserrmd/Human-Like-Qwen2.5-1.5B-Instruct:latest")
+            
+            # Send dummy query to brain_model
+            try:
+                logger.info(f"Pre-warming brain model: {brain_model}")
+                ollama.generate(model=brain_model, prompt="hi", options={"num_predict": 1})
+                logger.info(f"Brain model {brain_model} pre-warmed successfully.")
+            except Exception as e:
+                logger.warning(f"Failed to pre-warm brain model {brain_model}: {e}")
+                
+        threading.Thread(target=prewarm, daemon=True).start()
+
     def _unlock_monitor(self):
         state_file = os.path.abspath("./auth/.auth_state")
         while True:
@@ -279,9 +396,61 @@ class JARVIS:
             time.sleep(0.5)
 
     def on_proactive_alert(self, text: str):
-        if self.is_authenticated and self.orb.state == "idle":
+        # Check if text is a JSON alert
+        if text.startswith("{"):
+            try:
+                import json
+                data = json.loads(text)
+                if data.get("type") == "confirm_file_patch":
+                    self.active_context = {
+                        "type": "confirm_file_patch",
+                        "file_path": data["file_path"],
+                        "patched_content": data["patched_content"]
+                    }
+                    spoken_text = data["warning_text"]
+                    logger.info(f"Setting active_context for file patch: {data['file_path']}")
+                    
+                    if self.is_authenticated and not self.is_asleep and self.orb.state == "idle":
+                        self.orb.set_state("speaking")
+                        self.orb.notification_signal.emit("PROACTIVE ALERT", spoken_text)
+                        self.tts.speak(spoken_text)
+                        self.orb.set_state("idle")
+                    else:
+                        with self.alert_lock:
+                            self.alert_queue.append(spoken_text)
+                    return
+                elif data.get("type") == "confirm_quarantine_process":
+                    self.active_context = {
+                        "type": "confirm_quarantine_process",
+                        "pid": data["pid"],
+                        "proc_name": data["proc_name"]
+                    }
+                    spoken_text = data["warning_text"]
+                    logger.info(f"Setting active_context for process quarantine: {data['proc_name']}")
+                    
+                    if self.is_authenticated and not self.is_asleep and self.orb.state == "idle":
+                        self.orb.set_state("error")
+                        self.orb.notification_signal.emit("PROACTIVE ALERT", spoken_text)
+                        self.tts.speak(spoken_text)
+                        self.orb.set_state("idle")
+                    else:
+                        with self.alert_lock:
+                            self.alert_queue.append(spoken_text)
+                    return
+            except Exception as e:
+                logger.error(f"Error parsing proactive JSON alert: {e}")
+
+        # Silence alerts regarding system resources except CPU workload spikes which we want spoken proactively
+        silent_keywords = ["memory", "graphics processing unit", "storage partition"]
+        if any(kw in text.lower() for kw in silent_keywords):
+            logger.info(f"Silent proactive alert (notification only): {text}")
+            self.orb.notification_signal.emit("PROACTIVE ALERT", text)
+            return
+
+        if self.is_authenticated and not self.is_asleep and self.orb.state == "idle":
             logger.info(f"Speaking proactive alert: {text}")
             self.orb.set_state("speaking")
+            self.orb.notification_signal.emit("PROACTIVE ALERT", text)
             self.tts.speak(text)
             self.orb.set_state("idle")
         else:
@@ -299,6 +468,14 @@ class JARVIS:
         else:
             self.dashboard.hide()
             logger.info("HUD Dashboard hidden via slot.")
+
+    def _execute_hologram_toggle(self, show: bool):
+        if show:
+            self.hologram_widget.show()
+            logger.info("Hologram widget shown via slot.")
+        else:
+            self.hologram_widget.hide()
+            logger.info("Hologram widget hidden via slot.")
 
     def _phone_monitor(self):
         ringing_seconds = 0
@@ -343,6 +520,7 @@ class JARVIS:
         self.orb.set_state("idle")
         
         # Announce locally
+        self.orb.notification_signal.emit("CALL INTERCEPTED", f"Incoming call from {incoming_number} intercepted.")
         self.tts.speak(f"Sir, I have intercepted the call from {incoming_number} and informed them you are currently busy.")
 
     def _interruption_monitor(self):
@@ -352,6 +530,7 @@ class JARVIS:
         
         sample_rate = 16000
         block_size = int(0.15 * sample_rate)  # 150ms block
+        interruption_counter = 0
         
         # Initialize a single persistent input stream to avoid repeated memory allocation
         try:
@@ -366,6 +545,7 @@ class JARVIS:
                 if getattr(self, "orb", None) and self.orb.state == "speaking":
                     elapsed = time.time() - getattr(self.tts, "speak_start_time", 0.0)
                     if elapsed < 1.5:
+                        interruption_counter = 0
                         # Flush the stream buffer so we don't trigger on stale voice input
                         if stream.active:
                             try:
@@ -388,10 +568,16 @@ class JARVIS:
                     if len(audio_data) > 0:
                         rms = np.sqrt(np.mean(np.square(audio_data.astype(np.float32))))
                         interruption_threshold = getattr(self.audio, "energy_threshold", 250.0) * 20.0
-                        if rms > max(interruption_threshold, 25000.0):
-                            logger.warning(f"Voice interruption detected! RMS={rms:.1f} > threshold={interruption_threshold:.1f}")
-                            self.tts.stop_speech()
+                        if rms > max(interruption_threshold, 28000.0):
+                            interruption_counter += 1
+                            if interruption_counter >= 2:
+                                logger.warning(f"Voice interruption detected! RMS={rms:.1f} > threshold={interruption_threshold:.1f}")
+                                self.tts.stop_speech()
+                                interruption_counter = 0
+                        else:
+                            interruption_counter = 0
                 else:
+                    interruption_counter = 0
                     if stream.active:
                         try:
                             stream.stop()
@@ -425,7 +611,8 @@ class JARVIS:
             else:
                 self.tts.speak("Authentication required. Please state your six digit PIN.")
         else:
-            self.tts.speak("JARVIS online. All systems operational. Waiting on your command, sir.")
+            name = self.config.get("jarvis", {}).get("name", "JARVIS")
+            self.tts.speak(f"{name} online. All systems operational. Waiting on your command, sir.")
 
     def _generate_response(self, text: str, domain: str = "general") -> str:
         memories = self.brain.format_memories_for_prompt(text)
@@ -436,6 +623,15 @@ class JARVIS:
             
         system_key = domain if domain in self.prompts["system_prompts"] else "main"
         system = self.prompts["system_prompts"][system_key] + memories
+
+        # Append sentiment modifier to system prompt
+        cognitive = getattr(self, "cognitive_state", "calm")
+        if cognitive == "stressed":
+            system += "\n[System Note: The user is currently feeling STRESSED. Speak slower, be highly encouraging, empathetic, reassuring, and concise to avoid overwhelming them.]"
+        elif cognitive == "fatigued":
+            system += "\n[System Note: The user is currently feeling FATIGUED/TIRED. Speak in a gentle, warm, encouraging tone, keeping answers brief and comforting.]"
+        elif cognitive == "excited":
+            system += "\n[System Note: The user is currently feeling EXCITED. Match their energy, be enthusiastic and efficient.]"
 
         try:
             response = ollama.chat(
@@ -455,7 +651,30 @@ class JARVIS:
         # Return True directly to optimize performance. Local regex or word blocklists can be added here if needed.
         return True
 
+    def split_chained_commands(self, text: str) -> list[str]:
+        import re
+        pattern = r"\b(?:and\s+then|then|after\s+that|and\s+after\s+that)\b"
+        splits = re.split(pattern, text, flags=re.IGNORECASE)
+        commands = [c.strip() for c in splits if c.strip()]
+        return commands
+
     def process_command(self, text: str):
+        """Processes a single command, or splits and executes a chain of sequential commands."""
+        import re
+        commands = self.split_chained_commands(text)
+        if len(commands) > 1:
+            logger.info(f"Chained commands detected: {commands}")
+            for idx, cmd in enumerate(commands):
+                cmd_clean = re.sub(r"^(?:first|second|third|fourth|then|and)\s+", "", cmd, flags=re.IGNORECASE).strip()
+                if cmd_clean:
+                    logger.info(f"Executing chained command {idx+1}/{len(commands)}: '{cmd_clean}'")
+                    self._process_single_command(cmd_clean)
+                    time.sleep(1.0)
+            return
+        else:
+            self._process_single_command(text)
+
+    def _process_single_command(self, text: str):
         """Full pipeline: route → execute → respond → speak"""
         self.orb.set_state("thinking")
 
@@ -486,6 +705,8 @@ class JARVIS:
                         response = "Face ID setup is complete, sir. All lock systems are fully operational."
                     else:
                         response = "Calibration encountered a fault. Please ensure your lighting is adequate and look directly at the lens, sir."
+                elif action == "calibrate_voice":
+                    response = self.calibrate_voice_profile()
                 else:
                     response = self.vision.analyze(text)
 
@@ -506,6 +727,12 @@ class JARVIS:
                 elif action == "hide_dashboard":
                     self.orb.dashboard_toggle_signal.emit(False)
                     response = "Closing dashboard display, sir."
+                elif action == "show_hologram":
+                    self.orb.hologram_toggle_signal.emit(True)
+                    response = "Activating holographic simulator viewport, sir."
+                elif action == "hide_hologram":
+                    self.orb.hologram_toggle_signal.emit(False)
+                    response = "Deactivating holographic simulator, sir."
                 elif action == "close":
                     response = self.os_ctrl.close_app(params.get("app", ""))
                 elif action == "minimize":
@@ -859,7 +1086,7 @@ class JARVIS:
                                 response = self.youtube_music.control_media("pause")
                         elif action == "resume":
                             response = self.youtube_music.control_media("resume")
-                        elif action in ["volume_up", "volume_down"]:
+                        elif action in ["volume_up", "volume_down", "next", "previous"]:
                             response = self.youtube_music.control_media(action)
                         else:
                             response = self.spotify_ctrl.control_media(action)
@@ -984,7 +1211,8 @@ class JARVIS:
                             {"title": "Deep Dive", "bullets": ["Detailed explanations", "Current trends and developments", "Practical examples"]},
                             {"title": "Summary", "bullets": ["Conclusion of key points", "Next steps"]}
                         ]
-                    response = self.productivity.pptx_helper(title, "Generated by JARVIS", slides_content)
+                    name = self.config.get("jarvis", {}).get("name", "JARVIS")
+                    response = self.productivity.pptx_helper(title, f"Generated by {name}", slides_content)
                 elif action == "create_mind_map":
                     import json
                     central_idea = params.get("central_idea", "Idea")
@@ -1031,6 +1259,8 @@ class JARVIS:
                     response = self.vision_tracker.detect_objects_in_room()
                 elif action == "analyze_fatigue":
                     response = self.vision_tracker.analyze_user_fatigue_and_stress()
+                elif action == "analyze_appearance":
+                    response = self.vision_tracker.analyze_user_appearance()
                 else:
                     response = "Vision tracking action not supported, sir."
 
@@ -1048,6 +1278,134 @@ class JARVIS:
                     response = self.code_runner.deploy_app(params.get("project_path", ""), params.get("port", 3000))
                 else:
                     response = "Code runner action not supported, sir."
+
+            elif skill == "product_comparison":
+                response = self.product_comparator.search_and_compare(
+                    params.get("query", ""),
+                    params.get("budget", None)
+                )
+
+            elif skill == "food_ordering":
+                response = self.food_comparator.find_food(
+                    params.get("query", ""),
+                    params.get("budget", None)
+                )
+
+            elif skill == "macro_recorder":
+                action = params.get("action", "")
+                name = params.get("name", "default_macro")
+                if action == "start":
+                    response = self.macro_recorder.start_recording(name)
+                elif action == "stop":
+                    response = self.macro_recorder.stop_recording(name)
+                elif action == "play":
+                    response = self.macro_recorder.play_macro(name)
+                else:
+                    response = "Unsupported macro recorder operation, sir."
+
+            elif skill == "customizer":
+                action = params.get("action", "")
+                if action == "enter":
+                    response = "Customization protocol active, sir. What parameters shall I adjust?"
+                elif action == "set_threshold":
+                    val = params.get("value", 0.78)
+                    if hasattr(self, "wake") and self.wake and self.wake.voice_profile:
+                        self.wake.voice_profile["threshold"] = val
+                        with open(self.wake.voice_profile_path, "w") as f:
+                            import json
+                            json.dump(self.wake.voice_profile, f, indent=2)
+                        self.wake._load_voice_profile()
+                        response = f"Voice print similarity threshold adjusted to {val}, sir."
+                    else:
+                        response = "No active voice profile calibrated, sir."
+                elif action == "set_speed":
+                    val = params.get("value", 1.25)
+                    self.tts.default_speed = val
+                    response = f"Speech rate set to {val}, sir."
+                elif action == "toggle_hud":
+                    visible = self.hud_overlay.isVisible()
+                    self.hud_overlay.setVisible(not visible)
+                    response = f"HUD screen overlay is now {'disabled' if visible else 'enabled'}, sir."
+                else:
+                    response = "Unsupported voice customizer action, sir."
+
+            elif skill == "coding_sandbox":
+                action = params.get("action", "")
+                if action == "execute_task":
+                    self.tts.speak("Initializing isolated coding sandbox, sir. Please wait while I construct and run the solution.")
+                    response = self.coding_sandbox.execute_task(params.get("task", ""))
+                elif action == "compiler_repair":
+                    self.tts.speak("Initiating compiler repair loop, sir. I will build the project and fix any errors automatically.")
+                    response = self.compiler_repair.compile_and_repair(params.get("command", ""))
+                elif action == "compile_canvas":
+                    self.tts.speak("Capturing air canvas drawing for visual analysis, sir.")
+                    image_path = self.canvas.grab_canvas_image()
+                    self.tts.speak("Analyzing strokes and parsing coordinates, sir.")
+                    visual_query = (
+                        "Analyze this drawing. Identify what coordinates, shapes, text, equations, or layout structure "
+                        "are present. Describe them clearly so an AI coder can write a Python PyQt6 application replicating this drawing."
+                    )
+                    drawing_description = self.vision.analyze_image(image_path, visual_query)
+                    logger.info(f"Air canvas visual analysis: {drawing_description}")
+                    
+                    self.tts.speak("Generating application code and compiling program inside sandbox, sir.")
+                    response = self.coding_sandbox.execute_task(
+                        f"Construct a PyQt6 GUI application based on this drawing description: {drawing_description}"
+                    )
+                    try:
+                        import os
+                        os.unlink(image_path)
+                    except Exception:
+                        pass
+                else:
+                    response = "Unsupported coding sandbox action, sir."
+
+            elif skill == "polyglot_engineer":
+                action = params.get("action", "")
+                if action == "design_architecture":
+                    self.tts.speak("Designing system architecture and generating blueprints, sir.")
+                    response = self.polyglot_engineer.design_architecture(params.get("task", ""))
+                elif action == "write_solution":
+                    lang = params.get("language", "python")
+                    self.tts.speak(f"Writing optimized {lang} solution, sir.")
+                    response = self.polyglot_engineer.write_polyglot_solution(lang, params.get("task", ""))
+                elif action == "review_code":
+                    lang = params.get("language", "python")
+                    self.tts.speak(f"Reviewing {lang} code structure, sir.")
+                    code = ""
+                    try:
+                        import pyperclip
+                        code = pyperclip.paste().strip()
+                    except Exception:
+                        pass
+                    if not code:
+                        for root, dirs, files in os.walk("."):
+                            dirs[:] = [d for d in dirs if d not in {".git", "__pycache__", "jarvis_env", ".agents", ".gemini"}]
+                            for f in files:
+                                if f.endswith((".py", ".go", ".rs", ".cpp", ".zig")):
+                                    try:
+                                        with open(os.path.join(root, f), "r", encoding="utf-8") as file:
+                                            code = file.read()
+                                            break
+                                    except Exception:
+                                        pass
+                            if code:
+                                break
+                    if code:
+                        response = self.polyglot_engineer.review_code(lang, code)
+                    else:
+                        response = f"Sir, I could not find any code in your clipboard or active workspace files to review."
+                else:
+                    response = "Unsupported polyglot engineering action, sir."
+
+            elif skill == "research_prodigy":
+                action = params.get("action", "")
+                if action == "deep_research":
+                    topic = params.get("topic", "")
+                    self.tts.speak("Initiating multi-stage deep research crawl, sir. Gathering facts and academic publications.")
+                    response = self.research_prodigy.execute_deep_research(topic)
+                else:
+                    response = "Unsupported research prodigy action, sir."
 
             else:
                 # Default: conversation with domain knowledge
@@ -1147,6 +1505,164 @@ class JARVIS:
         else:
             logger.info("Snipping tool cancelled.")
 
+    def _show_hud_notification(self, title: str, message: str):
+        try:
+            from ui.hud_notification import HudNotificationManager
+            HudNotificationManager.show_toast(title, message)
+        except Exception as e:
+            logger.error(f"Failed to show HUD notification: {e}")
+
+    def on_air_signature_detected(self, signature: str):
+        if not signature:
+            return
+        logger.info(f"Air signature detected: {signature}")
+        self.orb.set_state("speaking")
+        if signature == "S":
+            self.tts.speak("Air signature S recognized. Launching Spotify, sir.")
+            try: os.startfile("spotify:")
+            except Exception: pass
+        elif signature == "C":
+            self.tts.speak("Air signature C recognized. Launching Chrome, sir.")
+            try: os.startfile("chrome.exe")
+            except Exception: pass
+        elif signature == "G":
+            self.tts.speak("Air signature G recognized. Opening GitHub, sir.")
+            import webbrowser
+            try: webbrowser.open("https://github.com")
+            except Exception: pass
+        elif signature == "W":
+            self.tts.speak("Air signature W recognized. Opening WhatsApp, sir.")
+            try: os.startfile("whatsapp:")
+            except Exception: pass
+        elif signature == "circle":
+            self.tts.speak("Air signature circle recognized. Opening system dashboard, sir.")
+            self.orb.dashboard_toggle_signal.emit(True)
+        else:
+            self.tts.speak(f"Air signature {signature} recognized, sir.")
+        self.orb.set_state("idle")
+
+    def calibrate_voice_profile(self) -> str:
+        """Calibrates the user's voice profile by recording 'Hey JARVIS' 3 times."""
+        self.orb.set_state("speaking")
+        self.tts.speak("Starting voice calibration process. I will need you to say 'Hey JARVIS' three times. Let's record the first attempt.")
+        
+        from core.wake_word import compute_mean_mfcc, cosine_similarity
+        import numpy as np
+        import json
+        import time
+        import os
+        
+        utterance_mfccs = []
+        attempts = 0
+        max_attempts = 6
+        
+        while len(utterance_mfccs) < 3 and attempts < max_attempts:
+            attempts += 1
+            self.orb.set_state("speaking")
+            if len(utterance_mfccs) > 0:
+                self.tts.speak(f"Please say 'Hey JARVIS' again (attempt {len(utterance_mfccs)+1} of 3)...")
+            else:
+                self.tts.speak("Please say 'Hey JARVIS' now...")
+                
+            time.sleep(0.5)
+            self.orb.set_state("listening")
+            
+            # Record raw audio
+            audio_data = self.audio.listen_raw(timeout_sec=5.0)
+            
+            if audio_data is None:
+                self.orb.set_state("speaking")
+                self.tts.speak("I did not hear anything. Let's try that attempt again.")
+                continue
+                
+            # Check length/energy
+            rms = np.sqrt(np.mean(audio_data**2))
+            # At least 0.5 seconds of audio and not silent
+            if len(audio_data) < 8000 or rms < 0.002: 
+                self.orb.set_state("speaking")
+                self.tts.speak("The recording was too quiet or too short. Let's try that attempt again.")
+                continue
+                
+            # Extract MFCC
+            try:
+                mean_mfcc = compute_mean_mfcc(audio_data)
+                utterance_mfccs.append(mean_mfcc)
+                self.orb.set_state("speaking")
+                self.tts.speak(f"Attempt {len(utterance_mfccs)} captured successfully.")
+            except Exception as e:
+                logger.error(f"Error extracting MFCC: {e}")
+                self.tts.speak("I encountered a fault processing that attempt. Let's retry.")
+                
+        if len(utterance_mfccs) < 3:
+            self.orb.set_state("speaking")
+            return "Voice calibration failed due to too many invalid attempts, sir. Please try again when you are ready."
+            
+        # Calculate pair-wise similarities
+        sim12 = cosine_similarity(utterance_mfccs[0], utterance_mfccs[1])
+        sim13 = cosine_similarity(utterance_mfccs[0], utterance_mfccs[2])
+        sim23 = cosine_similarity(utterance_mfccs[1], utterance_mfccs[2])
+        
+        min_sim = min(sim12, sim13, sim23)
+        logger.info(f"Calibration similarities: 1-2: {sim12:.3f}, 1-3: {sim13:.3f}, 2-3: {sim23:.3f} (Min: {min_sim:.3f})")
+        
+        # Calculate mean vector
+        mean_vector = np.mean(utterance_mfccs, axis=0)
+        
+        # Adaptive threshold: min_sim - 0.05, capped between 0.72 and 0.80
+        adaptive_threshold = max(0.72, min(0.80, min_sim - 0.05))
+        
+        # Save profile
+        profile = {
+            "mean_vector": mean_vector.tolist(),
+            "threshold": adaptive_threshold
+        }
+        
+        os.makedirs("config", exist_ok=True)
+        profile_path = "config/voice_profile.json"
+        try:
+            with open(profile_path, "w") as f:
+                json.dump(profile, f, indent=2)
+        except Exception as e:
+            logger.error(f"Failed to write voice profile JSON: {e}")
+            return "I failed to write your voice profile to the disk, sir."
+            
+        # Reload detector profile
+        if hasattr(self, "wake") and self.wake:
+            self.wake._load_voice_profile()
+            
+        self.orb.set_state("speaking")
+        return f"Voice calibration complete, sir. Speaker verification is now active with an adaptive threshold of {adaptive_threshold:.2f}."
+
+    def _auto_pause_music(self):
+        """Temporarily ducks active background music when JARVIS wakes up to listen."""
+        self.was_yt_playing_before_wake = (
+            self.youtube_music.process is not None 
+            and not self.youtube_music.is_paused
+        )
+        if self.was_yt_playing_before_wake:
+            logger.info("Auto-ducking YouTube music to 35% to listen to command...")
+            self.youtube_music.duck()
+
+    def _auto_resume_music(self, user_command: str = ""):
+        """Restores background music volume if it was temporarily ducked."""
+        self.is_listening_to_command = False # Reset flag
+        self.was_yt_playing_before_wake = False # Reset flag
+        
+        # Check if user explicitly asked to pause, stop, or sleep
+        cmd_clean = user_command.lower().strip() if user_command else ""
+        explicit_stop = any(
+            phrase in cmd_clean 
+            for phrase in ["stop", "pause", "shut up", "go to sleep", "sentry", "shutdown"]
+        )
+        
+        if self.youtube_music.process is not None:
+            if explicit_stop:
+                logger.info("Command requested stop/pause. Pausing YouTube music...")
+                self.youtube_music.pause_song()
+            else:
+                logger.info("Restoring YouTube music volume to original level...")
+                self.youtube_music.unduck()
+
     def run(self):
         """Main voice loop in background thread"""
         # Give UI a moment to show up
@@ -1160,15 +1676,34 @@ class JARVIS:
                 self.orb.set_state("idle")
                 
                 if self.is_asleep:
-                    self._flush_alerts()
                     # 1. Wait for wake word
                     if not self.wake.listen_for_wake_word():
                         continue
                         
+                    self.is_listening_to_command = True
+                    # Temporarily pause background music
+                    self._auto_pause_music()
+                        
                     # Play wakeup response immediately so user knows it's listening
                     self.orb.set_state("speaking")
-                    self.tts.speak("Yes, sir?")
+                    
+                    alerts_to_speak = []
+                    with self.alert_lock:
+                        if self.alert_queue:
+                            alerts_to_speak = list(self.alert_queue)
+                            self.alert_queue.clear()
+                            
+                    if alerts_to_speak:
+                        alert_msg = " Also, ".join(alerts_to_speak)
+                        self.tts.speak(f"Yes, sir? I notice a critical warning. {alert_msg}")
+                    else:
+                        self.tts.speak("Yes, sir?")
+                        
                     self.is_asleep = False
+                
+                # Ensure is_listening_to_command and ducking are active before recording command
+                self.is_listening_to_command = True
+                self._auto_pause_music()
                 
                 self.orb.set_state("listening")
                 
@@ -1188,6 +1723,17 @@ class JARVIS:
                         self.orb.set_state("speaking")
                         self.tts.speak("Number entry timed out, sir. Call aborted.")
                         self.orb.set_state("idle")
+                        self._auto_resume_music()
+                        continue
+
+                    # Resume music on silence timeout
+                    self._auto_resume_music()
+
+                    # Return to standby if music is active to prevent feedback loop
+                    if self.youtube_music.process is not None and not self.youtube_music.is_paused:
+                        logger.info("Music is active. Forcing sleep state on silence to avoid feedback.")
+                        self.is_asleep = True
+                        self.orb.set_state("idle")
                         continue
 
                     time_since_owner = time.time() - getattr(self, "last_owner_seen_time", time.time())
@@ -1199,6 +1745,202 @@ class JARVIS:
                         self.is_asleep = True
                         self.orb.set_state("idle")
                         continue
+
+                # Analyze sentiment using text and acoustic energy (RMS)
+                self.cognitive_state = self.sentiment_tracker.analyze(text, self.audio.last_avg_rms)
+
+                # Check for active emergency/distress situation
+                distress_info = self.emergency_sentinel.check_for_distress(text, self.audio.last_avg_rms)
+                if distress_info:
+                    logger.warning("Active distress detected in user input!")
+                    self.orb.set_state("error")
+                    
+                    if self.youtube_music.process is not None:
+                        self.youtube_music._stop_song_locked()
+                        
+                    # Camera Emergency Verification
+                    self.tts.speak("Distress alert detected. Sir, activating camera verification to assess the emergency.")
+                    
+                    verified = False
+                    verification_reason = "Camera feed was not accessible."
+                    
+                    if self.camera:
+                        # Wait a short moment to ensure a fresh, stable frame is captured
+                        time.sleep(1.2)
+                        frame = self.camera.latest_frame
+                        if frame is not None:
+                            try:
+                                import cv2
+                                import base64
+                                import tempfile
+                                
+                                with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as temp_f:
+                                    temp_path = temp_f.name
+                                
+                                # Save the frame to temp file
+                                cv2.imwrite(temp_path, frame)
+                                
+                                # Read as base64
+                                with open(temp_path, "rb") as f:
+                                    img_b64 = base64.b64encode(f.read()).decode()
+                                    
+                                try:
+                                    os.unlink(temp_path)
+                                except Exception:
+                                    pass
+                                    
+                                vision_prompt = (
+                                    "Analyze this camera frame of the user's environment. The user has triggered an emergency voice alert "
+                                    "indicating a potential physical accident, fire, injury, medical crisis, or severe distress. "
+                                    "Confirm if there is indeed a visible accident, injury, fire, blood, a person lying down hurt, or "
+                                    "other active physical hazard/crisis. Answer strictly starting with YES or NO, followed by a one-sentence reason."
+                                )
+                                
+                                logger.info("Invoking vision model for camera emergency verification...")
+                                response = ollama.chat(
+                                    model=self.models.get("vision", "moondream:latest"),
+                                    messages=[{
+                                        "role": "user",
+                                        "content": vision_prompt,
+                                        "images": [img_b64]
+                                    }],
+                                    keep_alive="10s"
+                                )
+                                
+                                vision_res = response["message"]["content"].strip()
+                                logger.info(f"Vision verification response: {vision_res}")
+                                
+                                # Check if starting with YES or containing YES in the first few words
+                                first_part = vision_res.upper()[:15]
+                                if "YES" in first_part:
+                                    verified = True
+                                    verification_reason = vision_res
+                                else:
+                                    verified = False
+                                    verification_reason = vision_res
+                            except Exception as vision_err:
+                                logger.error(f"Error during vision verification process: {vision_err}")
+                                verification_reason = f"Verification engine error: {vision_err}"
+                        else:
+                            verification_reason = "No video frame captured."
+                    
+                    if not verified:
+                        logger.warning(f"Emergency visual verification failed: {verification_reason}")
+                        self.tts.speak(
+                            f"Sir, visual verification failed. My camera analysis shows: {verification_reason}. "
+                            "I will not dial emergency services automatically to prevent illegal false alarms. "
+                            "Please dial manually if this is an actual emergency."
+                        )
+                        self.orb.set_state("idle")
+                        continue
+                        
+                    logger.info("Emergency visually verified! Proceeding with call routing...")
+                    
+                    priority_contacts = ["ambulance", "doctor", "emergency", "hospital", "mom", "dad", "wife", "husband", "family"]
+                    number_to_call = None
+                    resolved_name = None
+                    
+                    try:
+                        contacts = self.phone._fetch_all_contacts()
+                        for c_query in priority_contacts:
+                            for c_name, c_num in contacts.items():
+                                if c_query in c_name.lower():
+                                    number_to_call = c_num
+                                    resolved_name = c_name
+                                    break
+                            if number_to_call:
+                                break
+                    except Exception as contact_err:
+                        logger.error(f"Error fetching contacts for emergency: {contact_err}")
+                        
+                    if not number_to_call:
+                        number_to_call = "108"
+                        resolved_name = "Emergency Services (108)"
+                        
+                    alert_msg = f"Sir, I detect a distress situation. Initiating emergency call to {resolved_name} immediately."
+                    self.tts.speak(alert_msg)
+                    
+                    try:
+                        self.phone.make_call(number_to_call)
+                    except Exception as call_err:
+                        logger.error(f"Failed to initiate emergency call: {call_err}")
+                        self.tts.speak("Device call initiation failed, sir. Please dial emergency manually.")
+                        
+                    self.orb.set_state("idle")
+                    continue
+
+                # Dynamically scale speech rate based on sentiment
+                if self.cognitive_state == "stressed":
+                    self.tts.default_speed = 1.0
+                elif self.cognitive_state == "fatigued":
+                    self.tts.default_speed = 0.95
+                elif self.cognitive_state == "excited":
+                    self.tts.default_speed = 1.4
+                else: # calm
+                    self.tts.default_speed = 1.25
+
+                # Check if we have an active context (Stateful Conversational Turns)
+                if getattr(self, "active_context", None):
+                    ctx = self.active_context
+                    cmd_lower = text.lower().strip()
+
+                    if ctx.get("type") == "confirm_file_patch":
+                        yes_words = ["yes", "go ahead", "do it", "confirm", "ok", "sure", "apply", "yep", "yeah"]
+                        no_words = ["no", "abort", "cancel", "don't", "dont", "no do not", "discard", "nah", "nope"]
+
+                        if any(w in cmd_lower for w in yes_words):
+                            file_path = ctx["file_path"]
+                            patched_content = ctx["patched_content"]
+                            filename = os.path.basename(file_path)
+                            try:
+                                with open(file_path, "w", encoding="utf-8") as f:
+                                    f.write(patched_content)
+                                logger.info(f"Active context: applied patch to {file_path}")
+                                self.orb.set_state("speaking")
+                                self.tts.speak(f"Patch applied successfully to {filename}, sir. The file has been restored.")
+                                self.orb.set_state("idle")
+                            except Exception as patch_err:
+                                logger.error(f"Error applying patch in context: {patch_err}")
+                                self.orb.set_state("speaking")
+                                self.tts.speak(f"Sir, I was unable to write the patch to disk. Error: {str(patch_err)}")
+                                self.orb.set_state("idle")
+                            self.active_context = None
+                            continue
+                        elif any(w in cmd_lower for w in no_words):
+                            self.orb.set_state("speaking")
+                            self.tts.speak("Understood, sir. I have discarded the patch.")
+                            self.orb.set_state("idle")
+                            self.active_context = None
+                            continue
+
+                    elif ctx.get("type") == "confirm_quarantine_process":
+                        yes_words = ["yes", "go ahead", "do it", "confirm", "ok", "sure", "block", "kill", "quarantine"]
+                        no_words = ["no", "abort", "cancel", "don't", "dont", "allow", "ignore", "nah", "nope"]
+
+                        pid = ctx["pid"]
+                        proc_name = ctx["proc_name"]
+                        if any(w in cmd_lower for w in yes_words):
+                            try:
+                                import psutil
+                                p = psutil.Process(pid)
+                                p.terminate()
+                                logger.info(f"Active context: terminated process {proc_name} (PID: {pid})")
+                                self.orb.set_state("speaking")
+                                self.tts.speak(f"Process {proc_name} has been terminated and quarantined, sir.")
+                                self.orb.set_state("idle")
+                            except Exception as kill_err:
+                                logger.error(f"Error killing process in context: {kill_err}")
+                                self.orb.set_state("speaking")
+                                self.tts.speak(f"Sir, I was unable to terminate process {proc_name}. It may have already exited.")
+                                self.orb.set_state("idle")
+                            self.active_context = None
+                            continue
+                        elif any(w in cmd_lower for w in no_words):
+                            self.orb.set_state("speaking")
+                            self.tts.speak(f"Understood, sir. I will allow the connection for {proc_name}.")
+                            self.orb.set_state("idle")
+                            self.active_context = None
+                            continue
 
                 # Check if we are waiting for a number response
                 if getattr(self, "awaiting_number_for", None):
@@ -1223,7 +1965,7 @@ class JARVIS:
                 cmd_lower = text.lower()
                 
                 # Explicit sleep command overrides presence
-                if any(phrase in cmd_lower for phrase in ["go to sleep", "sleep away", "stop listening", "shut up jarvis"]):
+                if any(phrase in cmd_lower for phrase in ["go to sleep", "sleep away", "stop listening", "shut up jarvis", "jarvis sleep"]):
                     self.is_asleep = True
                     self.orb.set_state("speaking")
                     self.tts.speak("Going to sleep, sir. Wake me if you need me.")
@@ -1253,6 +1995,15 @@ class JARVIS:
                     self._handle_auth(text.lower())
                 else:
                     self.process_command(text)
+                    
+                # Auto-resume music if temporarily paused during listening
+                self._auto_resume_music(text)
+
+                # Return to standby if music is active to prevent feedback loop
+                if self.youtube_music.process is not None and not self.youtube_music.is_paused:
+                    logger.info("Music is active. Returning to standby (asleep) state to prevent feedback loop.")
+                    self.is_asleep = True
+                    self.orb.set_state("idle")
                     
             except KeyboardInterrupt:
                 logger.info("JARVIS shutting down...")

@@ -41,6 +41,9 @@ class TTSEngine:
         self.kokoro = None
         self.interrupted = False
         
+        self.on_speak_start = None
+        self.on_speak_end = None
+        
         self._load_kokoro()
 
     def _load_kokoro(self):
@@ -91,13 +94,14 @@ class TTSEngine:
             use_speed = 0.8
             logger.info("Whisper mode enabled for speech output.")
             
+        if self.on_speak_start:
+            try:
+                self.on_speak_start()
+            except Exception as cb_err:
+                logger.error(f"Error in on_speak_start callback: {cb_err}")
+
         try:
             if self.kokoro:
-                if any('\u0900' <= c <= '\u097f' for c in text) or any('\u0a80' <= c <= '\u0aff' for c in text): # Hindi or Gujarati
-                    lang = 'hi'
-                    if not voice:
-                        use_voice = 'hf_alpha'
-                
                 samples, sample_rate = self.kokoro.create(
                     text, voice=use_voice, speed=use_speed, lang=lang 
                 )
@@ -105,6 +109,12 @@ class TTSEngine:
                 # Apply volume adjustment
                 if volume != 1.0:
                     samples = samples * volume
+
+                # Prepend a small silent padding (e.g. 0.2 seconds) to allow the audio output device
+                # to initialize and wake up, avoiding the first syllable being cut off (e.g. "vis" instead of "Jarvis").
+                silence_duration = 0.2  # seconds
+                silence_samples = np.zeros(int(silence_duration * sample_rate), dtype=np.float32)
+                samples = np.concatenate([silence_samples, samples])
                 
                 # Play audio using sounddevice asynchronously
                 sd.play(samples, sample_rate)
@@ -123,6 +133,12 @@ class TTSEngine:
         except Exception as e:
             logger.error(f"TTS error: {e}")
             self._fallback_speak(text)
+        finally:
+            if self.on_speak_end:
+                try:
+                    self.on_speak_end()
+                except Exception as cb_err:
+                    logger.error(f"Error in on_speak_end callback: {cb_err}")
 
     def stop_speech(self):
         """Stops active speech immediately."""

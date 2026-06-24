@@ -62,6 +62,33 @@ Control your phone from your PC using an offline USB ADB interface:
 *   **Communications:** Resolve contacts fuzzily, compose SMS drafts, and send WhatsApp messages or launch WhatsApp VoIP/Video calls.
 *   **Navigation & Maps:** Query nearby stores, display coordinate pins, and launch turn-by-turn navigation intents.
 
+### 7. 🏛️ Polyglot Software Architect & High-Level Engineer
+*   **System Blueprints:** Designs production-grade software architectures, database schemas, and OOP class relationships complete with embedded, clean Mermaid.js diagrams.
+*   **Optimal Code Generation:** Writes optimal, production-grade solutions and snippets in Rust, Go, C++, Zig, Python, and JavaScript/TypeScript.
+*   **DSA & Quality Audits:** Scans code from files or system clipboard to check for memory leaks, concurrency bugs, algorithmic (Big O) complexity, and design pattern violations.
+
+### 8. ⚙️ Mechanics CAD Simulator & 3D Hologram Viewport
+*   **3D Geometry Blueprinting:** Mathematically designs coordinates and connections for physical mechanical assemblies:
+    *   *Gear Assembly:* Axles, inner hub rims, and 12-teeth gears.
+    *   *Double-Wishbone Suspension:* Upper/lower A-arms, shock coilovers, wheel spindles, and rim outlines.
+    *   *Rocket Engine Nozzle:* Concentric combustor, throat narrowing, and expansion bell exit rings.
+*   **Real-Time Parallax Hologram:** Projects designed meshes to the draggable, floating glassmorphic 3D Hologram viewport. Coordinates skew dynamically in 3D perspective based on face-tracking (webcam) bounding boxes or mouse movement.
+
+### 9. 🔬 Deep Autonomous Research Explorer
+*   **Multi-Stage Deep Crawls:** Dynamically generates search queries for general web search and academic literature (arXiv/Semantic Scholar style).
+*   **Academic Paper Synthesis:** Crawls and compiles gathered data into publication-grade scientific reports containing Abstract, State of the Art, Mathematical Modeling (with LaTeX math equations), Hypotheses, and APA references.
+
+### 10. 🚨 Emergency Sentinel & Smart Contact Sentry
+*   **Semantic & Acoustic Distress Triggers:** Listens for vocal panic RMS spikes (>330.0) or emergency keywords (*accident*, *injured*, *bleeding*, *heart attack*, *unconscious*).
+*   **Webcam Visual Verification:** Automatically duck-pauses music, captures a camera frame, and asks the vision model (`moondream:latest`) to verify if there is an actual visible physical hazard, injury, fall, or fire to eliminate false alarms and prevent illegal false dialing.
+*   **Fuzzy Priority Contact Dialing:** Once verified, searches Android contacts (Ambulance, Doctor, Mom, Dad, Wife, Family) and dials via ADB bridge (falling back to standard service `108` if no contact is matched).
+
+### 11. 🔄 Voice & Sensor Loop Enhancements
+*   **Repetitive Hallucination Filtering:** Added Counter-based word-frequency filter in `core/audio_engine.py` to discard looped Whisper hallucinations (like repeated phrases "play music, play music") when background noise or music is loud.
+*   **Punctuation-Free Intent Routing:** Strips punctuation from voice transcriptions before matching regex rules, ensuring reliable app launching and routing.
+*   **Sleep-Aware Alert Queuing:** Proactive warnings (port intrusions, network quarantine, ast file watcher auto-patches) are queued silently when JARVIS is asleep and announced immediately upon wake-word trigger, allowing active input.
+*   **PyQt Thread-Safety Abstraction:** Signals are connected to slots across different threads for `set_state` on `JarvisOrb`, `on_song_change` on `YouTubeMusicPlayer`, and `show`/`hide`/`set_hologram_object` on `HologramSimWidget` to prevent GUI event dispatcher destruction and device context handle crashes.
+
 ---
 
 ## 🤖 Local AI Model Stack
@@ -80,6 +107,42 @@ JARVIS coordinates multiple specialized models running locally:
 | **Speech-to-Text** | `Faster-Whisper` (base) | Direct Python | Fast speech-to-text with auto-language detection. |
 | **Text-to-Speech** | `Kokoro-82M` (Kokoro ONNX) | Direct Python | Speech synthesis in a high-quality British voice. |
 | **Sensory Tracking** | `MediaPipe` / `OpenCV` | Direct Python | Hand landmarks, Face Mesh, and face detection. |
+
+### ⚙️ Hardware Optimization & Specialized Models
+
+#### ⚠️ The Problem: VRAM Overload & CPU Spikes
+By default, the `config/settings.yaml` file maps all text domains (`code`, `medical`, `safety`, `filler`, `main_brain`) to a single lightweight model: `yasserrmd/Human-Like-Qwen2.5-1.5B-Instruct:latest`. 
+
+If your PC has standard hardware (e.g., lower VRAM or only CPU), running separate specialized models (like `codegemma`, `medgemma`, and `shieldgemma` at the same time) will force Ollama to continuously load and unload models in memory as you chat. This causes:
+* **Severe lag (10–30 seconds)** every time JARVIS routes queries to a new domain.
+* **100% CPU usage spikes** when models spill over from GPU VRAM to system RAM.
+
+#### 💡 The Solution: Unified vs. Specialized Model Setup
+
+Depending on your computer's specifications, you can choose how to configure `config/settings.yaml`:
+
+* **Option A: Unified Configuration (Recommended for Budget/Average PCs)**
+  Keep the default configuration where all text-based keys point to the same model (`yasserrmd/Human-Like-Qwen2.5-1.5B-Instruct`). Since only one model is loaded, it stays cached ("warm") in VRAM. JARVIS will respond instantly and use minimal system resources.
+  
+* **Option B: Specialized Configuration (For High-End PCs with 12GB+ GPU VRAM)**
+  If your PC has a powerful GPU and CPU that can handle multiple models simultaneously, you can unlock specialized expertise. Update your `config/settings.yaml` under the `models` section:
+  ```yaml
+  models:
+    main_brain: yasserrmd/Human-Like-Qwen2.5-1.5B-Instruct:latest
+    vision: moondream:latest
+    code: codegemma:2b          # <-- Change to specialized coding model
+    medical: medgemma:latest     # <-- Change to specialized medical model
+    safety: shieldgemma:2b       # <-- Change to specialized safety model
+    filler: gemma2:2b            # <-- Change to specialized filler model
+    embeddings: nomic-embed-text:latest
+  ```
+  *Make sure to pull any new models you configure:*
+  ```bash
+  ollama pull codegemma:2b
+  ollama pull medgemma:latest
+  ollama pull shieldgemma:2b
+  ollama pull gemma2:2b
+  ```
 
 ---
 

@@ -80,7 +80,8 @@ class ScreenVision:
                     "role": "user",
                     "content": context_prompt,
                     "images": [img_b64]
-                }]
+                }],
+                keep_alive="10s"
             )
             return response["message"]["content"]
         except Exception as e:
@@ -117,6 +118,26 @@ class ScreenVision:
         except Exception as e:
             logger.error(f"OCR failed: {e}")
             return "OCR failed. Note: Tesseract-OCR must be installed on your system to use this fallback."
+
+    def analyze_image(self, image_path: str, question: str = "Describe this image") -> str:
+        """Analyze a specific image using the vision model."""
+        try:
+            with open(image_path, "rb") as f:
+                img_b64 = base64.b64encode(f.read()).decode()
+
+            response = ollama.chat(
+                model=self.model,
+                messages=[{
+                    "role": "user",
+                    "content": question,
+                    "images": [img_b64]
+                }],
+                keep_alive="10s"
+            )
+            return response["message"]["content"]
+        except Exception as e:
+            logger.error(f"analyze_image error: {e}")
+            return "I was unable to analyze the image, sir."
 
 
 if __name__ == "__main__":

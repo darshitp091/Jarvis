@@ -21,6 +21,8 @@ class CameraEngine:
         self.is_looking = False
         self.is_confused = False
         self.face_mesh = None
+        self.last_mesh_time = 0.0
+        self.latest_face_rect = None
 
         # OpenCV Haar Cascade for Face Detection
         cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
@@ -97,11 +99,13 @@ class CameraEngine:
                 )
 
             if len(faces) > 0:
+                self.latest_face_rect = faces[0].tolist()
                 self.is_present = True
                 self.last_seen_time = time.time()
                 
-                # Analyze landmarks for gaze and confusion
-                if self.face_mesh:
+                # Analyze landmarks for gaze and confusion once every 2.0 seconds
+                if self.face_mesh and (time.time() - self.last_mesh_time >= 2.0):
+                    self.last_mesh_time = time.time()
                     try:
                         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                         results = self.face_mesh.process(rgb_frame)
@@ -140,6 +144,7 @@ class CameraEngine:
                     except Exception as e:
                         logger.debug(f"MediaPipe landmark analysis error: {e}")
             else:
+                self.latest_face_rect = None
                 self.is_present = False
                 self.is_looking = False
                 self.is_confused = False
@@ -238,7 +243,7 @@ class CameraEngine:
                     face_crop = cv2.resize(gray[y:y+h, x:x+w], (200, 200))
                     label, confidence = self.face_recognizer.predict(face_crop)
                     # Lower confidence score in LBPH means closer distance (better match)
-                    logger.info(f"Face ID Predict -> Label: {label}, Confidence: {confidence:.2f}")
+                    logger.debug(f"Face ID Predict -> Label: {label}, Confidence: {confidence:.2f}")
                     if label == 1 and confidence <= 85.0:
                         return True
         except Exception as e:

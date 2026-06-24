@@ -170,7 +170,12 @@ class SpotifyControl:
                         if device_id:
                             sp.start_playback(device_id=device_id, uris=[track_uri])
                             logger.success(f"Started playing '{track_name}' via Spotify API.")
-                            return f"Playing '{track_name}' by {artist_name} on Spotify, sir."
+                            clean_t = track_name
+                            if len(clean_t) > 40:
+                                clean_t = clean_t.split("|")[0].split("-")[0].strip()
+                            if len(clean_t) > 30:
+                                return "Playing the track on Spotify, sir."
+                            return f"Playing '{clean_t}' by {artist_name} on Spotify, sir."
                     else:
                         logger.warning(f"No tracks found matching '{query}' via API. Trying GUI search...")
                 except Exception as api_err:
@@ -238,7 +243,12 @@ class SpotifyControl:
             
             # Press enter to play
             pyautogui.press('enter')
-            return f"Searching and playing '{query}' on Spotify, sir."
+            clean_q = query
+            if len(clean_q) > 40:
+                clean_q = clean_q.split("|")[0].split("-")[0].strip()
+            if len(clean_q) > 30:
+                return "Searching and playing the track on Spotify, sir."
+            return f"Searching and playing '{clean_q}' on Spotify, sir."
         except Exception as e:
             logger.error(f"GUI Quick Search play failed: {e}")
             # Fallback to search URI
@@ -246,7 +256,12 @@ class SpotifyControl:
                 encoded_query = urllib.parse.quote(query)
                 search_uri = f"spotify:search:{encoded_query}"
                 os.startfile(search_uri)
-                return f"I opened Spotify and searched for '{query}', sir."
+                clean_q = query
+                if len(clean_q) > 40:
+                    clean_q = clean_q.split("|")[0].split("-")[0].strip()
+                if len(clean_q) > 30:
+                    return "I opened Spotify and searched for the track, sir."
+                return f"I opened Spotify and searched for '{clean_q}', sir."
             except Exception:
                 return "I couldn't open Spotify, sir."
 

@@ -9,6 +9,7 @@ class AirCanvasSignals(QObject):
     clear_canvas = pyqtSignal()
     show_canvas = pyqtSignal()
     hide_canvas = pyqtSignal()
+    signature_detected = pyqtSignal(str)
 
 class AirCanvas(QWidget):
     """Transparent full-screen whiteboard overlay for virtual neon air writing."""
@@ -78,3 +79,45 @@ class AirCanvas(QWidget):
         if len(self.current_stroke) > 1:
             for i in range(len(self.current_stroke) - 1):
                 painter.drawLine(self.current_stroke[i], self.current_stroke[i+1])
+
+    def grab_canvas_image(self) -> str:
+        """Render strokes onto a solid black background and save to a temporary file."""
+        import tempfile
+        import os
+        from PyQt6.QtGui import QPixmap
+        from loguru import logger
+        
+        # Create a pixmap of the canvas size
+        pixmap = QPixmap(self.size())
+        pixmap.fill(QColor(0, 0, 0)) # black background
+        
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        
+        pen = QPen(
+            QColor(0, 255, 127), 
+            6, 
+            Qt.PenStyle.SolidLine, 
+            Qt.PenCapStyle.RoundCap, 
+            Qt.PenJoinStyle.RoundJoin
+        )
+        painter.setPen(pen)
+        
+        # Draw completed strokes
+        for stroke in self.strokes:
+            for i in range(len(stroke) - 1):
+                painter.drawLine(stroke[i], stroke[i+1])
+                
+        # Draw current active stroke
+        if len(self.current_stroke) > 1:
+            for i in range(len(self.current_stroke) - 1):
+                painter.drawLine(self.current_stroke[i], self.current_stroke[i+1])
+                
+        painter.end()
+        
+        # Save to temp file
+        temp_dir = tempfile.gettempdir()
+        path = os.path.join(temp_dir, "air_canvas_capture.png")
+        pixmap.save(path, "PNG")
+        logger.info(f"Saved air canvas capture to {path}")
+        return path

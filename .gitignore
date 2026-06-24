@@ -39,3 +39,9 @@ notes.txt
 # IDEs
 .vscode/
 .idea/
+
+# Large binaries, local configs, and scratch files
+bin/
+scratch/
+auth/.adb_wireless_config
+config/voice_profile.json

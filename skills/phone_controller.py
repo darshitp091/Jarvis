@@ -12,10 +12,50 @@ class PhoneController:
         self.adb_path = "adb"  # assumed in PATH, as verified
         self.flashlight_on = False
         self.cached_volume = 7  # default stream music index (range 0-15)
+        
+        # Start ADB wireless auto-bridge in the background
+        import threading
+        threading.Thread(target=self.auto_bridge_wireless, daemon=True).start()
+
+    def _get_best_device_serial(self) -> str or None:
+        """Returns the best connected device serial (prefers USB over wireless)."""
+        try:
+            cmd = [self.adb_path, "devices"]
+            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=5)
+            if result.returncode != 0:
+                return None
+            
+            lines = result.stdout.strip().splitlines()
+            devices = []
+            for line in lines[1:]:
+                if line.strip():
+                    parts = line.split()
+                    if len(parts) >= 2 and parts[1] == "device":
+                        devices.append(parts[0])
+            
+            if not devices:
+                return None
+            
+            # Prefer physical USB devices (serials without ':' or '5555')
+            usb_devices = [d for d in devices if ":" not in d]
+            if usb_devices:
+                return usb_devices[0]
+            
+            # Fallback to wireless device
+            return devices[0]
+        except Exception:
+            return None
 
     def _run_adb_cmd(self, args: list[str]) -> tuple[bool, str]:
         """Runs an adb command and returns (Success, OutputString)"""
         try:
+            # Avoid recursion if checking devices or connecting/disconnecting
+            cmd_type = args[0] if args else ""
+            if cmd_type not in ["devices", "connect", "disconnect", "version", "start-server", "kill-server"]:
+                serial = self._get_best_device_serial()
+                if serial:
+                    args = ["-s", serial] + args
+            
             cmd = [self.adb_path] + args
             result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=10)
             if result.returncode == 0:
@@ -29,17 +69,7 @@ class PhoneController:
 
     def is_device_connected(self) -> bool:
         """Returns True if at least one Android device is connected via USB debugging."""
-        success, output = self._run_adb_cmd(["devices"])
-        if not success:
-            return False
-        
-        # Parse output lines
-        lines = output.splitlines()
-        device_count = 0
-        for line in lines[1:]:  # skip header "List of devices attached"
-            if line.strip() and "device" in line and "emulator" not in line:
-                device_count += 1
-        return device_count > 0
+        return self._get_best_device_serial() is not None
 
     def make_call(self, phone_number: str) -> str:
         """Dials and initiates a phone call on the connected device."""
@@ -692,6 +722,170 @@ class PhoneController:
             return f"Found contact but failed to start WhatsApp VoIP intent: {err}"
             
         return f"I could not locate a WhatsApp contact matching '{name_or_number}' in your address book, sir."
+
+    def get_connected_devices(self) -> list[str]:
+        """Returns a list of all currently connected device identifiers."""
+        success, output = self._run_adb_cmd(["devices"])
+        if not success:
+            return []
+        devices = []
+        for line in output.splitlines()[1:]:
+            if line.strip() and "device" in line and "emulator" not in line:
+                parts = line.split()
+                if parts:
+                    devices.append(parts[0])
+        return devices
+
+    def get_usb_device(self, devices: list[str]) -> str | None:
+        """Finds the device identifier that corresponds to a USB connection."""
+        for d in devices:
+            if ":" not in d:
+                return d
+        return None
+
+    def setup_wireless_adb(self, usb_device: str) -> str | None:
+        """Fetches USB device IP, sets tcpip 5555, and connects wirelessly."""
+        ip = None
+        success, out = self._run_adb_cmd(["-s", usb_device, "shell", "ip", "route"])
+        if success:
+            match = re.search(r"src\s+([0-9.]+)", out)
+            if match:
+                ip = match.group(1)
+        
+        if not ip:
+            success, out = self._run_adb_cmd(["-s", usb_device, "shell", "ip", "addr", "show", "wlan0"])
+            if success:
+                match = re.search(r"inet\s+([0-9.]+)", out)
+                if match:
+                    ip = match.group(1)
+                    
+        if not ip:
+            logger.warning("Could not extract local IP address from Android device.")
+            return None
+            
+        logger.info(f"Android USB device IP found: {ip}")
+        
+        success, out = self._run_adb_cmd(["-s", usb_device, "tcpip", "5555"])
+        if not success:
+            logger.warning(f"Failed to set adb tcpip 5555: {out}")
+            return None
+            
+        time.sleep(1.5)
+        
+        success_conn, out_conn = self._run_adb_cmd(["connect", f"{ip}:5555"])
+        if success_conn:
+            logger.info(f"Successfully bridged wireless ADB to {ip}:5555")
+            self._save_cached_ip(ip)
+            return ip
+        return None
+
+    def _save_cached_ip(self, ip: str):
+        config_path = os.path.abspath("./auth/.adb_wireless_config")
+        os.makedirs(os.path.dirname(config_path), exist_ok=True)
+        try:
+            with open(config_path, "w") as f:
+                f.write(ip)
+        except Exception as e:
+            logger.error(f"Failed to save cached IP: {e}")
+
+    def _get_cached_ip(self) -> str | None:
+        config_path = os.path.abspath("./auth/.adb_wireless_config")
+        if os.path.exists(config_path):
+            try:
+                with open(config_path, "r") as f:
+                    return f.read().strip()
+            except Exception:
+                pass
+        return None
+
+    def _get_local_subnet_ips(self) -> list[str]:
+        import socket
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            local_ip = s.getsockname()[0]
+            s.close()
+            
+            parts = local_ip.split(".")
+            if len(parts) == 4:
+                prefix = ".".join(parts[:3])
+                return [f"{prefix}.{i}" for i in range(1, 255) if f"{prefix}.{i}" != local_ip]
+        except Exception as e:
+            logger.error(f"Failed to get local subnet prefix: {e}")
+        return []
+
+    def _check_port_5555(self, ip: str) -> str | None:
+        import socket
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.settimeout(0.2)
+            result = s.connect_ex((ip, 5555))
+            s.close()
+            if result == 0:
+                return ip
+        except Exception:
+            pass
+        return None
+
+    def discover_wireless_device(self) -> str | None:
+        """Scans local subnet for active port 5555 listeners."""
+        ips = self._get_local_subnet_ips()
+        if not ips:
+            return None
+            
+        logger.info("Scanning subnet for ADB wireless listeners on port 5555...")
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(max_workers=50) as executor:
+            results = executor.map(self._check_port_5555, ips)
+            for res in results:
+                if res:
+                    logger.info(f"Discovered ADB listener at {res}")
+                    return res
+        return None
+
+    def auto_bridge_wireless(self):
+        """Background thread that establishes/re-establishes wireless ADB bridge."""
+        logger.info("Starting ADB wireless auto-bridge monitor...")
+        time.sleep(3.0)
+        
+        while True:
+            try:
+                devices = self.get_connected_devices()
+                usb_device = self.get_usb_device(devices)
+                
+                if usb_device:
+                    has_wireless = any(":5555" in d for d in devices)
+                    if not has_wireless:
+                        logger.info("USB device detected. Configuring wireless bridge...")
+                        self.setup_wireless_adb(usb_device)
+                else:
+                    has_wireless = any(":5555" in d for d in devices)
+                    if not has_wireless:
+                        cached_ip = self._get_cached_ip()
+                        connected = False
+                        if cached_ip:
+                            logger.info(f"No USB device found. Attempting connection to cached IP: {cached_ip}")
+                            success, _ = self._run_adb_cmd(["connect", f"{cached_ip}:5555"])
+                            if success:
+                                time.sleep(1.5)
+                                devices_now = self.get_connected_devices()
+                                if any(cached_ip in d for d in devices_now):
+                                    logger.info("Successfully connected wirelessly to cached IP.")
+                                    connected = True
+                                    
+                        if not connected:
+                            discovered_ip = self.discover_wireless_device()
+                            if discovered_ip:
+                                logger.info(f"Connecting to discovered device IP: {discovered_ip}")
+                                success, _ = self._run_adb_cmd(["connect", f"{discovered_ip}:5555"])
+                                if success:
+                                    self._save_cached_ip(discovered_ip)
+            except Exception as e:
+                logger.error(f"Error in ADB wireless auto-bridge: {e}")
+                
+            time.sleep(15.0)
+
+
 
 
 if __name__ == "__main__":

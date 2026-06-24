@@ -220,3 +220,59 @@ class SecurityAuditor:
                 return "System logs are clear of recent anomalies and errors, sir."
         except Exception as e:
             return f"Error reading log file: {str(e)}"
+
+    def start_sentry(self, alert_callback):
+        """Starts the background security sentry thread."""
+        self.alert_callback = alert_callback
+        self.is_running = True
+        import threading
+        self.sentry_thread = threading.Thread(target=self._sentry_loop, daemon=True)
+        self.sentry_thread.start()
+        logger.info("Security Sentry background auditor started.")
+
+    def stop_sentry(self):
+        """Stops the background security sentry thread."""
+        self.is_running = False
+
+    def _sentry_loop(self):
+        import time
+        import json
+        alerted_pids = set()
+        allowed_ports = {80, 443, 22, 53, 123, 8080, 8443, 3000, 5000, 8000, 11434}
+        whitelisted_procs = {"chrome", "firefox", "msedge", "python", "git", "ollama", "code", "node", "npm", "powershell", "cmd", "explorer", "svchost", "system", "vlc", "spotify"}
+        
+        while getattr(self, "is_running", False):
+            try:
+                for conn in psutil.net_connections(kind="inet"):
+                    if conn.status == "ESTABLISHED" and conn.raddr:
+                        r_ip, r_port = conn.raddr
+                        if r_ip not in ["127.0.0.1", "::1"]:
+                            pid = conn.pid
+                            if pid and pid not in alerted_pids:
+                                try:
+                                    proc = psutil.Process(pid)
+                                    proc_name = proc.name()
+                                except Exception:
+                                    continue
+                                
+                                # Check if suspicious
+                                is_suspicious = False
+                                if r_port in [1337, 4444, 9999, 6666]:
+                                    is_suspicious = True
+                                elif r_port not in allowed_ports and proc_name.lower().split(".")[0] not in whitelisted_procs:
+                                    is_suspicious = True
+                                    
+                                if is_suspicious:
+                                    alerted_pids.add(pid)
+                                    # Trigger alert structured as JSON
+                                    alert_payload = {
+                                        "type": "confirm_quarantine_process",
+                                        "pid": pid,
+                                        "proc_name": proc_name,
+                                        "warning_text": f"Sir, an active port intrusion has been detected from process {proc_name} on port {r_port}. Initiating quarantine protocols. Shall I block this process?"
+                                    }
+                                    if hasattr(self, "alert_callback") and self.alert_callback:
+                                        self.alert_callback(json.dumps(alert_payload))
+            except Exception as e:
+                logger.debug(f"Security sentry error: {e}")
+            time.sleep(3.0)

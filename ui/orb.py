@@ -9,10 +9,13 @@ class JarvisOrb(QWidget):
     """Floating draggable orb — JARVIS visual indicator"""
 
     state_changed = pyqtSignal(str)
+    set_state_signal = pyqtSignal(str)
     dashboard_toggle_signal = pyqtSignal(bool)
     eyecare_toggle_signal = pyqtSignal(bool)
     ruler_toggle_signal = pyqtSignal(bool)
     snipping_tool_signal = pyqtSignal()
+    notification_signal = pyqtSignal(str, str)
+    hologram_toggle_signal = pyqtSignal(bool)
 
     STATES = {
         "idle":      (QColor(0, 120, 255), QColor(0, 60, 180)),
@@ -29,6 +32,7 @@ class JarvisOrb(QWidget):
         self.pulse = 0.0
         self.pulse_dir = 1
         self.toggle_callback = None
+        self.set_state_signal.connect(self._set_state_internal)
         self._setup_window()
         self._start_pulse_timer()
 
@@ -65,9 +69,13 @@ class JarvisOrb(QWidget):
         self.update()
 
     def set_state(self, state: str):
+        self.set_state_signal.emit(state)
+
+    def _set_state_internal(self, state: str):
         if state in self.STATES:
             self.state = state
             self.update()
+            self.state_changed.emit(state)
 
     def paintEvent(self, event):
         painter = QPainter(self)

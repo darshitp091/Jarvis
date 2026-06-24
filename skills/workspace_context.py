@@ -33,7 +33,7 @@ class WorkspaceContext:
 
     def get_recently_modified_files(self, limit: int = 5) -> list[dict]:
         """Scans the workspace for recently modified files (excluding virtual environments and caches)."""
-        ignored_dirs = {".git", "jarvis_env", "__pycache__", ".agents", ".gemini", "numpy_db", "test_jarvis_brain_numpy"}
+        ignored_dirs = {".git", "jarvis_env", "__pycache__", ".agents", ".gemini", "numpy_db", "test_jarvis_brain_numpy", "jarvis_brain"}
         
         file_list = []
         try:

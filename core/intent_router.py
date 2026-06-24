@@ -34,6 +34,7 @@ class IntentRouter:
         """Fast regex pre-parser to bypass LLM latency/errors for critical commands"""
         import re
         cmd = text.lower().strip()
+        cmd = re.sub(r"[,\?\!\.\"\']", "", cmd).strip()
 
         # 13. Mobile phone / ADB Controls (Placed at top to prevent desktop skill trigger conflicts)
         # Navigation & Basic
@@ -401,35 +402,63 @@ class IntentRouter:
             return {"skill": "media_summarize", "params": {"url": youtube_match.group(1)}, "domain": "general"}
 
         # 5. Spotify / Playback Controls
-        # Stop / Pause / Resume
-        if cmd in ["pause", "pause music", "pause spotify", "stop music", "stop spotify"]:
+        # Stop / Pause / Resume (Supporting English, Hinglish, and Devanagari)
+        # Stop / Pause / Resume (Supporting English, Hinglish, and Devanagari)
+        if any(p in cmd for p in [
+            "pause music", "pause spotify", "stop music", "stop spotify", "pause song", "stop song",
+            "पॉज", "पॉज करो", "रोको", "बंद करो", "म्यूजिक बंद करो"
+        ]) or cmd.strip() in ["pause", "stop", "please pause", "please stop"]:
             return {"skill": "spotify", "params": {"action": "pause"}, "domain": "general"}
-        if cmd in ["resume", "resume music", "resume spotify", "play", "play music", "play spotify"]:
+
+        is_resume = False
+        resume_exact_phrases = {
+            "play", "play music", "play spotify", "resume", "resume music", "resume spotify", 
+            "resume playlist", "resume the playlist", "resume song", "resume playback", 
+            "please play", "please resume", "प्ले", "प्ले करो", "चालू करो", "बजाओ", "गाना बजाओ"
+        }
+        if cmd.strip() in resume_exact_phrases:
+            is_resume = True
+        elif any(p in cmd for p in ["resume music", "resume spotify", "resume playlist", "resume the playlist", "resume playback"]):
+            is_resume = True
+
+        if is_resume:
             return {"skill": "spotify", "params": {"action": "resume"}, "domain": "general"}
-        if any(p in cmd for p in ["next song", "skip song", "next track", "skip track", "skip"]):
+
+        if any(p in cmd for p in [
+            "next song", "skip song", "next track", "skip track", "skip", "play next", "play next song", "skip this song",
+            "अगला गाना", "आगे बढ़ाओ"
+        ]):
             return {"skill": "spotify", "params": {"action": "next"}, "domain": "general"}
-        if any(p in cmd for p in ["previous song", "prev song", "previous track", "prev track"]):
+        if any(p in cmd for p in [
+            "previous song", "prev song", "previous track", "prev track", "play previous song", "play prev song", "go back",
+            "पिछला गाना", "पीछे करो"
+        ]):
             return {"skill": "spotify", "params": {"action": "previous"}, "domain": "general"}
 
-        # Play specific song (supports e.g., "play boyfriend on spotify" or "open spotify and play boyfriend")
-        spotify_play_match = re.match(
-            r"^(?:can you\s+)?(?:open\s+spotify\s+and\s+)?play\s+(.+?)(?:\s+(?:on|in)\s+spotify)?$", 
-            cmd
-        )
+        # Play specific song (supports natural voice prefixes like "please play", "can you play", etc.)
+        # Match anything starting with "play " or containing " play "
+        spotify_play_match = re.search(r"\bplay\s+(.+)", cmd)
         if spotify_play_match:
-            query = spotify_play_match.group(1).strip()
-            # Clean up query if it starts with "by"
-            query_clean = re.sub(r'\bby\b', '', query).strip()
-            if query_clean not in ["music", "song", "spotify", "some music", "any song"]:
+            query = spotify_play_match.group(1).strip().rstrip('?')
+            # Clean up query
+            query_clean = re.sub(r'\b(on spotify|in spotify|spotify|by|on youtube|in youtube|youtube)\b', '', query).strip()
+            if query_clean not in ["music", "song", "some music", "any song", "something", "songs", "tracks"]:
                 return {"skill": "spotify", "params": {"action": "play", "query": query_clean}, "domain": "general"}
 
-        # Hindi / Hinglish / Phonetic play song commands (e.g., "gane bane bajado", "gane bane bhajadu", "gaane bajao")
-        if any(p in cmd for p in ["gane", "gaane", "bajao", "bajado", "bhajadu", "bhajado", "gana", "gaana"]):
+        # Hindi / Hinglish / Devanagari / Phonetic play song commands
+        if any(p in cmd for p in [
+            "gane", "gaane", "bajao", "bajado", "bhajadu", "bhajado", "gana", "gaana",
+            "गाने", "गाना", "बजाओ", "बजादो", "बजा दो", "प्ले करो"
+        ]):
             song_query = "bollywood hits"
-            play_hindi_match = re.search(r"(?:play|bajao|bajado|bhajadu|bhajado)\s+(.+)", cmd)
+            play_hindi_match = re.search(r"(?:play|bajao|bajado|bhajadu|bhajado|बजाओ|बजादो|बजा\s+दो|प्ले\s+करो)\s+(.+)", cmd)
             if play_hindi_match:
                 q = play_hindi_match.group(1).strip()
-                q = re.sub(r"\b(gane|gaane|gana|gaana|bajao|bajado|bhajadu|bhajado|on spotify|spotify|kuch|kuchh|bane|kut|dharyas)\b", "", q).strip()
+                q = re.sub(
+                    r"\b(gane|gaane|gana|gaana|bajao|bajado|bhajadu|bhajado|on spotify|spotify|kuch|kuchh|bane|kut|dharyas|गाने|गाना|बजाओ|बजादो|बजा\s+दो|प्ले\s+करो)\b", 
+                    "", 
+                    q
+                ).strip()
                 if q:
                     song_query = q
             return {"skill": "spotify", "params": {"action": "play", "query": song_query}, "domain": "general"}
@@ -437,6 +466,67 @@ class IntentRouter:
         # 6. Face ID Calibration
         if any(p in cmd for p in ["calibrate my face", "set up face id", "configure face recognition", "calibrate face", "setup face id"]):
             return {"skill": "screen_vision", "params": {"action": "calibrate"}, "domain": "general"}
+
+        # 6b. Voice ID Calibration
+        if any(p in cmd for p in ["calibrate voice", "set up voice id", "configure voice recognition", "calibrate my voice", "setup voice id", "calibrate voice id"]):
+            return {"skill": "screen_vision", "params": {"action": "calibrate_voice"}, "domain": "general"}
+
+        # Advanced Iron Man Features: Coding Sandbox & Compiler Repair
+        sandbox_match = re.search(r"\b(?:sandbox|solve|autonomous\s+task|write\s+python\s+script\s+to|write\s+script\s+to)\s+(.+)", cmd)
+        if sandbox_match:
+            return {"skill": "coding_sandbox", "params": {"action": "execute_task", "task": sandbox_match.group(1).strip()}, "domain": "general"}
+
+        repair_match = re.search(r"\b(?:compile\s+and\s+repair|compiler\s+repair|auto\s+repair|debug\s+build|fix\s+build)\s+(.+)", cmd)
+        if repair_match:
+            return {"skill": "coding_sandbox", "params": {"action": "compiler_repair", "command": repair_match.group(1).strip()}, "domain": "general"}
+
+        # Air Canvas Coding
+        if any(p in cmd for p in ["compile air canvas", "solve drawing", "compile drawing", "compile canvas", "solve air canvas"]):
+            return {"skill": "coding_sandbox", "params": {"action": "compile_canvas"}, "domain": "general"}
+
+        # Polyglot Principal Engineering and Architecture
+        arch_match = re.search(r"\b(?:design\s+architecture\s+for|software\s+architecture\s+for|architect\s+for)\s+(.+)", cmd)
+        if arch_match:
+            return {"skill": "polyglot_engineer", "params": {"action": "design_architecture", "task": arch_match.group(1).strip()}, "domain": "general"}
+            
+        write_lang_match = re.search(r"\b(?:write|create|generate)\s+a\s+([a-zA-Z0-9\+\#\-\_\s]+?)\s+(?:solution|code|program|script)?\s*(?:for|to)\s+(.+)", cmd)
+        if write_lang_match:
+            return {"skill": "polyglot_engineer", "params": {"action": "write_solution", "language": write_lang_match.group(1).strip(), "task": write_lang_match.group(2).strip()}, "domain": "general"}
+            
+        review_match = re.search(r"\b(?:review\s+my|review\s+code\s+for|review\s+this)\s+([a-zA-Z0-9\+\#\-\_\s]+?)\s+(?:code)?\b", cmd)
+        if review_match:
+            return {"skill": "polyglot_engineer", "params": {"action": "review_code", "language": review_match.group(1).strip()}, "domain": "general"}
+
+        # Advanced Iron Man Features: Macro Recorder
+        macro_rec_match = re.search(r"^(?:start\s+)?recording\s+macro\s+(.+)", cmd)
+        if macro_rec_match:
+            return {"skill": "macro_recorder", "params": {"action": "start", "name": macro_rec_match.group(1).strip()}, "domain": "general"}
+            
+        if any(p in cmd for p in ["stop recording macro", "stop macro recording", "stop recording"]):
+            name = "default_macro"
+            stop_name_match = re.search(r"stop\s+recording\s+macro\s+(.+)", cmd)
+            if stop_name_match:
+                name = stop_name_match.group(1).strip()
+            return {"skill": "macro_recorder", "params": {"action": "stop", "name": name}, "domain": "general"}
+            
+        macro_play_match = re.search(r"^(?:play|execute|run)\s+macro\s+(.+)", cmd)
+        if macro_play_match:
+            return {"skill": "macro_recorder", "params": {"action": "play", "name": macro_play_match.group(1).strip()}, "domain": "general"}
+
+        # Advanced Iron Man Features: Voice Customizer & HUD
+        if any(p in cmd for p in ["enter customization mode", "open settings customizer", "voice customizer", "customization protocol"]):
+            return {"skill": "customizer", "params": {"action": "enter"}, "domain": "general"}
+            
+        thresh_match = re.search(r"(?:set|change)\s+(?:voice|similarity)\s+threshold\s+(?:to\s+)?([\d\.]+)", cmd)
+        if thresh_match:
+            return {"skill": "customizer", "params": {"action": "set_threshold", "value": float(thresh_match.group(1))}, "domain": "general"}
+            
+        speed_match = re.search(r"(?:set|change)\s+(?:speech|speaking|tts)\s+(?:rate|speed)\s+(?:to\s+)?([\d\.]+)", cmd)
+        if speed_match:
+            return {"skill": "customizer", "params": {"action": "set_speed", "value": float(speed_match.group(1))}, "domain": "general"}
+            
+        if any(p in cmd for p in ["toggle hud", "toggle screen overlay", "show hud overlay", "hide hud overlay", "toggle hud overlay"]):
+            return {"skill": "customizer", "params": {"action": "toggle_hud"}, "domain": "general"}
 
         # 7. Memory Operations (Store / Recall)
         remember_match = re.match(r"^(?:can you\s+)?(?:remember|keep in mind|write down)\s+(?:that\s+)?(.+)", cmd)
@@ -450,6 +540,12 @@ class IntentRouter:
                 return {"skill": "memory_ops", "params": {"action": "recall", "query": query}, "domain": "general"}
 
 
+
+        # Hologram Toggle
+        if any(p in cmd for p in ["show hologram", "activate hologram", "open hologram", "start hologram", "activate holographic simulation", "show holographic view", "show holographic simulation"]):
+            return {"skill": "os_control", "params": {"action": "show_hologram"}, "domain": "general"}
+        if any(p in cmd for p in ["hide hologram", "close hologram", "stop hologram", "deactivate hologram", "close holographic simulation", "hide holographic view"]):
+            return {"skill": "os_control", "params": {"action": "hide_hologram"}, "domain": "general"}
 
         # 12. Dashboard HUD Toggle
         if any(p in cmd for p in ["open dashboard", "show dashboard", "open console", "show console", "open hud", "show hud"]):
@@ -465,7 +561,13 @@ class IntentRouter:
         if launch_match:
             app = launch_match.group(1).strip()
             # Filter out false positives
-            if app not in ["the laptop", "sentry mode", "screen", "my pc"]:
+            app_words = app.split()
+            invalid_app = (
+                len(app_words) > 3 or 
+                any(w in app_words for w in ["what", "how", "why", "who", "when", "if", "im", "on", "my", "your", "phone", "mobile"]) or
+                app in ["the laptop", "sentry mode", "screen", "my pc"]
+            )
+            if not invalid_app:
                 return {"skill": "os_control", "params": {"action": "launch", "app": app}, "domain": "general"}
 
         # 9. Type text
@@ -628,11 +730,46 @@ class IntentRouter:
         if any(p in cmd for p in ["workspace logs", "check logs", "analyze logs"]):
             return {"skill": "security_auditor", "params": {"action": "audit_logs"}, "domain": "general"}
 
+        # --- Deep Research Explorer ---
+        research_match = re.search(r"\b(?:deep\s+research\s+on|run\s+a\s+deep\s+research\s+paper\s+on|academic\s+research\s+on)\s+(.+)", cmd)
+        if research_match:
+            return {"skill": "research_prodigy", "params": {"action": "deep_research", "topic": research_match.group(1).strip()}, "domain": "general"}
+
         # --- Vision Tracker ---
         if any(p in cmd for p in ["detect objects", "what objects", "what's in the room"]):
             return {"skill": "vision_tracker", "params": {"action": "detect_objects"}, "domain": "general"}
         if any(p in cmd for p in ["analyze fatigue", "check my stress", "am i tired", "check fatigue"]):
             return {"skill": "vision_tracker", "params": {"action": "analyze_fatigue"}, "domain": "general"}
+        if any(p in cmd for p in ["see me", "tell me what i've wore", "what am i wearing", "analyze appearance", "matching colors on me"]):
+            return {"skill": "vision_tracker", "params": {"action": "analyze_appearance"}, "domain": "general"}
+
+        # --- Product Price Comparison ---
+        # Match: "compare/find/buy [product] under [budget]" (with or without INR/rupees)
+        price_budget_match = re.search(r"(?:compare|find|buy|search\s+for)\s+(.+?)\s+under\s+(\d+)", cmd)
+        if price_budget_match:
+            return {"skill": "product_comparison", "params": {"query": price_budget_match.group(1).strip(), "budget": int(price_budget_match.group(2))}, "domain": "general"}
+            
+        # Match: "compare prices for/price of [product]"
+        if cmd.startswith("compare prices for ") or cmd.startswith("compare price for "):
+            item = cmd.replace("compare prices for ", "").replace("compare price for ", "").strip()
+            return {"skill": "product_comparison", "params": {"query": item, "budget": None}, "domain": "general"}
+
+        # --- Food Ordering & Comparison ---
+        # Match: "order [food]"
+        if cmd.startswith("order "):
+            dish = cmd.replace("order ", "").strip()
+            return {"skill": "food_ordering", "params": {"query": dish}, "domain": "general"}
+            
+        # Match: "compare food prices for/find [dish] nearby/near me"
+        food_match = re.search(r"(?:compare\s+food\s+prices?\s+(?:for\s+)?|find\s+)(.+?)\s+(?:nearby|near\s+me)", cmd)
+        if food_match:
+            return {"skill": "food_ordering", "params": {"query": food_match.group(1).strip()}, "domain": "general"}
+            
+        # Match: "search zomato/swiggy for [dish]"
+        if "zomato" in cmd or "swiggy" in cmd:
+            dish_match = re.search(r"(?:search\s+)?(?:zomato|swiggy)(?:\s+for\s+)?(.+)", cmd)
+            if dish_match:
+                return {"skill": "food_ordering", "params": {"query": dish_match.group(1).strip()}, "domain": "general"}
 
         return None
 
@@ -653,6 +790,7 @@ class IntentRouter:
                     {"role": "system", "content": self.prompts["system_prompts"]["intent_router"]},
                     {"role": "user", "content": text}
                 ],
+                format="json",
                 options={"temperature": 0.1}
             )
             raw = response["message"]["content"].strip()
