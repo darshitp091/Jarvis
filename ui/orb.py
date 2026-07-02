@@ -117,6 +117,9 @@ class JarvisOrb(QWidget):
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
             self.drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            if self.state == "speaking":
+                self.set_state("idle")
+                self.state_changed.emit("interrupt")
         elif event.button() == Qt.MouseButton.RightButton:
             self._show_context_menu(event.globalPosition().toPoint())
 

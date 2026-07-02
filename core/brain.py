@@ -80,15 +80,32 @@ class JarvisBrain:
             logger.error(f"Failed to save facts DB: {e}")
 
     def _get_embedding(self, text: str) -> list:
+        response = ollama.embeddings(
+            model="nomic-embed-text",
+            prompt=text
+        )
+        return response["embedding"]
+
+    def _fallback_keyword_search(self, query: str, documents: list, top_k: int = 3) -> list[str]:
+        """Simple overlap word matching fallback when embedding generation fails/is missing."""
         try:
-            response = ollama.embeddings(
-                model="nomic-embed-text",
-                prompt=text
-            )
-            return response["embedding"]
+            query_words = set(w.lower() for w in query.split() if len(w) > 2)
+            if not query_words:
+                return []
+                
+            scores = []
+            for doc in documents:
+                doc_text = doc["text"] if isinstance(doc, dict) else doc
+                doc_words = doc_text.lower().split()
+                overlap = sum(1 for w in query_words if w in doc_words)
+                if overlap > 0:
+                    scores.append((overlap / len(query_words), doc_text))
+                    
+            scores.sort(key=lambda x: x[0], reverse=True)
+            return [item[1] for item in scores[:top_k]]
         except Exception as e:
-            logger.error(f"Embedding error: {e}")
-            return [0.0] * 768
+            logger.error(f"Fallback keyword search error: {e}")
+            return []
 
     def store(self, text: str, role: str = "user", skill: str = "general"):
         try:
@@ -116,8 +133,11 @@ class JarvisBrain:
         if top_k is None:
             top_k = self.retrieve_top_k
             
-        if not self.memories or self.vectors is None:
+        if not self.memories:
             return []
+            
+        if self.vectors is None:
+            return self._fallback_keyword_search(query, self.memories, top_k)
             
         try:
             query_emb = np.array(self._get_embedding(query), dtype=np.float32)
@@ -137,8 +157,8 @@ class JarvisBrain:
             
             return [self.memories[i]["text"] for i in top_indices]
         except Exception as e:
-            logger.error(f"Memory retrieve error: {e}")
-            return []
+            logger.warning(f"Memory retrieve error, falling back to keyword search: {e}")
+            return self._fallback_keyword_search(query, self.memories, top_k)
 
     def store_fact(self, text: str):
         """Store explicit facts/preferences separately from conversation noise"""
@@ -166,8 +186,11 @@ class JarvisBrain:
         if top_k is None:
             top_k = self.retrieve_top_k
             
-        if not self.facts or self.facts_vectors is None:
+        if not self.facts:
             return []
+            
+        if self.facts_vectors is None:
+            return self._fallback_keyword_search(query, self.facts, top_k)
             
         try:
             query_emb = np.array(self._get_embedding(query), dtype=np.float32)
@@ -188,8 +211,8 @@ class JarvisBrain:
                     results.append(self.facts[i]["text"])
             return results
         except Exception as e:
-            logger.error(f"Facts retrieve error: {e}")
-            return []
+            logger.warning(f"Facts retrieve error, falling back to keyword search: {e}")
+            return self._fallback_keyword_search(query, self.facts, top_k)
 
     def format_memories_for_prompt(self, query: str) -> str:
         facts = self.retrieve_facts(query)

@@ -239,7 +239,7 @@ class SecurityAuditor:
         import json
         alerted_pids = set()
         allowed_ports = {80, 443, 22, 53, 123, 8080, 8443, 3000, 5000, 8000, 11434}
-        whitelisted_procs = {"chrome", "firefox", "msedge", "python", "git", "ollama", "code", "node", "npm", "powershell", "cmd", "explorer", "svchost", "system", "vlc", "spotify"}
+        whitelisted_procs = {"chrome", "firefox", "msedge", "python", "git", "ollama", "code", "node", "npm", "powershell", "cmd", "explorer", "svchost", "system", "vlc", "spotify", "adb", "msedgewebview2"}
         
         while getattr(self, "is_running", False):
             try:

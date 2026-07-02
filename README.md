@@ -1,13 +1,23 @@
-# 🎙️ JARVIS: Stark-Level Local Voice & Gesture Assistant
+# 🎙️ JARVIS: Stark-Level Voice & Gesture Assistant
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python: 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 [![Local AI: Ollama](https://img.shields.io/badge/Local%20AI-Ollama-red.svg)](https://ollama.com/)
 [![TTS: Kokoro ONNX](https://img.shields.io/badge/TTS-Kokoro%20ONNX-green.svg)](https://github.com/hexgrad/kokoro)
+[![GitHub stars](https://img.shields.io/github/stars/darshitp091/YourCV.svg?style=social&label=Star)](https://github.com/darshitp091/YourCV)
+[![GitHub forks](https://img.shields.io/github/forks/darshitp091/YourCV.svg?style=social&label=Fork)](https://github.com/darshitp091/YourCV)
 
-JARVIS is a **100% local, privacy-first, Stark-level desktop and mobile assistant**. It operates entirely offline (requiring no paid cloud API keys) using a local LLM/VLM stack, local neural voice synthesis, local speech recognition, and spatial computer vision (hand-gestures & eye-gaze tracking). 
+JARVIS is a **Stark-level, privacy-first desktop and mobile assistant** operating on a hybrid local-and-cloud architecture. It features local neural voice synthesis, real-time spatial computer vision (hand-gestures & eye-gaze tracking), local speech recognition, and an advanced cloud-API router with multi-provider fallbacks.
 
-JARVIS is capable of executing complex Windows operations, conducting deep web research, running local data analytics, scanning host network security, and controlling physical Android devices via a custom local USB ADB bridge.
+JARVIS executes complex Windows operations, conducts concurrent multi-engine web research, runs local data analytics, scans host network security, and controls physical Android devices via a custom local USB ADB bridge.
+
+---
+
+### 📊 Repository Status & Activity
+<p align="center">
+  <img src="https://github-readme-stats.vercel.app/api?username=darshitp091&show_icons=true&theme=dark" alt="GitHub Stats" width="48%" />
+  <img src="https://github-readme-stats.vercel.app/api/pin/?username=darshitp091&repo=YourCV&theme=dark" alt="Repo Card" width="48%" />
+</p>
 
 ---
 
@@ -20,16 +30,17 @@ JARVIS grew from a simple voice-controlled CLI script into a fully integrated sp
 *   **Phase 3: Stark-Level Desktop Utilities:** Added custom transparent PyQt6 overlays for system tools including an eye-care amber night-light overlay, a pixel-accurate screen ruler, and a click-and-drag snipping tool. Added real-time screen recording (OpenCV) and watermarked screenshotting.
 *   **Phase 4: Productivity & Analytics Engines:** Added support for local databases (Todo, KPIs, Contacts) using SQLite, Excel/CSV ingestion, Matplotlib plotting, SMTP/IMAP email dispatcher, and automated Mutual NDA/document generators.
 *   **Phase 5: Mobile Control via ADB:** Built a phone integration interface that executes ADB commands over USB. It handles 45 different phone interactions (dialing, messaging, maps navigation, system settings) completely offline, securing user privacy.
+*   **Phase 6: Cloud Brain & Resilient Routing (Latest):** Migrated the main reasoning brain, screen vision, and software engineering domains to high-speed cloud APIs (Mistral Large, Codestral, OfoxAI GLM) via a unified fallback router. Added character-by-character response streaming, plain-text conversational synthesis filters, transcription feedback display, and duplicate verbal suppression.
 
 ---
 
 ## 🛠️ Key Capabilities & Features
 
 ### 1. 🗣️ Voice, Speech, & Audio
+*   **"JARVIS Heard" Feedback:** Displays direct console logging and stdout prints `JARVIS Heard: <transcribed text>` on transcription to provide instant visual feedback.
 *   **Multilingual STT:** Transcribes **English, Hindi, and Gujarati** commands using a local `Faster-Whisper` model.
 *   **Neural Speech Synthesis:** Speaks in a natural, witty British accent utilizing a local **Kokoro ONNX** engine.
 *   **Acoustic Interruption:** Automatically stops speaking mid-sentence if you interrupt by talking over it (uses a persistent microphone feedback analyzer thread).
-*   **Hinglish / Hindi Song Routing:** Routes phonetic phrases (e.g. *"gane bajado"*) directly to play regional hits on Spotify.
 *   **Whisper Mode:** Speech volume scales down to 25% and speed drops to 0.8x for quiet/private interactions.
 
 ### 2. 🖐️ High-Fidelity Hand Gesture Control
@@ -50,10 +61,10 @@ Activate spatial control using your webcam feed (runs smoothly at ~30 FPS):
 *   **Local Plotting:** Generates and exports custom trend charts and scatter plots to `config/chart.png` using Matplotlib.
 *   **Telemetry KPI Logs:** Tracks custom numerical performance data inside a local SQLite database (`kpis.db`).
 
-### 5. 🌐 Offline Web Research
-*   **Fact Checker:** Crawls search results locally, cross-examines sources, and validates facts using the local LLM.
+### 5. 🌐 Offline & Parallel Web Research
+*   **Concurrent Multi-Engine Search:** Queries Google, DuckDuckGo, Bing, and Yahoo concurrently. Merges unique links and crawl results in parallel (up to 5 concurrent tabs).
+*   **Fact Checker:** Crawls search results locally, cross-examines sources, and validates facts using the LLM brain.
 *   **Competitor Diff Tracker:** Monitors changes on specified websites by downloading, stripping, and diffing layouts.
-*   **RSS & arXiv Parser:** Aggregates RSS feeds and queries academic papers via the arXiv API.
 
 ### 6. 📱 Android ADB Mobile Integration
 Control your phone from your PC using an offline USB ADB interface:
@@ -78,71 +89,99 @@ Control your phone from your PC using an offline USB ADB interface:
 *   **Multi-Stage Deep Crawls:** Dynamically generates search queries for general web search and academic literature (arXiv/Semantic Scholar style).
 *   **Academic Paper Synthesis:** Crawls and compiles gathered data into publication-grade scientific reports containing Abstract, State of the Art, Mathematical Modeling (with LaTeX math equations), Hypotheses, and APA references.
 
-### 10. 🚨 Emergency Sentinel & Smart Contact Sentry
-*   **Semantic & Acoustic Distress Triggers:** Listens for vocal panic RMS spikes (>330.0) or emergency keywords (*accident*, *injured*, *bleeding*, *heart attack*, *unconscious*).
-*   **Webcam Visual Verification:** Automatically duck-pauses music, captures a camera frame, and asks the vision model (`moondream:latest`) to verify if there is an actual visible physical hazard, injury, fall, or fire to eliminate false alarms and prevent illegal false dialing.
-*   **Fuzzy Priority Contact Dialing:** Once verified, searches Android contacts (Ambulance, Doctor, Mom, Dad, Wife, Family) and dials via ADB bridge (falling back to standard service `108` if no contact is matched).
-
-### 11. 🔄 Voice & Sensor Loop Enhancements
-*   **Repetitive Hallucination Filtering:** Added Counter-based word-frequency filter in `core/audio_engine.py` to discard looped Whisper hallucinations (like repeated phrases "play music, play music") when background noise or music is loud.
-*   **Punctuation-Free Intent Routing:** Strips punctuation from voice transcriptions before matching regex rules, ensuring reliable app launching and routing.
-*   **Sleep-Aware Alert Queuing:** Proactive warnings (port intrusions, network quarantine, ast file watcher auto-patches) are queued silently when JARVIS is asleep and announced immediately upon wake-word trigger, allowing active input.
-*   **PyQt Thread-Safety Abstraction:** Signals are connected to slots across different threads for `set_state` on `JarvisOrb`, `on_song_change` on `YouTubeMusicPlayer`, and `show`/`hide`/`set_hologram_object` on `HologramSimWidget` to prevent GUI event dispatcher destruction and device context handle crashes.
+### 10. 🚨 Emergency Sentry & Smart Contact Sentry
+*   **Distress Triggers:** Listens for vocal panic RMS spikes (>330.0) or emergency keywords (*accident*, *injured*, *bleeding*, *heart attack*, *unconscious*).
+*   **Webcam Visual Verification:** captures a camera frame and asks the vision model (`ministral-8b-2512`) to verify if there is an actual visible physical hazard, injury, fall, or fire to eliminate false alarms.
+*   **Fuzzy Priority Contact Dialing:** Once verified, searches Android contacts (Ambulance, Doctor, Mom, Dad, Wife, Family) and dials via ADB bridge.
 
 ---
 
-## 🤖 Local AI Model Stack
+## 🏛️ System Architecture & Fallback Routing
 
-JARVIS coordinates multiple specialized models running locally:
+JARVIS uses a dynamic routing system to direct intent commands. It evaluates user queries, matches constraints, and executes fallbacks across cloud APIs and local instances to maintain offline capability.
+
+```mermaid
+graph TD
+    User[User Speech/Input] --> Listen[Voice Listening / STT]
+    Listen --> Display[Display: 'JARVIS Heard: ...']
+    Display --> Auth{Authenticated?}
+    Auth -- No --> HandleAuth[Handle PIN/Face Auth]
+    Auth -- Yes --> Process[Process Command]
+    Process --> Chained{Chained Command?}
+    Chained -- Yes --> Plan[Speak Plan Announcement]
+    Plan --> Loop[For Each Sub-command]
+    Loop --> Single[_process_single_command]
+    Chained -- No --> Single
+    Single --> Route{Route Intent}
+    Route --> Dev[Development Domain] --> Codestral[Mistral: codestral-2405]
+    Route --> Vis[Screen Vision Skill] --> Ministral[Mistral: ministral-8b-2512]
+    Route --> Gen[General Domain] --> Conv{Conversational / Hinglish Cues?}
+    Conv -- Yes --> GLM[OfoxAI: z-ai/glm-4.7-flash:free]
+    Conv -- No --> MistralLarge[Mistral: mistral-large-2512]
+    
+    %% Fallback Tree
+    GLM -- HTTP 429/Error --> Groq[Groq: llama-3.3-70b-versatile]
+    MistralLarge -- Error --> Groq
+    Codestral -- Error --> Groq
+    Ministral -- Error --> Groq
+    
+    Groq -- Connection Failure --> Ollama[Local Ollama Fallback: Qwen/Moondream]
+    Ollama --> Exec[Execute Action / Speak Response]
+    Exec --> Suppress{is_chained & bg_action?}
+    Suppress -- Yes --> Silent[Silent Execution]
+    Suppress -- No --> TTS[Kokoro TTS Speech Output]
+```
+
+---
+
+## 🤖 Hybrid Local & Cloud AI Model Stack
+
+JARVIS coordinates multiple specialized models running locally and in the cloud:
 
 | Model Role | Model / Repository | Interface | Purpose |
 | :--- | :--- | :---: | :--- |
-| **Main Brain** | `yasserrmd/Human-Like-Qwen2.5-1.5B-Instruct` | Ollama | Conversation, reasoning, and personality. |
-| **Vision (VLM)** | `moondream:latest` | Ollama | Visual screen descriptions and webcam analysis. |
-| **Code Specialist** | `codegemma:2b` | Ollama | Coding assistant, bug checks, and environment setup. |
-| **Medical Domain** | `medgemma:latest` | Ollama | Offline medical explanations, symptoms, and fitness queries. |
-| **Filler Dialog** | `gemma2:2b` | Ollama | Speaks instant placeholder dialogue while major thinking runs. |
-| **Safety Classifier** | `shieldgemma:2b` | Ollama | Input safety checks (can be bypassed in settings to save VRAM). |
-| **Embeddings** | `nomic-embed-text:latest` | Ollama | Semantic similarity checks for memory indexes. |
+| **Main Brain** | `mistral-large-2512` | Mistral API | Master conversation, reasoning, and planning. |
+| **Vision (VLM)** | `ministral-8b-2512` | Mistral API | Multimodal screen descriptions and webcam analysis. |
+| **Code Specialist** | `codestral-2405` | Mistral API | Coding assistant, bug checks, and environment setup. |
+| **Conversational Fallback**| `z-ai/glm-4.7-flash:free`| OfoxAI API | Free general dialogue chat & Hinglish translations. |
+| **Cloud Fallback** | `llama-3.3-70b-versatile` | Groq API | Backup reasoning & conversational intelligence. |
+| **Local Brain** | `Qwen2.5-1.5B-Instruct` | Ollama | Local offline fallback for general queries. |
+| **Local Vision** | `moondream:latest` | Ollama | Local offline fallback for screen analysis. |
+| **Medical Domain** | `medgemma:latest` | Ollama | Offline medical explanations and symptoms checker. |
 | **Speech-to-Text** | `Faster-Whisper` (base) | Direct Python | Fast speech-to-text with auto-language detection. |
 | **Text-to-Speech** | `Kokoro-82M` (Kokoro ONNX) | Direct Python | Speech synthesis in a high-quality British voice. |
 | **Sensory Tracking** | `MediaPipe` / `OpenCV` | Direct Python | Hand landmarks, Face Mesh, and face detection. |
 
-### ⚙️ Hardware Optimization & Specialized Models
+---
 
-#### ⚠️ The Problem: VRAM Overload & CPU Spikes
-By default, the `config/settings.yaml` file maps all text domains (`code`, `medical`, `safety`, `filler`, `main_brain`) to a single lightweight model: `yasserrmd/Human-Like-Qwen2.5-1.5B-Instruct:latest`. 
+## 📂 Repository Directory Structure
 
-If your PC has standard hardware (e.g., lower VRAM or only CPU), running separate specialized models (like `codegemma`, `medgemma`, and `shieldgemma` at the same time) will force Ollama to continuously load and unload models in memory as you chat. This causes:
-* **Severe lag (10–30 seconds)** every time JARVIS routes queries to a new domain.
-* **100% CPU usage spikes** when models spill over from GPU VRAM to system RAM.
-
-#### 💡 The Solution: Unified vs. Specialized Model Setup
-
-Depending on your computer's specifications, you can choose how to configure `config/settings.yaml`:
-
-* **Option A: Unified Configuration (Recommended for Budget/Average PCs)**
-  Keep the default configuration where all text-based keys point to the same model (`yasserrmd/Human-Like-Qwen2.5-1.5B-Instruct`). Since only one model is loaded, it stays cached ("warm") in VRAM. JARVIS will respond instantly and use minimal system resources.
-  
-* **Option B: Specialized Configuration (For High-End PCs with 12GB+ GPU VRAM)**
-  If your PC has a powerful GPU and CPU that can handle multiple models simultaneously, you can unlock specialized expertise. Update your `config/settings.yaml` under the `models` section:
-  ```yaml
-  models:
-    main_brain: yasserrmd/Human-Like-Qwen2.5-1.5B-Instruct:latest
-    vision: moondream:latest
-    code: codegemma:2b          # <-- Change to specialized coding model
-    medical: medgemma:latest     # <-- Change to specialized medical model
-    safety: shieldgemma:2b       # <-- Change to specialized safety model
-    filler: gemma2:2b            # <-- Change to specialized filler model
-    embeddings: nomic-embed-text:latest
-  ```
-  *Make sure to pull any new models you configure:*
-  ```bash
-  ollama pull codegemma:2b
-  ollama pull medgemma:latest
-  ollama pull shieldgemma:2b
-  ollama pull gemma2:2b
-  ```
+```
+YourCV/
+├── core/                  # Core audio, routing, and verification modules
+│   ├── audio_engine.py    # Whisper-based STT, feedback, acoustic interrupt
+│   ├── intent_router.py   # Intent routing via regex & semantic embeddings
+│   ├── voice_auth.py      # Speaker similarity check & authentication
+│   └── wake_word.py       # Wake-word verification
+├── domains/               # Specialized knowledge domain handlers
+│   ├── business.py        # Business expert query pipeline
+│   ├── development.py     # Code generation using Codestral/Codegemma
+│   ├── finance.py         # Financial models query pipeline
+│   ├── medical.py         # Symptoms & health query pipeline
+│   ├── science.py         # Scientific research query pipeline
+│   └── security.py        # Security & safety classifier pipeline
+├── skills/                # Spatial perception & utility actions
+│   ├── obsidian_control.py# Obsidian knowledge vault connector
+│   ├── screen_vision.py   # Screen capture, OCR & Multimodal vision
+│   └── web_research.py    # Concurrent search crawling (Google, DDG, Bing, Yahoo)
+├── config/                # Settings & profiles
+│   ├── settings.yaml      # API keys, active model configurations
+│   ├── prompts.yaml       # System instructions & intent rules
+│   └── voice_profile.json # Calibrated speaker mean vector & threshold
+├── calibrate_voice.py     # Calibrated speaker profile recorder
+├── main.py                # Main app orchestrator & Qt GUI event loop
+└── requirements.txt       # Project python dependencies
+```
 
 ---
 
@@ -174,14 +213,10 @@ pip install -r requirements.txt
 ```
 
 ### Step 3: Install & Start Ollama Models
-Ensure Ollama is running, then pull the necessary models:
+Ensure Ollama is running, then pull the fallback models:
 ```bash
 ollama pull yasserrmd/Human-Like-Qwen2.5-1.5B-Instruct:latest
 ollama pull moondream:latest
-ollama pull codegemma:2b
-ollama pull medgemma:latest
-ollama pull nomic-embed-text:latest
-ollama pull gemma2:2b
 ```
 
 ### Step 4: Download Kokoro TTS Weights
@@ -196,12 +231,16 @@ YourCV/
 ...
 ```
 
-### Step 5: Android USB ADB Setup (Optional)
-If you wish to utilize phone integration features:
-1. Enable **Developer Options** and turn on **USB Debugging** on your Android device.
-2. (Optional) Turn on **USB Debugging (Security settings)** if you wish to allow simulate touches and screen locks via ADB.
-3. Connect the phone to your PC via USB and select "Always allow from this computer" when prompted.
-4. Ensure `adb` is installed on your PC and added to your system PATH.
+### Step 5: Configure API Keys
+Open `config/settings.yaml` and configure your API keys:
+```yaml
+mistral:
+  api_key: "YOUR_MISTRAL_API_KEY"
+ofoxai:
+  api_key: "YOUR_OFOXAI_API_KEY"
+groq:
+  api_key: "YOUR_GROQ_API_KEY"
+```
 
 ---
 

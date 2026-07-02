@@ -101,6 +101,41 @@ class IntentRouter:
             return {"skill": "phone", "params": {"action": "camera_analysis"}, "domain": "general"}
 
         # Reminders & System Info
+        # Check for reminder correction / removal / cancellation
+        remove_reminder_match = re.search(
+            r"(?:remove|cancel|delete|correct|update)\s+(?:the|that|my)?\s*(?:past|last|previous)\s+reminder(?:\s+and\s+add\s+this\s+to\s+|\s+and\s+|\s+to\s+)?(.*)?", 
+            cmd
+        )
+        if remove_reminder_match:
+            remaining = remove_reminder_match.group(1).strip() if remove_reminder_match.group(1) else ""
+            # See if remaining contains a new reminder request
+            new_remind = re.search(r"remind\s+me\s+to\s+(.+?)\s+(?:at|in)\s+(\d+[:\d\s]*(?:am|pm|min|minutes)?)\s*(?:on\s+phone|on\s+mobile)?", remaining)
+            if not new_remind:
+                new_remind = re.search(r"(?:to\s+)?(.+?)\s+(?:at|in)\s+(\d+[:\d\s]*(?:am|pm|min|minutes)?)\s*(?:on\s+phone|on\s+mobile)?", remaining)
+            
+            if new_remind:
+                return {
+                    "skill": "phone",
+                    "params": {
+                        "action": "correct_reminder",
+                        "remove_last": True,
+                        "add_new": True,
+                        "message": new_remind.group(1).strip(),
+                        "time": new_remind.group(2).strip()
+                    },
+                    "domain": "general"
+                }
+            else:
+                return {
+                    "skill": "phone",
+                    "params": {
+                        "action": "correct_reminder",
+                        "remove_last": True,
+                        "add_new": False
+                    },
+                    "domain": "general"
+                }
+
         reminder_match = re.search(r"remind\s+me\s+to\s+(.+?)\s+(?:at|in)\s+(\d+[:\d\s]*(?:am|pm|min|minutes)?)\s*(?:on\s+phone|on\s+mobile)?", cmd)
         if reminder_match:
             return {"skill": "phone", "params": {"action": "reminder", "message": reminder_match.group(1).strip(), "time": reminder_match.group(2).strip()}, "domain": "general"}
@@ -190,6 +225,68 @@ class IntentRouter:
         if any(p in cmd for p in ["hangup call", "reject call", "end call", "decline call", "hangup the call", "reject the call", "end the call"]):
             return {"skill": "phone", "params": {"action": "hangup"}, "domain": "general"}
 
+        # P2P Node Linking
+        if any(p in cmd for p in ["list local devices", "list network peers", "scan local peers", "show active peers", "list network devices"]):
+            return {"skill": "p2p_link", "params": {"action": "list_peers"}, "domain": "general"}
+        
+        p2p_clip_match = re.search(r"\b(?:send\s+clipboard\s+to|sync\s+clipboard\s+to)\s+([0-9\.]+)", cmd)
+        if p2p_clip_match:
+            return {"skill": "p2p_link", "params": {"action": "send_clipboard", "peer_ip": p2p_clip_match.group(1).strip()}, "domain": "general"}
+            
+        p2p_speech_match = re.search(r"\b(?:send\s+speech\s+to|speak\s+to)\s+([0-9\.]+)\s+(?:message\s+)?(.+)", cmd)
+        if p2p_speech_match:
+            return {"skill": "p2p_link", "params": {"action": "send_speech", "peer_ip": p2p_speech_match.group(1).strip(), "message": p2p_speech_match.group(2).strip()}, "domain": "general"}
+
+        # Hologram Assembly Controls
+        if any(p in cmd for p in ["explode the assembly", "explode design", "explode hologram"]):
+            return {"skill": "hologram_control", "params": {"action": "explode", "enable": True}, "domain": "general"}
+        if any(p in cmd for p in ["contract the assembly", "assemble design", "contract design", "assemble hologram"]):
+            return {"skill": "hologram_control", "params": {"action": "explode", "enable": False}, "domain": "general"}
+        if any(p in cmd for p in ["rotate y axis fast", "rotate hologram fast", "spin hologram fast"]):
+            return {"skill": "hologram_control", "params": {"action": "set_rotation", "speed": "fast"}, "domain": "general"}
+        if any(p in cmd for p in ["rotate y axis slow", "rotate hologram slow", "spin hologram slow"]):
+            return {"skill": "hologram_control", "params": {"action": "set_rotation", "speed": "slow"}, "domain": "general"}
+        if any(p in cmd for p in ["stop rotation", "freeze hologram", "stop hologram rotation"]):
+            return {"skill": "hologram_control", "params": {"action": "set_rotation", "speed": "stop"}, "domain": "general"}
+        if any(p in cmd for p in ["show heat map", "enable heat map", "activate hologram heatmap"]):
+            return {"skill": "hologram_control", "params": {"action": "toggle_heatmap", "enable": True}, "domain": "general"}
+        if any(p in cmd for p in ["hide heat map", "disable heat map", "deactivate hologram heatmap"]):
+            return {"skill": "hologram_control", "params": {"action": "toggle_heatmap", "enable": False}, "domain": "general"}
+
+        # Git Sentinel Auto-CI/CD Controls
+        if any(p in cmd for p in ["run sentinel check", "sentinel check", "verify workspace builds", "verify builds", "git sentinel check"]):
+            return {"skill": "git_sentinel", "params": {"action": "check"}, "domain": "general"}
+
+        # Network Sentry Active Firewall Controls
+        quarantine_match = re.search(r"\b(?:quarantine\s+ip|block\s+connections\s+from|block\s+ip|block\s+remote\s+ip)\s+([0-9\.]+)", cmd)
+        if quarantine_match:
+            return {"skill": "sentry_firewall", "params": {"action": "quarantine", "ip": quarantine_match.group(1).strip()}, "domain": "general"}
+            
+        unquarantine_match = re.search(r"\b(?:remove\s+quarantine\s+for|allow\s+ip|unblock\s+ip)\s+([0-9\.]+)", cmd)
+        if unquarantine_match:
+            return {"skill": "sentry_firewall", "params": {"action": "remove_quarantine", "ip": unquarantine_match.group(1).strip()}, "domain": "general"}
+            
+        if any(p in cmd for p in ["list quarantine rules", "show blocked ips", "list firewall blocks", "show quarantine list"]):
+            return {"skill": "sentry_firewall", "params": {"action": "list_blocks"}, "domain": "general"}
+
+        # Cognitive Focus & Vitals Controls
+        if any(p in cmd for p in ["show vitals dashboard", "open focus monitor", "show focus tracker", "open vitals monitor", "show vitals"]):
+            return {"skill": "focus_tracker", "params": {"action": "open_dashboard"}, "domain": "general"}
+        if any(p in cmd for p in ["hide vitals dashboard", "close focus monitor", "hide focus tracker", "close vitals monitor", "hide vitals"]):
+            return {"skill": "focus_tracker", "params": {"action": "close_dashboard"}, "domain": "general"}
+
+        # Spatial Air Typist Controls
+        if any(p in cmd for p in ["activate air typist", "enable eye controller", "start air typist", "turn on gaze pointer"]):
+            return {"skill": "air_typist", "params": {"action": "start"}, "domain": "general"}
+        if any(p in cmd for p in ["deactivate air typist", "disable eye controller", "stop air typist", "turn off gaze pointer"]):
+            return {"skill": "air_typist", "params": {"action": "stop"}, "domain": "general"}
+
+        # Ambient Sensory Health Checks
+        if any(p in cmd for p in ["monitor sensory health", "check posture", "posture check", "check ambient light", "check environment"]):
+            return {"skill": "sensory_health", "params": {"action": "check"}, "domain": "general"}
+        if any(p in cmd for p in ["recalibrate posture", "calibrate posture", "set good posture"]):
+            return {"skill": "sensory_health", "params": {"action": "recalibrate"}, "domain": "general"}
+
         # --- New System and UI Controls ---
         if any(p in cmd for p in ["turn on eye care", "enable eye care", "activate eye care", "turn eye care on"]):
             return {"skill": "os_control", "params": {"action": "toggle_eye_care", "enable": True}, "domain": "general"}
@@ -210,9 +307,9 @@ class IntentRouter:
         if any(p in cmd for p in ["turn off battery saver", "disable battery saver", "deactivate battery saver"]):
             return {"skill": "os_control", "params": {"action": "toggle_battery_saver", "enable": False}, "domain": "general"}
 
-        if any(p in cmd for p in ["disk cleaner", "clean junk files", "clean temp files", "run disk cleanup", "clean temp folders"]):
+        if re.search(r"\b(?:clean|clear|delete|remove)\s+(?:all\s+)?(?:the\s+)?(?:temporary|temp|junk|cache)\b", cmd):
             return {"skill": "os_control", "params": {"action": "clean_disk"}, "domain": "general"}
-        if any(p in cmd for p in ["empty trash", "empty recycle bin", "clean recycle bin"]):
+        if re.search(r"\b(?:empty|clean|clear|remove)\s+(?:all\s+)?(?:the\s+)?(?:trash|trash\s+files|recycle\s+bin|recycle)\b", cmd):
             return {"skill": "os_control", "params": {"action": "empty_recycle_bin"}, "domain": "general"}
 
         wifi_conn_match = re.search(r"connect to wifi (?:profile\s+)?(.+)", cmd)
@@ -384,9 +481,67 @@ class IntentRouter:
         if track_pkg_match:
             return {"skill": "web_research", "params": {"action": "track_package", "carrier": track_pkg_match.group(1), "tracking_number": track_pkg_match.group(2).strip()}, "domain": "general"}
 
-        # 1. Sentry/Secure
-        if any(p in cmd for p in ["secure the laptop", "sentry mode", "lock the screen", "lock the laptop", "secure my pc"]):
+        # 1. Unlock System
+        unlock_match = re.search(r"\b(?:unlock\s+(?:the\s+)?(?:laptop|screen|pc|it)|open\s+(?:the\s+)?(?:laptop|screen|pc|it)\s+with)\s*(?:(?:the\s+)?(?:pin\s+)?)*([0-9]+)", cmd)
+        if unlock_match:
+            return {"skill": "os_control", "params": {"action": "unlock", "pin": unlock_match.group(1).strip()}, "domain": "general"}
+
+        # App shortcut controls
+        if any(p in cmd for p in ["run the code", "run code", "execute code"]):
+            return {"skill": "app_control", "params": {"action": "run_code"}, "domain": "general"}
+        if any(p in cmd for p in ["toggle terminal", "open terminal", "close terminal", "hide terminal"]):
+            return {"skill": "app_control", "params": {"action": "toggle_terminal"}, "domain": "general"}
+        if any(p in cmd for p in ["new tab", "open tab"]):
+            return {"skill": "app_control", "params": {"action": "new_tab"}, "domain": "general"}
+        if any(p in cmd for p in ["close tab", "exit tab"]):
+            return {"skill": "app_control", "params": {"action": "close_tab"}, "domain": "general"}
+        if any(p in cmd for p in ["next tab", "go to next tab"]):
+            return {"skill": "app_control", "params": {"action": "next_tab"}, "domain": "general"}
+        if any(p in cmd for p in ["prev tab", "previous tab", "go to previous tab"]):
+            return {"skill": "app_control", "params": {"action": "prev_tab"}, "domain": "general"}
+        if any(p in cmd for p in ["reopen closed tab", "reopen tab", "restore tab"]):
+            return {"skill": "app_control", "params": {"action": "reopen_tab"}, "domain": "general"}
+        if any(p in cmd for p in ["save file", "save script", "save workspace"]):
+            return {"skill": "app_control", "params": {"action": "save_file"}, "domain": "general"}
+
+        # 2. Sentry/Secure
+        lock_patterns = [
+            r"\block\b.*\b(?:screen|laptop|pc|system|windows|computer|it)\b",
+            r"\bsecure\b.*\b(?:laptop|pc|system|windows|computer|it)\b",
+            r"\bsentry\s+mode\b",
+            r"\bwindows\s+lock\b"
+        ]
+        if any(re.search(pat, cmd) for pat in lock_patterns):
             return {"skill": "os_control", "params": {"action": "secure"}, "domain": "general"}
+
+        # Obsidian personal knowledge base routing
+        # 1. Create note / Save to Obsidian
+        create_note_match = re.search(r"\b(?:save\s+to\s+obsidian|create\s+note|new\s+note|write\s+note)\s+(?:named|as|with\s+title)?\s*([a-zA-Z0-9\-\_\s]+)", cmd)
+        if create_note_match:
+            title_param = create_note_match.group(1).strip()
+            return {"skill": "obsidian", "params": {"action": "create_note", "title": title_param, "content": "I have created the note, sir."}, "domain": "general"}
+
+        # 2. Read note
+        read_note_match = re.search(r"\b(?:read|open|show)\s+(?:my\s+)?(?:obsidian\s+)?note\s+([a-zA-Z0-9\-\_\s]+)", cmd)
+        if read_note_match:
+            title_param = read_note_match.group(1).strip()
+            return {"skill": "obsidian", "params": {"action": "read_note", "title": title_param}, "domain": "general"}
+
+        # 3. Search Obsidian
+        search_note_match = re.search(r"\b(?:search\s+obsidian|find\s+notes?)\s+(?:for|about)?\s*([a-zA-Z0-9\-\_\s]+)", cmd)
+        if search_note_match:
+            query_param = search_note_match.group(1).strip()
+            return {"skill": "obsidian", "params": {"action": "search_notes", "query": query_param}, "domain": "general"}
+
+        # 4. Append to Daily Note
+        daily_note_match = re.search(r"\b(?:add\s+to\s+daily\s+note|log\s+to\s+daily|append\s+to\s+daily)\s+(.+)", cmd)
+        if daily_note_match:
+            content_param = daily_note_match.group(1).strip()
+            return {"skill": "obsidian", "params": {"action": "append_to_daily_note", "content": content_param}, "domain": "general"}
+
+        # 5. List notes
+        if any(p in cmd for p in ["list my notes", "show my notes", "list obsidian notes", "show obsidian notes"]):
+            return {"skill": "obsidian", "params": {"action": "list_notes"}, "domain": "general"}
 
         # 2. System Monitor
         if any(p in cmd for p in ["system monitor", "cpu", "ram", "memory usage", "status of the system", "system resources"]):
@@ -471,6 +626,15 @@ class IntentRouter:
         if any(p in cmd for p in ["calibrate voice", "set up voice id", "configure voice recognition", "calibrate my voice", "setup voice id", "calibrate voice id"]):
             return {"skill": "screen_vision", "params": {"action": "calibrate_voice"}, "domain": "general"}
 
+        # Agent Lab Swarm Collaboration
+        lab_match = re.search(r"\b(?:collaborate\s+on|ask\s+the\s+swarm\s+to|developer\s+lab\s+for|swarm\s+collaboration\s+on)\s+(.+)", cmd)
+        if lab_match:
+            return {"skill": "agent_lab", "params": {"action": "collaborate", "task": lab_match.group(1).strip()}, "domain": "general"}
+        if any(p in cmd for p in ["open agent lab", "show agent lab", "open swarm lab", "show swarm lab"]):
+            return {"skill": "agent_lab", "params": {"action": "open_lab"}, "domain": "general"}
+        if any(p in cmd for p in ["close agent lab", "hide agent lab", "close swarm lab", "hide swarm lab"]):
+            return {"skill": "agent_lab", "params": {"action": "close_lab"}, "domain": "general"}
+
         # Advanced Iron Man Features: Coding Sandbox & Compiler Repair
         sandbox_match = re.search(r"\b(?:sandbox|solve|autonomous\s+task|write\s+python\s+script\s+to|write\s+script\s+to)\s+(.+)", cmd)
         if sandbox_match:
@@ -540,6 +704,10 @@ class IntentRouter:
                 return {"skill": "memory_ops", "params": {"action": "recall", "query": query}, "domain": "general"}
 
 
+
+        # Network Sentry Mapper
+        if any(p in cmd for p in ["scan network topology", "scan subnet topology", "visualize subnet nodes", "scan network hologram", "holographic network scan", "scan local network", "scan network"]):
+            return {"skill": "network_mapper", "params": {"action": "scan_and_project"}, "domain": "general"}
 
         # Hologram Toggle
         if any(p in cmd for p in ["show hologram", "activate hologram", "open hologram", "start hologram", "activate holographic simulation", "show holographic view", "show holographic simulation"]):
@@ -776,6 +944,26 @@ class IntentRouter:
 
     def route(self, text: str) -> dict:
         """Return routing dict: {skill, params, domain}"""
+        # Step 0: Check for ambiguous inputs
+        cmd_lower = text.lower()
+        words = cmd_lower.split()
+        
+        # Check A: log vs lock
+        if ("log" in words or "logging" in words) and any(w in words for w in ["laptop", "pc", "screen", "system", "computer"]):
+            logger.info("Routed to ambiguous intercept: 'log' vs 'lock'")
+            return {
+                "skill": "ambiguous",
+                "params": {
+                    "word": "log",
+                    "options": [
+                        {"label": "Lock the laptop screen", "command": "lock the laptop"},
+                        {"label": "Write a Python logging script", "command": "write python logging script"}
+                    ]
+                },
+                "domain": "general",
+                "confidence": 0.4
+            }
+
         # Step 1: Check fast regex routes
         regex_result = self._regex_route(text)
         if regex_result:

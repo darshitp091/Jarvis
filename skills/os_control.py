@@ -26,8 +26,8 @@ class OSControl:
                 for file in files:
                     if file.lower().endswith(".lnk"):
                         file_clean = os.path.splitext(file)[0].lower().replace(" ", "")
-                        # Perfect or substring match
-                        if app_name_clean in file_clean or file_clean in app_name_clean:
+                        # Perfect or substring match (must search user request inside shortcut name, not vice versa)
+                        if app_name_clean == file_clean or app_name_clean in file_clean:
                             return os.path.join(root, file)
         return None
 

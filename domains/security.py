@@ -7,7 +7,8 @@ from loguru import logger
 class SecurityDomain:
     """Specialized handler for security queries using shieldgemma or main_brain"""
 
-    def __init__(self, config_path: str = "config"):
+    def __init__(self, config_path: str = "config", jarvis = None):
+        self.jarvis = jarvis
         if not os.path.exists(config_path):
             fallback = os.path.join(os.path.dirname(__file__), "..", config_path)
             if os.path.exists(fallback):
@@ -29,6 +30,9 @@ class SecurityDomain:
 
     def answer(self, query: str, memories: str = "") -> str:
         system_content = f"{self.system_prompt}\n{memories}"
+        if self.jarvis is not None:
+            return self.jarvis.query_llm([{"role": "user", "content": query}], system_prompt=system_content)
+            
         try:
             response = ollama.chat(
                 model=self.model,

@@ -12,6 +12,7 @@ class PhoneController:
         self.adb_path = "adb"  # assumed in PATH, as verified
         self.flashlight_on = False
         self.cached_volume = 7  # default stream music index (range 0-15)
+        self.last_reminder = None
         
         # Start ADB wireless auto-bridge in the background
         import threading
@@ -475,8 +476,40 @@ class PhoneController:
             "--ez", "android.intent.extra.alarm.SKIP_ROUND_SHOW", "true"
         ])
         if success:
+            self.last_reminder = {"message": message, "hour": hour, "minute": minute}
             return f"Smart reminder set for {hour:02d}:{minute:02d} with message: '{message}', sir."
         return "Failed to dispatch reminder alarm request, sir."
+
+    def dismiss_last_reminder(self) -> str:
+        """Dismisses the last configured alarm/reminder via DISMISS_ALARM intent."""
+        if not self.is_device_connected():
+            return "Please connect your Android device, sir."
+        if not self.last_reminder:
+            return "I could not find a record of a previously configured reminder in my memory, sir."
+            
+        message = self.last_reminder["message"]
+        hour = self.last_reminder["hour"]
+        minute = self.last_reminder["minute"]
+        
+        # 1. Dismiss by label
+        self._run_adb_cmd([
+            "shell", "am", "start", "-a", "android.intent.action.DISMISS_ALARM",
+            "--es", "android.intent.extra.alarm.SEARCH_MODE", "android.label",
+            "--es", "android.intent.extra.alarm.LABEL", message,
+            "--ez", "android.intent.extra.alarm.SKIP_ROUND_SHOW", "true"
+        ])
+        
+        # 2. Dismiss by time
+        self._run_adb_cmd([
+            "shell", "am", "start", "-a", "android.intent.action.DISMISS_ALARM",
+            "--es", "android.intent.extra.alarm.SEARCH_MODE", "android.time",
+            "--ei", "android.intent.extra.alarm.HOUR", str(hour),
+            "--ei", "android.intent.extra.alarm.MINUTES", str(minute),
+            "--ez", "android.intent.extra.alarm.SKIP_ROUND_SHOW", "true"
+        ])
+        
+        self.last_reminder = None
+        return f"Dismissed the previous alarm for {hour:02d}:{minute:02d} ('{message}'), sir."
 
     def get_device_time_date(self) -> str:
         """Gets device local time and date details combined."""

@@ -13,7 +13,8 @@ from skills.screen_vision import ScreenVision
 class WebResearch:
     """Advanced Web Research using Chromium and Visual Automation"""
 
-    def __init__(self, config_path: str = "config/settings.yaml"):
+    def __init__(self, config_path: str = "config/settings.yaml", jarvis = None):
+        self.jarvis = jarvis
         # Resolve config path
         if not os.path.exists(config_path):
             fallback = os.path.join(os.path.dirname(__file__), "..", config_path)
@@ -44,31 +45,42 @@ class WebResearch:
             logger.error("crawl4ai not installed.")
             return "Sir, I cannot access the web crawler module."
 
-        logger.info(f"Initiating headless Google search for: {query}")
-        search_url = f"https://www.google.com/search?q={query.replace(' ', '+')}"
+        logger.info(f"Initiating concurrent multi-engine search (Google, DuckDuckGo, Bing, Yahoo) for: {query}")
+        
+        engines = {
+            "Google": f"https://www.google.com/search?q={query.replace(' ', '+')}",
+            "DuckDuckGo": f"https://html.duckduckgo.com/html/?q={query.replace(' ', '+')}",
+            "Bing": f"https://www.bing.com/search?q={query.replace(' ', '+')}",
+            "Yahoo": f"https://search.yahoo.com/search?p={query.replace(' ', '+')}"
+        }
         
         async with AsyncWebCrawler() as crawler:
-            # Step 1: Search Google directly via Chromium
-            result = await crawler.arun(url=search_url)
+            # Query all search engines in parallel
+            tasks = [crawler.arun(url=url) for url in engines.values()]
+            search_results = await asyncio.gather(*tasks, return_exceptions=True)
             
             links = []
-            if result.success and hasattr(result, 'links') and "external" in result.links:
-                for link in result.links["external"]:
-                    href = link.get("href", "")
-                    # Filter out google internal links and capture top real links
-                    if href.startswith("http") and "google.com" not in href:
-                        links.append(href)
-                        if len(links) >= num_links:
-                            break
-                            
-            # Fallback for Google's bot protection (which can block headless browsers)
+            for r in search_results:
+                if not r or isinstance(r, Exception) or not r.success:
+                    continue
+                if hasattr(r, 'links') and "external" in r.links:
+                    for link in r.links["external"]:
+                        href = link.get("href", "")
+                        # Filter out internal/search engine domains to isolate raw external content
+                        if href.startswith("http") and not any(d in href for d in ["google.com", "bing.com", "yahoo.com", "duckduckgo.com", "microsoft.com"]):
+                            if href not in links:
+                                links.append(href)
+                                if len(links) >= num_links:
+                                    break
+                                    
+            # Fallback for bot protection (which can block headless browsers)
             if not links:
-                logger.info("Google returned no direct links (bot protection possible), falling back to DDGS for URL discovery...")
+                logger.info("Search engines returned no direct links, falling back to DDGS API for URL discovery...")
                 try:
                     from duckduckgo_search import DDGS
                     with DDGS() as ddgs:
-                        results = list(ddgs.text(query, max_results=num_links))
-                        links = [r.get('href') for r in results if r.get('href')]
+                        ddg_res = list(ddgs.text(query, max_results=num_links))
+                        links = [item.get('href') for item in ddg_res if item.get('href')]
                 except Exception as e:
                     logger.error(f"DDGS fallback failed: {e}")
             
@@ -137,16 +149,22 @@ class WebResearch:
         return self._summarize_context(query, combined_visual_data)
 
     def _summarize_context(self, query: str, context: str) -> str:
-        """Uses local LLM to summarize the scraped or visually retrieved context"""
+        """Uses brain LLM to summarize the scraped or visually retrieved context"""
         if not context.strip():
              return "I couldn't extract enough information to form a summary, sir."
+
+        system_prompt = "You are JARVIS. Summarize research findings concisely and intelligently based on the sources provided. Give a clear, direct answer. Do NOT use markdown links, lists, asterisks, or numbered bullet points; output only clean human-like paragraphs."
+        user_message = f"Research query: {query}\n\nData Gathered:\n{context}\n\nProvide a concise, intelligent summary."
+
+        if self.jarvis is not None:
+            return self.jarvis.query_llm([{"role": "user", "content": user_message}], system_prompt=system_prompt)
 
         try:
             response = ollama.chat(
                 model=self.model,
                 messages=[
-                    {"role": "system", "content": "You are JARVIS. Summarize research findings concisely and intelligently based on the sources provided. Give a clear, direct answer."},
-                    {"role": "user", "content": f"Research query: {query}\n\nData Gathered:\n{context}\n\nProvide a concise, intelligent summary."}
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_message}
                 ]
             )
             return response["message"]["content"]

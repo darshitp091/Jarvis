@@ -1,5 +1,7 @@
 import sys
 import os
+os.environ["GLOG_minloglevel"] = "2"
+os.environ["ABSL_log_min_level"] = "2"
 import threading
 import traceback
 import yaml
@@ -45,7 +47,7 @@ if platform.system() == "Windows":
 
 from loguru import logger; _p("DBG: loguru ok")
 logger.remove()
-logger.add(sys.stderr, level="INFO")
+logger.add("jarvis.log", level="INFO", rotation="10 MB", encoding="utf-8")
 from PyQt6.QtWidgets import QApplication; _p("DBG: PyQt6 ok")
 from core.audio_engine import AudioEngine
 from core.tts_engine import TTSEngine
@@ -93,6 +95,10 @@ from ui.hologram import HologramSimWidget; _p("DBG: HologramSimWidget ok")
 from skills.polyglot_engineer import PolyglotEngineer; _p("DBG: PolyglotEngineer ok")
 from skills.research_prodigy import ResearchProdigy; _p("DBG: ResearchProdigy ok")
 from skills.emergency_sentinel import EmergencySentinel; _p("DBG: EmergencySentinel ok")
+from core.context_sentinel import ContextSentinel
+from skills.app_control import AppControl
+from core.profile_manager import ProfileManager
+from skills.obsidian_control import ObsidianControl; _p("DBG: obsidian ok")
 
 
 class JARVIS:
@@ -134,19 +140,28 @@ class JARVIS:
         )
         _p("INIT: WakeWordDetector"); self.wake = WakeWordDetector()
         self.wake.is_music_playing_cb = self._is_music_playing
+        self.wake.is_speaking_cb = lambda: self.tts.is_speaking
+        self.audio.is_speaking_cb = lambda: self.tts.is_speaking
         _p("INIT: IntentRouter"); self.router = IntentRouter()
         _p("INIT: JarvisBrain"); self.brain = JarvisBrain()
+        self.chat_history = []
+        self.chat_history_summary = ""
+        self.last_voice_auth_time = 0.0
+        _p("INIT: ContextSentinel"); self.sentinel = ContextSentinel()
+        _p("INIT: ProfileManager"); self.profile_mgr = ProfileManager()
         _p("INIT: CameraEngine"); self.camera = CameraEngine()
         self.camera.start()
         
         # Skills
-        _p("INIT: ScreenVision"); self.vision = ScreenVision()
+        _p("INIT: ScreenVision"); self.vision = ScreenVision(jarvis=self)
         _p("INIT: OSControl"); self.os_ctrl = OSControl()
-        _p("INIT: WebResearch"); self.web = WebResearch()
+        _p("INIT: WebResearch"); self.web = WebResearch(jarvis=self)
         _p("INIT: MediaSummarizer"); self.media = MediaSummarizer()
         _p("INIT: AppMapper"); self.app_map = AppMapper()
+        _p("INIT: AppControl"); self.app_ctrl = AppControl()
         _p("INIT: SpotifyControl"); self.spotify_ctrl = SpotifyControl()
         _p("INIT: YouTubeMusicPlayer"); self.youtube_music = YouTubeMusicPlayer()
+        _p("INIT: ObsidianControl"); self.obsidian_ctrl = ObsidianControl()
         self.youtube_music.on_song_change = lambda title, msg: self.orb.notification_signal.emit(title, msg)
         self.tts.on_speak_start = self._duck_audio
         self.tts.on_speak_end = self._unduck_audio
@@ -155,6 +170,7 @@ class JARVIS:
         _p("INIT: IronManHUDOverlay"); self.hud_overlay = IronManHUDOverlay()
         # self.hud_overlay.show()
         self.orb.state_changed.connect(self.hud_overlay.set_hud_state)
+        self.orb.state_changed.connect(self.on_orb_state_changed)
         
         _p("INIT: MacroRecorder"); self.macro_recorder = MacroRecorder(vision_engine=self.vision)
         
@@ -165,12 +181,12 @@ class JARVIS:
         # Domains
         _p("INIT: Domains")
         self.domains = {
-            "medical": MedicalDomain(),
-            "business": BusinessDomain(),
-            "finance": FinanceDomain(),
-            "security": SecurityDomain(),
-            "development": DevelopmentDomain(),
-            "science": ScienceDomain(),
+            "medical": MedicalDomain(jarvis=self),
+            "business": BusinessDomain(jarvis=self),
+            "finance": FinanceDomain(jarvis=self),
+            "security": SecurityDomain(jarvis=self),
+            "development": DevelopmentDomain(jarvis=self),
+            "science": ScienceDomain(jarvis=self),
             "engineering": EngineeringDomain()
         }
 
@@ -179,6 +195,7 @@ class JARVIS:
 
         _p("INIT: auth check")
         self.is_authenticated = not self.config["jarvis"].get("pin_enabled", False)
+        self.face_verified = False
 
         _p("INIT: JarvisDashboard"); self.dashboard = JarvisDashboard(camera_engine=self.camera)
         self.orb.toggle_callback = self.toggle_dashboard_via_double_click
@@ -225,6 +242,7 @@ class JARVIS:
         self.alert_queue = []
         self.alert_lock = threading.Lock()
         self.active_context = None
+        self.pending_code_snippet = None
         self.is_asleep = True
 
         # Import cognitive tracker
@@ -235,7 +253,56 @@ class JARVIS:
         # Initialize HologramSimWidget
         _p("INIT: HologramSimWidget")
         self.hologram_widget = HologramSimWidget(self.camera)
+        self.hologram_widget.node_clicked_signal.connect(self._on_hologram_node_clicked)
         self.domains["engineering"].hologram_widget = self.hologram_widget
+
+        # Import and initialize NetworkMapper
+        from skills.network_mapper import NetworkMapper
+        self.network_mapper = NetworkMapper()
+
+        # Initialize AgentLabWidget
+        _p("INIT: AgentLabWidget")
+        from ui.agent_lab import AgentLabWidget
+        self.agent_lab = AgentLabWidget()
+
+        # Initialize SensoryHealthAnalyzer
+        _p("INIT: SensoryHealthAnalyzer")
+        from core.sensory_health import SensoryHealthAnalyzer
+        self.sensory_health = SensoryHealthAnalyzer(self.camera)
+
+        # Initialize P2PLinkNode
+        _p("INIT: P2PLinkNode")
+        from core.p2p_link import P2PLinkNode
+        self.p2p_link = P2PLinkNode(tts_engine=self.tts)
+        self.p2p_link.start()
+
+        # Initialize AirTypistTracker
+        _p("INIT: AirTypistTracker")
+        from core.air_typist import AirTypistTracker
+        self.air_typist = AirTypistTracker(self.camera)
+
+        # Initialize VoiceAuthenticator
+        _p("INIT: VoiceAuthenticator")
+        from core.voice_auth import VoiceAuthenticator
+        self.voice_auth = VoiceAuthenticator()
+
+        # Initialize GitSentinel
+        _p("INIT: GitSentinel")
+        from skills.git_sentinel import GitSentinel
+        self.git_sentinel = GitSentinel()
+
+        # Initialize SentryFirewall
+        _p("INIT: SentryFirewall")
+        from skills.sentry_firewall import SentryFirewall
+        self.sentry_firewall = SentryFirewall()
+
+        # Initialize Focus Dashboard and Focus Tracker
+        _p("INIT: FocusTracker & Dashboard")
+        from ui.vitals_dashboard import VitalsDashboardWidget
+        from core.focus_tracker import FocusTracker
+        self.vitals_dashboard = VitalsDashboardWidget()
+        self.focus_tracker = FocusTracker(self.camera, self.sensory_health, self.vitals_dashboard, self)
+        self.focus_tracker.start()
 
         _p("INIT: ProactiveMonitor")
         self.proactive_monitor = ProactiveMonitor(
@@ -380,16 +447,18 @@ class JARVIS:
                             logger.error(f"Error reading auth state file: {e}")
                     
                     # 2. Check Face ID
-                    if self.camera.has_face_model and self.camera.latest_frame is not None:
+                    if not self.face_verified and self.camera.has_face_model and self.camera.latest_frame is not None:
                         frame = self.camera.latest_frame
                         if self.camera.identify_face(frame):
-                            logger.info("Face ID verified. Unlocking...")
-                            self.is_authenticated = True
-                            self.is_asleep = False
+                            logger.info("Face ID verified. Awaiting voice authentication...")
+                            self.face_verified = True
+                            try:
+                                with open(state_file, "w") as f:
+                                    f.write("face_verified")
+                            except Exception:
+                                pass
                             self.orb.set_state("speaking")
-                            self.tts.speak("Identity confirmed. Good evening, sir.")
-                            self.os_ctrl.unlock_screen()
-                            self.os_ctrl.wake_monitor()
+                            self.tts.speak("Face verified, sir. Please say 'hey jarvis' to complete voice authentication.")
                             self.orb.set_state("idle")
             except Exception as e:
                 logger.error(f"Error in unlock monitor: {e}")
@@ -457,6 +526,26 @@ class JARVIS:
             with self.alert_lock:
                 self.alert_queue.append(text)
 
+    def trigger_fatigue_protocol(self, focus_score: int):
+        logger.warning(f"JARVIS: Fatigue protocol active (Focus: {focus_score}%)")
+        self.orb.set_state("error")
+        self.tts.speak(f"Sir, your cognitive focus score has dropped to {focus_score} percent. I strongly recommend taking a short break from the screen.")
+        
+        # 1. Dim system brightness
+        try:
+            self.os_ctrl.set_brightness(20)
+        except Exception as e:
+            logger.error(f"Fatigue Protocol: Failed to dim screen: {e}")
+            
+        # 2. Play ambient lo-fi beats study radio
+        try:
+            self.tts.speak("I am starting a relaxing lo-fi station for you now.")
+            self.youtube_music.play_song("lofi hip hop radio beats to relax study to")
+        except Exception as e:
+            logger.error(f"Fatigue Protocol: Failed to play relaxation beats: {e}")
+            
+        self.orb.set_state("idle")
+
     def toggle_dashboard_via_double_click(self):
         show = not self.dashboard.isVisible()
         self.orb.dashboard_toggle_signal.emit(show)
@@ -476,6 +565,10 @@ class JARVIS:
         else:
             self.hologram_widget.hide()
             logger.info("Hologram widget hidden via slot.")
+
+    def _on_hologram_node_clicked(self, idx: int, label: str):
+        self.tts.speak(f"Linked node selected: {label}, sir.")
+        logger.info(f"Hologram clicked node {idx}: {label}")
 
     def _phone_monitor(self):
         ringing_seconds = 0
@@ -614,6 +707,176 @@ class JARVIS:
             name = self.config.get("jarvis", {}).get("name", "JARVIS")
             self.tts.speak(f"{name} online. All systems operational. Waiting on your command, sir.")
 
+    def query_llm(self, messages: list, system_prompt: str = None, provider: str = "mistral", model: str = None) -> str:
+        """Queries the active LLM provider (mistral, ofoxai, groq, or local Ollama fallback)."""
+        query_messages = []
+        if system_prompt:
+            query_messages.append({"role": "system", "content": system_prompt})
+        query_messages.extend(messages)
+
+        # 1. Mistral AI Provider
+        if provider == "mistral":
+            mistral_cfg = self.config.get("mistral", {})
+            api_key = mistral_cfg.get("api_key", "")
+            target_model = model or mistral_cfg.get("models", {}).get("brain", "mistral-large-2512")
+            
+            if api_key and not api_key.startswith("YOUR_"):
+                import requests
+                url = "https://api.mistral.ai/v1/chat/completions"
+                headers = {
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json"
+                }
+                data = {
+                    "model": target_model,
+                    "messages": query_messages,
+                    "temperature": 0.2
+                }
+                try:
+                    logger.info(f"Querying Mistral API using model '{target_model}'...")
+                    response = requests.post(url, headers=headers, json=data, timeout=25)
+                    if response.status_code == 200:
+                        result = response.json()
+                        reply = result["choices"][0]["message"]["content"]
+                        logger.info("Successfully received response from Mistral.")
+                        return reply
+                    else:
+                        logger.error(f"Mistral API returned error status {response.status_code}: {response.text}")
+                except Exception as e:
+                    logger.error(f"Mistral API connection failed: {e}")
+
+        # 2. OfoxAI Provider
+        elif provider == "ofoxai":
+            ofox_cfg = self.config.get("ofoxai", {})
+            api_key = ofox_cfg.get("api_key", "")
+            target_model = model or ofox_cfg.get("model", "z-ai/glm-4.7-flash:free")
+            
+            if api_key and not api_key.startswith("YOUR_"):
+                try:
+                    logger.info(f"Querying OfoxAI API using model '{target_model}'...")
+                    from openai import OpenAI
+                    client = OpenAI(
+                        base_url="https://api.ofox.ai/v1",
+                        api_key=api_key
+                    )
+                    ofox_messages = []
+                    if system_prompt:
+                        ofox_messages.append({"role": "system", "content": system_prompt})
+                    
+                    for msg in messages:
+                        content = msg["content"]
+                        if isinstance(content, list):
+                            text_content = ""
+                            for part in content:
+                                if part.get("type") == "text":
+                                    text_content += part.get("text", "")
+                            ofox_messages.append({"role": msg["role"], "content": text_content})
+                        else:
+                            ofox_messages.append(msg)
+
+                    response_stream = client.chat.completions.create(
+                        model=target_model,
+                        messages=ofox_messages,
+                        temperature=0.1,
+                        max_tokens=300,
+                        stream=True,
+                        timeout=25
+                    )
+                    reply_parts = []
+                    print("JARVIS: ", end="", flush=True)
+                    for chunk in response_stream:
+                        if chunk.choices and chunk.choices[0].delta.content:
+                            text_chunk = chunk.choices[0].delta.content
+                            print(text_chunk, end="", flush=True)
+                            reply_parts.append(text_chunk)
+                    print()
+                    reply = "".join(reply_parts)
+                    logger.info("Successfully received streamed response from OfoxAI.")
+                    return reply
+                except Exception as e:
+                    logger.error(f"OfoxAI API connection failed: {e}")
+
+        # 3. Groq API Provider Fallback
+        groq_cfg = self.config.get("groq", {})
+        groq_api_key = groq_cfg.get("api_key", "")
+        groq_model = groq_cfg.get("model", "llama-3.3-70b-versatile")
+        
+        if groq_api_key and not groq_api_key.startswith("YOUR_"):
+            import requests
+            url = "https://api.groq.com/openai/v1/chat/completions"
+            headers = {
+                "Authorization": f"Bearer {groq_api_key}",
+                "Content-Type": "application/json"
+            }
+            # Flatten/convert messages if multimodal
+            groq_messages = []
+            for msg in query_messages:
+                content = msg["content"]
+                if isinstance(content, list):
+                    text_content = ""
+                    for part in content:
+                        if part.get("type") == "text":
+                            text_content += part.get("text", "")
+                    groq_messages.append({"role": msg["role"], "content": text_content})
+                else:
+                    groq_messages.append(msg)
+
+            data = {
+                "model": groq_model,
+                "messages": groq_messages,
+                "temperature": 0.3
+            }
+            try:
+                logger.info(f"Querying Groq API using model '{groq_model}'...")
+                response = requests.post(url, headers=headers, json=data, timeout=25)
+                if response.status_code == 200:
+                    result = response.json()
+                    reply = result["choices"][0]["message"]["content"]
+                    logger.info("Successfully received response from Groq.")
+                    return reply
+                else:
+                    logger.error(f"Groq API returned error status {response.status_code}: {response.text}")
+            except Exception as e:
+                logger.error(f"Groq API connection failed: {e}")
+                
+        # 4. Local Ollama Fallback (with base64 image extraction)
+        try:
+            logger.info("Falling back to local Ollama brain...")
+            import ollama
+            model_name = self.models.get("main_brain", "yasserrmd/Human-Like-Qwen2.5-1.5B-Instruct:latest")
+            
+            ollama_messages = []
+            for msg in query_messages:
+                content = msg["content"]
+                images = []
+                text_content = ""
+                
+                if isinstance(content, list):
+                    for part in content:
+                        if part.get("type") == "text":
+                            text_content += part.get("text", "")
+                        elif part.get("type") == "image_url":
+                            url_val = part.get("image_url", {}).get("url", "")
+                            if "base64," in url_val:
+                                base64_data = url_val.split("base64,")[1]
+                                images.append(base64_data)
+                else:
+                    text_content = content
+                    
+                ollama_msg = {"role": msg["role"], "content": text_content}
+                if images:
+                    ollama_msg["images"] = images
+                ollama_messages.append(ollama_msg)
+
+            response = ollama.chat(
+                model=model_name,
+                messages=ollama_messages
+            )
+            return response["message"]["content"]
+        except Exception as e:
+            logger.error(f"Local Ollama query failed: {e}")
+            return "I am currently unable to process your request, sir."
+
     def _generate_response(self, text: str, domain: str = "general") -> str:
         memories = self.brain.format_memories_for_prompt(text)
         
@@ -623,6 +886,9 @@ class JARVIS:
             
         system_key = domain if domain in self.prompts["system_prompts"] else "main"
         system = self.prompts["system_prompts"][system_key] + memories
+        
+        if getattr(self, "chat_history_summary", ""):
+            system += f"\n[Dialogue history summary of older turns in this session: {self.chat_history_summary}]"
 
         # Append sentiment modifier to system prompt
         cognitive = getattr(self, "cognitive_state", "calm")
@@ -633,18 +899,108 @@ class JARVIS:
         elif cognitive == "excited":
             system += "\n[System Note: The user is currently feeling EXCITED. Match their energy, be enthusiastic and efficient.]"
 
+        # Append real-time active window context to system prompt
+        if hasattr(self, "sentinel") and self.sentinel:
+            ctx = self.sentinel.get_active_context()
+            if ctx.get("process") != "unknown" or ctx.get("title") != "unknown":
+                system += f"\n[User Workspace Context: Active Application is {ctx.get('process')} | Window Title: {ctx.get('title')}]"
+
         try:
-            response = ollama.chat(
-                model=self.models["main_brain"],
-                messages=[
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": text}
-                ]
-            )
-            return response["message"]["content"]
+            self.chat_history.append({"role": "user", "content": text})
+            
+            # Conversational/multilingual check to use free OfoxAI GLM-4.7-Flash
+            is_conversational = domain == "general" or any(w in text.lower() for w in ["hello", "hi ", "hey", "kaise", "kya", "tum", "main", "aap", "weather", "volume", "music", "song", "time"])
+            if is_conversational:
+                reply_text = self.query_llm(self.chat_history, system_prompt=system, provider="ofoxai", model="z-ai/glm-4.7-flash:free")
+            else:
+                reply_text = self.query_llm(self.chat_history, system_prompt=system, provider="mistral", model="mistral-large-2512")
+            
+            self.chat_history.append({"role": "assistant", "content": reply_text})
+            
+            # Compress if history exceeds 10 turns (20 messages)
+            if len(self.chat_history) >= 20:
+                self._compress_chat_history()
+                
+            return reply_text
         except Exception as e:
             logger.error(f"Generate response error: {e}")
             return "I am currently unable to process your request, sir."
+
+    def _compress_chat_history(self):
+        """Summarizes the oldest 10 messages and keeps only the latest 10 messages in memory."""
+        try:
+            to_summarize = self.chat_history[:10]
+            history_str = "\n".join(f"{m['role'].capitalize()}: {m['content']}" for m in to_summarize)
+            
+            prompt = (
+                f"Summarize the following recent dialogue history briefly in 2-3 sentences. "
+                f"Keep key details, facts, or decisions mentioned:\n\n{history_str}"
+            )
+            
+            response = ollama.chat(
+                model=self.models["main_brain"],
+                messages=[{"role": "user", "content": prompt}]
+            )
+            summary = response["message"]["content"].strip()
+            
+            if self.chat_history_summary:
+                combined_prompt = (
+                    f"Combine these two summaries of dialogue history into one cohesive, brief summary "
+                    f"(maximum 4 sentences):\nSummary 1: {self.chat_history_summary}\nSummary 2: {summary}"
+                )
+                comb_res = ollama.chat(
+                    model=self.models["main_brain"],
+                    messages=[{"role": "user", "content": combined_prompt}]
+                )
+                self.chat_history_summary = comb_res["message"]["content"].strip()
+            else:
+                self.chat_history_summary = summary
+                
+            self.chat_history = self.chat_history[10:]
+            logger.info(f"Dialogue history compressed. New summary: {self.chat_history_summary}")
+        except Exception as e:
+            logger.error(f"Error compressing dialogue history: {e}")
+
+    def clean_to_plain_text(self, text: str) -> str:
+        """Strips markdown formatting, bullet points, numbers, links, and asterisks for conversational speech/viewing."""
+        import re
+        if not text:
+            return ""
+        # 1. Remove markdown images
+        text = re.sub(r"!\[.*?\]\(.*?\)", "", text)
+        
+        # 2. Remove markdown links (keep text, discard URL)
+        text = re.sub(r"\[(.*?)\]\(.*?\)", r"\1", text)
+        text = re.sub(r"<(https?://\S+)>", "", text)
+        text = re.sub(r"\bhttps?://\S+", "", text)
+        
+        # 3. Remove bold/italic asterisks and underscores
+        text = text.replace("**", "").replace("*", "").replace("__", "").replace("_", "")
+        
+        # 4. Remove markdown headers
+        text = re.sub(r"^#+\s+", "", text, flags=re.MULTILINE)
+        
+        # 5. Clean bullet points at start of lines
+        text = re.sub(r"^[ \t]*[-\*+]\s+", "", text, flags=re.MULTILINE)
+        
+        # 6. Clean numbered list markers at start of lines or sentences
+        text = re.sub(r"^[ \t]*\d+\.\s+", "", text, flags=re.MULTILINE)
+        
+        # 7. Join lines into smooth flowing paragraphs
+        paragraphs = []
+        for line in text.split("\n"):
+            line = line.strip()
+            if line:
+                paragraphs.append(line)
+        
+        combined = " ".join(paragraphs)
+        combined = re.sub(r"\s+", " ", combined).strip()
+        return combined
+
+    def on_orb_state_changed(self, state: str):
+        if state == "interrupt":
+            logger.info("Orb clicked during speech. Stopping speech playback.")
+            self.tts.stop_speech()
 
     def _safety_check(self, text: str) -> bool:
         """Lightweight safety check (Bypasses heavy LLM shieldgemma to save 2GB+ VRAM and speed up responses)"""
@@ -658,31 +1014,160 @@ class JARVIS:
         commands = [c.strip() for c in splits if c.strip()]
         return commands
 
+    def _get_friendly_task_desc(self, text: str) -> str:
+        """Returns a human-like description of a command's intent."""
+        import re
+        intent = self.router.route(text)
+        skill = intent.get("skill", "conversation")
+        params = intent.get("params", {})
+        
+        if skill == "os_control":
+            action = params.get("action", "")
+            if action == "clean_disk":
+                return "clear the system temporary files"
+            elif action == "empty_recycle_bin":
+                return "empty the recycle bin"
+            elif action == "secure":
+                return "lock the screen"
+            elif action == "unlock":
+                return "unlock the screen"
+            elif action == "launch":
+                return f"launch the {params.get('app', 'requested application')}"
+            elif action == "close":
+                return f"close {params.get('app', 'the application')}"
+            elif action == "set_brightness":
+                return f"adjust system brightness to {params.get('percent', 50)} percent"
+            
+        elif skill == "sentry_firewall":
+            action = params.get("action", "")
+            if action == "quarantine":
+                return f"quarantine and block remote endpoint {params.get('ip', 'IP')}"
+            elif action == "remove_quarantine":
+                return f"remove firewall block for {params.get('ip', 'IP')}"
+            elif action == "list_blocks":
+                return "list active firewall quarantine blocks"
+                
+        elif skill == "hologram_control":
+            action = params.get("action", "")
+            if action == "explode":
+                enable = params.get("enable", True)
+                return "explode the hologram assembly" if enable else "collapse the hologram assembly"
+            elif action == "toggle_heatmap":
+                enable = params.get("enable", True)
+                return "show the load heatmap" if enable else "hide the load heatmap"
+            elif action == "set_rotation":
+                return f"set hologram rotation speed to {params.get('speed', 'slow')}"
+                
+        elif skill == "system_monitor":
+            return "check system resources"
+            
+        elif skill == "spotify" or skill == "youtube_music":
+            action = params.get("action", "")
+            if action == "play":
+                return f"play {params.get('query', 'music')}"
+            elif action == "pause":
+                return "pause the music player"
+                
+        # Default description if it's general conversation/command
+        words = text.split()
+        if len(words) > 4:
+            return " ".join(words[:4]) + "..."
+        return text
+
     def process_command(self, text: str):
-        """Processes a single command, or splits and executes a chain of sequential commands."""
+        """Processes a single command, or splits and executes a chain of sequential commands with human-like transitions."""
         import re
         commands = self.split_chained_commands(text)
-        if len(commands) > 1:
-            logger.info(f"Chained commands detected: {commands}")
-            for idx, cmd in enumerate(commands):
-                cmd_clean = re.sub(r"^(?:first|second|third|fourth|then|and)\s+", "", cmd, flags=re.IGNORECASE).strip()
-                if cmd_clean:
-                    logger.info(f"Executing chained command {idx+1}/{len(commands)}: '{cmd_clean}'")
-                    self._process_single_command(cmd_clean)
-                    time.sleep(1.0)
+        cleaned_cmds = []
+        for cmd in commands:
+            cmd_clean = re.sub(r"^(?:first|second|third|fourth|then|and|so|now)\s+", "", cmd, flags=re.IGNORECASE).strip()
+            if cmd_clean:
+                cleaned_cmds.append(cmd_clean)
+
+        if len(cleaned_cmds) > 1:
+            logger.info(f"Chained commands detected: {cleaned_cmds}")
+            
+            # Generate the human-like plan announcement
+            descs = [self._get_friendly_task_desc(c) for c in cleaned_cmds]
+            if len(cleaned_cmds) == 2:
+                plan_intro = f"Right away, sir. First, I will {descs[0]}, and then I will {descs[1]}."
+            elif len(cleaned_cmds) == 3:
+                plan_intro = f"Right away, sir. First, I will {descs[0]}, next, I will {descs[1]}, and finally, I will {descs[2]}."
+            else:
+                plan_intro = f"Right away, sir. I have a chain of {len(cleaned_cmds)} tasks to execute: first, I will {descs[0]}, and then proceed with the rest."
+                
+            self.orb.set_state("speaking")
+            self.tts.speak(plan_intro)
+            self.orb.set_state("idle")
+            
+            for idx, cmd_clean in enumerate(cleaned_cmds):
+                logger.info(f"Executing chained command {idx+1}/{len(cleaned_cmds)}: '{cmd_clean}'")
+                
+                # Speak transitional phrase between tasks only for non-immediate actions
+                is_immediate_action = any(phrase in cmd_clean.lower() for phrase in ["play", "volume", "music", "song", "mute", "unmute", "lock", "sentry", "secure"])
+                if idx > 0 and not is_immediate_action:
+                    transition = f"Now, I am going to {descs[idx]}, sir."
+                    self.orb.set_state("speaking")
+                    self.tts.speak(transition)
+                    self.orb.set_state("idle")
+                
+                # Execute command with is_chained=True
+                self._process_single_command(cmd_clean, speak_filler=False, is_chained=True)
+                time.sleep(1.0)
             return
         else:
             self._process_single_command(text)
 
-    def _process_single_command(self, text: str):
+    def _process_single_command(self, text: str, speak_filler: bool = True, is_chained: bool = False):
         """Full pipeline: route → execute → respond → speak"""
         self.orb.set_state("thinking")
 
         # Speak filler instantly while processing
-        threading.Thread(target=self.tts.speak_filler, daemon=True).start()
+        if speak_filler:
+            threading.Thread(target=self.tts.speak_filler, daemon=True).start()
 
         # Store user input in memory
         self.brain.store(text, role="user")
+
+        # Check if we have a pending code snippet and the user is responding to the confirmation
+        if getattr(self, "pending_code_snippet", None):
+            user_confirm = text.lower()
+            if any(w in user_confirm for w in ["write", "save", "create file", "file"]):
+                snippet = self.pending_code_snippet
+                self.pending_code_snippet = None
+                filename = "workspace_script.py"
+                try:
+                    with open(filename, "w", encoding="utf-8") as f:
+                        f.write(snippet)
+                    response = f"I have written the script to {filename}, sir."
+                except Exception as write_err:
+                    response = f"Failed to write script, sir. {write_err}"
+                self.orb.set_state("speaking")
+                self.tts.speak(response)
+                self.orb.set_state("idle")
+                self.brain.store(response, role="assistant")
+                return
+            elif any(w in user_confirm for w in ["run", "execute", "play", "start"]):
+                snippet = self.pending_code_snippet
+                self.pending_code_snippet = None
+                filename = "workspace_script.py"
+                try:
+                    with open(filename, "w", encoding="utf-8") as f:
+                        f.write(snippet)
+                    response = f"Running the script now, sir."
+                    self.orb.set_state("speaking")
+                    self.tts.speak(response)
+                    self.orb.set_state("idle")
+                    self.brain.store(response, role="assistant")
+                    import subprocess
+                    subprocess.Popen(f".\\jarvis_env\\Scripts\\python.exe {filename}", shell=True)
+                except Exception as run_err:
+                    response = f"Failed to execute script, sir. {run_err}"
+                    self.orb.set_state("speaking")
+                    self.tts.speak(response)
+                    self.orb.set_state("idle")
+                    self.brain.store(response, role="assistant")
+                return
 
         # Route intent
         intent = self.router.route(text)
@@ -691,6 +1176,34 @@ class JARVIS:
         domain = intent.get("domain", "general")
 
         logger.info(f"Intent routed -> Skill: {skill} | Domain: {domain} | Params: {params}")
+
+        if skill == "ambiguous":
+            self.active_context = {
+                "type": "confirm_ambiguous_intent",
+                "options": params["options"],
+                "text": text,
+                "timestamp": time.time()
+            }
+            labels = [opt["label"] for opt in params["options"]]
+            clarification = f"I heard '{text}', sir. Did you mean to {labels[0]}, or {labels[1]}?"
+            self.orb.set_state("speaking")
+            self.tts.speak(clarification)
+            self.orb.set_state("idle")
+            return
+
+        # Vocal Biometric Signature Verification
+        high_risk_skills = {"coding_sandbox", "sentry_firewall", "os_control"}
+        if skill in high_risk_skills and getattr(self.audio, "latest_raw_audio", None) is not None:
+            # Bypass if the voice was verified via wake word within the last 45 seconds
+            recent_auth = (time.time() - getattr(self, "last_voice_auth_time", 0.0)) < 45.0
+            if not recent_auth:
+                is_verified, similarity = self.voice_auth.verify_speaker(self.audio.latest_raw_audio)
+                if not is_verified:
+                    logger.warning(f"Voice Auth: Biometric check failed (Sim: {similarity:.3f}) for skill {skill}")
+                    self.orb.set_state("error")
+                    self.tts.speak("Vocal signature mismatch. Action blocked, sir.")
+                    self.orb.set_state("idle")
+                    return
 
         response = ""
 
@@ -714,6 +1227,22 @@ class JARVIS:
                 action = params.get("action", "")
                 if action == "launch":
                     response = self.os_ctrl.launch_app(params.get("app", ""))
+                elif action == "secure":
+                    self.is_asleep = True
+                    self.is_authenticated = False
+                    self.face_verified = False
+                    self.os_ctrl.lock_screen()
+                    response = "System locked and secure, sir."
+                elif action == "unlock":
+                    pin = params.get("pin", "")
+                    success, msg = self.auth.verify_pin(pin)
+                    if success:
+                        self.os_ctrl.unlock_screen()
+                        self.os_ctrl.wake_monitor()
+                        self.is_authenticated = True
+                        response = "System unlocked and authenticated, sir. Welcome back."
+                    else:
+                        response = f"Access denied, sir. {msg}"
                 elif action == "type":
                     response = self.os_ctrl.type_text(params.get("text", ""))
                 elif action == "hotkey":
@@ -1002,6 +1531,184 @@ class JARVIS:
                 else:
                     response = self._generate_response(text, domain)
 
+            elif skill == "network_mapper":
+                action = params.get("action", "")
+                if action == "scan_and_project":
+                    self.tts.speak("Scanning local network topology, sir. I will project the active nodes onto the holographic viewport.")
+                    
+                    def run_scan():
+                        devices = self.network_mapper.scan_local_subnet()
+                        self.tts.speak(f"Scan complete, sir. Discovered {len(devices)} active network devices.")
+                        vertices, connections, name = self.network_mapper.generate_3d_topology(devices)
+                        labels = [d[1] for d in devices]
+                        labels = ["GATEWAY ROUTER"] + labels
+                        self.hologram_widget.set_hologram_object(vertices, connections, name, labels)
+                        self.orb.hologram_toggle_signal.emit(True)
+                    threading.Thread(target=run_scan, daemon=True).start()
+                    response = "Sweep initialized, sir."
+
+            elif skill == "agent_lab":
+                action = params.get("action", "")
+                task = params.get("task", "")
+                if action == "open_lab":
+                    self.agent_lab.show()
+                    response = "Opening cognitive agent laboratory, sir."
+                elif action == "close_lab":
+                    self.agent_lab.hide()
+                    response = "Closing agent lab, sir."
+                elif action == "collaborate":
+                    self.agent_lab.show()
+                    self.agent_lab.clear_chat()
+                    self.tts.speak(f"Initializing swarm collaboration for: {task}, sir.")
+                    
+                    def run_lab():
+                        self.agent_lab.add_message("System", f"Swarm initialized for task: {task}")
+                        
+                        # 1. Architect turns
+                        self.agent_lab.set_agent_status("Architect", "thinking")
+                        import time
+                        time.sleep(2)
+                        arch_prompt = f"Design the system structure and UX flow for this task: {task}"
+                        try:
+                            arch_reply = get_agent_response("UX Architect", arch_prompt)
+                        except Exception as e:
+                            arch_reply = f"Error generating plan: {e}"
+                        self.agent_lab.set_agent_status("Architect", "idle")
+                        self.agent_lab.add_message("Architect", arch_reply)
+                        self.tts.speak("Architect has finished the blueprint. Auditor is checking.")
+                        
+                        # 2. Auditor turns
+                        self.agent_lab.set_agent_status("Auditor", "thinking")
+                        time.sleep(2)
+                        aud_prompt = f"Audit this design for security vulnerabilities and local data storage privacy:\n{arch_reply}"
+                        try:
+                            aud_reply = get_agent_response("Security Auditor", aud_prompt)
+                        except Exception as e:
+                            aud_reply = f"Error auditing design: {e}"
+                        self.agent_lab.set_agent_status("Auditor", "idle")
+                        self.agent_lab.add_message("Auditor", aud_reply)
+                        self.tts.speak("Auditor has signed off. QA is now validating.")
+                        
+                        # 3. QA turns
+                        self.agent_lab.set_agent_status("QA", "thinking")
+                        time.sleep(2)
+                        qa_prompt = f"Provide a QA test suite and validation checklist for the proposed system and security guidelines:\nDesign: {arch_reply}\nSecurity: {aud_reply}"
+                        try:
+                            qa_reply = get_agent_response("QA Engineer", qa_prompt)
+                        except Exception as e:
+                            qa_reply = f"Error generating tests: {e}"
+                        self.agent_lab.set_agent_status("QA", "idle")
+                        self.agent_lab.add_message("QA", qa_reply)
+                        self.agent_lab.add_message("System", "Collaborate loop complete. Solution ready for review, sir.")
+                        self.tts.speak("Swarm review complete, sir. All checks passed.")
+
+                    def get_agent_response(role, prompt):
+                        system_prompt = f"You are JARVIS's expert {role}. Speak in a concise, technical manner (max 3 sentences). Keep your tone professional and helpful."
+                        res = ollama.chat(
+                            model=self.models["main_brain"],
+                            messages=[
+                                {"role": "system", "content": system_prompt},
+                                {"role": "user", "content": prompt}
+                            ],
+                            options={"temperature": 0.4}
+                        )
+                        return res["message"]["content"].strip()
+                    threading.Thread(target=run_lab, daemon=True).start()
+                    response = "Swarm collaboration initialized. Loading agent profiles, sir."
+
+            elif skill == "sensory_health":
+                action = params.get("action", "")
+                if action == "check":
+                    analysis = self.sensory_health.analyze_environment()
+                    response = analysis.get("message", "Environment check nominal, sir.")
+                elif action == "recalibrate":
+                    response = self.sensory_health.recalibrate_posture()
+
+            elif skill == "p2p_link":
+                action = params.get("action", "")
+                peer_ip = params.get("peer_ip", "")
+                if action == "list_peers":
+                    response = self.p2p_link.list_peers()
+                elif action == "send_clipboard":
+                    response = self.p2p_link.send_clipboard(peer_ip)
+                elif action == "send_speech":
+                    message = params.get("message", "Ping")
+                    response = self.p2p_link.send_speech(peer_ip, message)
+
+            elif skill == "air_typist":
+                action = params.get("action", "")
+                if action == "start":
+                    response = self.air_typist.start()
+                elif action == "stop":
+                    response = self.air_typist.stop()
+
+            elif skill == "hologram_control":
+                action = params.get("action", "")
+                if action == "explode":
+                    enable = params.get("enable", True)
+                    self.hologram_widget.animate_explode(enable)
+                    response = "Expanding holographic structure coordinates, sir." if enable else "Collapsing coordinates to baseline state, sir."
+                elif action == "set_rotation":
+                    speed = params.get("speed", "slow")
+                    self.hologram_widget.set_rotation_speed(speed)
+                    response = f"Adjusting rotation parameters to {speed}, sir."
+                elif action == "toggle_heatmap":
+                    enable = params.get("enable", True)
+                    self.hologram_widget.toggle_heatmap(enable)
+                    response = "Visualizing simulated load heatmap layer, sir." if enable else "Hiding heatmap layer, sir."
+
+            elif skill == "git_sentinel":
+                action = params.get("action", "")
+                if action == "check":
+                    self.tts.speak("Initializing git sentinel diagnostic sweep, sir. Checking changed files.")
+                    check_res = self.git_sentinel.check_workspace()
+                    
+                    if check_res["status"] == "clean":
+                        response = "Workspace diagnostic checks are clean, sir. No compilation breaks found."
+                    else:
+                        broken_file = check_res["file_path"]
+                        short_name = os.path.basename(broken_file)
+                        self.tts.speak(f"Compile break detected in {short_name}. Querying Ollama self-healing patch, sir.")
+                        
+                        # Generate self-healing patch
+                        patch_content = self.git_sentinel.generate_healing_patch(
+                            broken_file,
+                            check_res["error"],
+                            check_res["diff"],
+                            self.models["main_brain"],
+                            ollama
+                        )
+                        
+                        if patch_content:
+                            # Save in active context for user verification before applying
+                            self.active_context = {
+                                "type": "confirm_file_patch",
+                                "file_path": broken_file,
+                                "patched_content": patch_content
+                            }
+                            response = f"I've drafted a self-healing patch to restore compiles in {short_name}. Shall I write it to disk, sir?"
+                        else:
+                            response = f"Compile break detected in {short_name}, but I was unable to construct a corrective patch automatically."
+
+            elif skill == "sentry_firewall":
+                action = params.get("action", "")
+                ip = params.get("ip", "")
+                if action == "quarantine":
+                    response = self.sentry_firewall.quarantine_ip(ip)
+                elif action == "remove_quarantine":
+                    response = self.sentry_firewall.remove_quarantine(ip)
+                elif action == "list_blocks":
+                    response = self.sentry_firewall.list_blocks()
+
+            elif skill == "focus_tracker":
+                action = params.get("action", "")
+                if action == "open_dashboard":
+                    self.vitals_dashboard.show()
+                    response = "Displaying vitals and cognitive focus monitor on the HUD overlay, sir."
+                elif action == "close_dashboard":
+                    self.vitals_dashboard.hide()
+                    response = "Closing vitals monitor, sir."
+
             elif skill == "web_research":
                 action = params.get("action", "")
                 query = params.get("query", text)
@@ -1060,6 +1767,29 @@ class JARVIS:
                     response = self.app_map.click_element(app_name, params.get("element", ""))
                 elif action == "fill":
                     response = self.app_map.fill_form_field(app_name, params.get("field", ""), params.get("text", ""))
+                elif action in ["run_code", "toggle_terminal", "new_tab", "close_tab", "next_tab", "prev_tab", "reopen_tab", "save_file"]:
+                    ctx = self.sentinel.get_active_context()
+                    active_process = ctx.get("process", "unknown")
+                    response = self.app_ctrl.execute_action(action, active_process)
+                else:
+                    response = self._generate_response(text, domain)
+
+            elif skill == "obsidian":
+                action = params.get("action", "")
+                title = params.get("title", "")
+                content = params.get("content", "")
+                query = params.get("query", "")
+                folder = params.get("folder", "")
+                if action == "create_note":
+                    response = self.obsidian_ctrl.create_note(title, content, folder)
+                elif action == "read_note":
+                    response = self.obsidian_ctrl.read_note(title)
+                elif action == "search_notes":
+                    response = self.obsidian_ctrl.search_notes(query)
+                elif action == "append_to_daily_note":
+                    response = self.obsidian_ctrl.append_to_daily_note(content)
+                elif action == "list_notes":
+                    response = self.obsidian_ctrl.list_notes(folder)
                 else:
                     response = self._generate_response(text, domain)
 
@@ -1419,13 +2149,48 @@ class JARVIS:
         if not self._safety_check(response):
             response = "I cannot assist with that request, sir."
 
+        # Check if response contains code blocks (markdown or standard code)
+        import re
+        code_blocks = re.findall(r"```[a-zA-Z0-9\-\_]*\n(.*?)\n```", response, flags=re.DOTALL)
+        if code_blocks:
+            # Save the code snippet in the pending slot
+            self.pending_code_snippet = code_blocks[0].strip()
+            
+            # Extract the non-code text (the explanations/descriptions)
+            explanation = re.sub(r"```[a-zA-Z0-9\-\_]*\n(.*?)\n```", "", response, flags=re.DOTALL).strip()
+            
+            # Determine if this is a code analysis or summarization request
+            is_analysis_or_sum = skill in ["screen_vision", "media_summarizer", "web_research"] or any(w in text.lower() for w in ["explain", "summarize", "review", "analyze", "what does", "how does"])
+            
+            if not is_analysis_or_sum:
+                # Truncate explanation to 1-2 sentences max
+                sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", explanation) if s.strip()]
+                brief_explanation = " ".join(sentences[:2]) if sentences else "I have generated the requested script."
+                response = f"{brief_explanation} I have prepared the code snippet for you, sir. Would you like me to write it to a file or run it?"
+            else:
+                # For analysis/summarization, output the full explanation but completely strip the raw code block
+                response = explanation
+
+        # Convert final response to clean plain text format
+        response = self.clean_to_plain_text(response)
+
         # Store response in memory
         self.brain.store(response, role="assistant", skill=skill)
 
         # Speak
-        self.orb.set_state("speaking")
-        self.tts.speak(response)
-        self.orb.set_state("idle")
+        should_speak = True
+        if is_chained:
+            silent_skills = ["spotify", "os_control", "app_control"]
+            if skill in silent_skills:
+                action = params.get("action", "")
+                if action in ["play", "pause", "resume", "next", "previous", "volume_up", "volume_down", "set_volume", "mute", "unmute", "secure", "lock"]:
+                    should_speak = False
+                    logger.info(f"Chained execution: suppressing spoken response for background action '{action}'")
+
+        if should_speak:
+            self.orb.set_state("speaking")
+            self.tts.speak(response)
+            self.orb.set_state("idle")
 
     def _handle_auth(self, text: str):
         self.orb.set_state("thinking")
@@ -1434,22 +2199,22 @@ class JARVIS:
         pin = "".join(filter(str.isdigit, text))
         
         if not self.auth.is_setup():
-            if len(pin) == 6:
+            if len(pin) in [4, 6]:
                 if self.auth.setup_pin(pin):
                     self.is_authenticated = True
                     self.orb.set_state("speaking")
                     self.tts.speak("PIN setup successful. I am now fully operational, sir.")
                 else:
-                    self.tts.speak("PIN setup failed. Please carefully state a six digit PIN.")
+                    self.tts.speak("PIN setup failed. Please carefully state a four or six digit PIN.")
             else:
-                self.tts.speak("I need a precise six digit PIN to setup your secure lock.")
+                self.tts.speak("I need a precise four or six digit PIN to setup your secure lock.")
             self.orb.set_state("idle")
             return
 
         # Verification
-        if len(pin) >= 6:
-            # Try to grab the first 6 digits spoken
-            pin = pin[:6]
+        if len(pin) in [4, 6] or len(pin) > 6:
+            if len(pin) > 6:
+                pin = pin[:6]
             success, msg = self.auth.verify_pin(pin)
             self.orb.set_state("speaking")
             self.tts.speak(msg)
@@ -1676,10 +2441,39 @@ class JARVIS:
                 self.orb.set_state("idle")
                 
                 if self.is_asleep:
+                    # Strict two-factor gate: if locked, must verify Face ID first, then voice trigger
+                    if not self.is_authenticated and not self.face_verified:
+                        time.sleep(0.2)
+                        continue
+
                     # 1. Wait for wake word
                     if not self.wake.listen_for_wake_word():
                         continue
+
+                    # If we got here and not authenticated, we just verified voice print! Unlock now!
+                    if not self.is_authenticated:
+                        self.is_authenticated = True
+                        self.is_asleep = False
                         
+                        self.os_ctrl.unlock_screen()
+                        self.os_ctrl.wake_monitor()
+                        
+                        # Write unlocked to state file to close secure_lock.py
+                        state_file = os.path.abspath("./auth/.auth_state")
+                        try:
+                            with open(state_file, "w") as f:
+                                f.write("unlocked")
+                            time.sleep(0.1)
+                            os.remove(state_file)
+                        except Exception:
+                            pass
+                            
+                        self.orb.set_state("speaking")
+                        self.tts.speak("Identity confirmed. Welcome back, sir.")
+                        self.orb.set_state("idle")
+                        continue
+                        
+                    self.last_voice_auth_time = time.time()
                     self.is_listening_to_command = True
                     # Temporarily pause background music
                     self._auto_pause_music()
@@ -1693,11 +2487,21 @@ class JARVIS:
                             alerts_to_speak = list(self.alert_queue)
                             self.alert_queue.clear()
                             
+                    greeting, is_night = self.profile_mgr.get_time_of_day_greeting()
+                    if is_night:
+                        def apply_night_mode():
+                            try:
+                                brightness = self.profile_mgr.get_preference("brightness_night", 35)
+                                self.os_ctrl.set_brightness(brightness)
+                            except Exception:
+                                pass
+                        threading.Thread(target=apply_night_mode, daemon=True).start()
+
                     if alerts_to_speak:
                         alert_msg = " Also, ".join(alerts_to_speak)
-                        self.tts.speak(f"Yes, sir? I notice a critical warning. {alert_msg}")
+                        self.tts.speak(f"{greeting} I notice a critical warning. {alert_msg}")
                     else:
-                        self.tts.speak("Yes, sir?")
+                        self.tts.speak(greeting)
                         
                     self.is_asleep = False
                 
@@ -1874,73 +2678,97 @@ class JARVIS:
                     self.tts.default_speed = 1.0
                 elif self.cognitive_state == "fatigued":
                     self.tts.default_speed = 0.95
-                elif self.cognitive_state == "excited":
-                    self.tts.default_speed = 1.4
-                else: # calm
-                    self.tts.default_speed = 1.25
-
-                # Check if we have an active context (Stateful Conversational Turns)
+                              # Check if we have an active context (Stateful Conversational Turns)
                 if getattr(self, "active_context", None):
                     ctx = self.active_context
                     cmd_lower = text.lower().strip()
+                    word_count = len(cmd_lower.split())
 
-                    if ctx.get("type") == "confirm_file_patch":
-                        yes_words = ["yes", "go ahead", "do it", "confirm", "ok", "sure", "apply", "yep", "yeah"]
-                        no_words = ["no", "abort", "cancel", "don't", "dont", "no do not", "discard", "nah", "nope"]
+                    # Valid confirmations are usually short (5 words or fewer)
+                    if word_count <= 5:
+                        if ctx.get("type") == "confirm_file_patch":
+                            yes_words = ["yes", "go ahead", "do it", "confirm", "ok", "sure", "apply", "yep", "yeah"]
+                            no_words = ["no", "abort", "cancel", "don't", "dont", "no do not", "discard", "nah", "nope"]
 
-                        if any(w in cmd_lower for w in yes_words):
-                            file_path = ctx["file_path"]
-                            patched_content = ctx["patched_content"]
-                            filename = os.path.basename(file_path)
-                            try:
-                                with open(file_path, "w", encoding="utf-8") as f:
-                                    f.write(patched_content)
-                                logger.info(f"Active context: applied patch to {file_path}")
+                            if any(w in cmd_lower for w in yes_words):
+                                file_path = ctx["file_path"]
+                                patched_content = ctx["patched_content"]
+                                filename = os.path.basename(file_path)
+                                try:
+                                    with open(file_path, "w", encoding="utf-8") as f:
+                                        f.write(patched_content)
+                                    logger.info(f"Active context: applied patch to {file_path}")
+                                    self.orb.set_state("speaking")
+                                    self.tts.speak(f"Patch applied successfully to {filename}, sir. The file has been restored.")
+                                    self.orb.set_state("idle")
+                                except Exception as patch_err:
+                                    logger.error(f"Error applying patch in context: {patch_err}")
+                                    self.orb.set_state("speaking")
+                                    self.tts.speak(f"Sir, I was unable to write the patch to disk. Error: {str(patch_err)}")
+                                    self.orb.set_state("idle")
+                                self.active_context = None
+                                continue
+                            elif any(w in cmd_lower for w in no_words):
                                 self.orb.set_state("speaking")
-                                self.tts.speak(f"Patch applied successfully to {filename}, sir. The file has been restored.")
+                                self.tts.speak("Understood, sir. I have discarded the patch.")
                                 self.orb.set_state("idle")
-                            except Exception as patch_err:
-                                logger.error(f"Error applying patch in context: {patch_err}")
-                                self.orb.set_state("speaking")
-                                self.tts.speak(f"Sir, I was unable to write the patch to disk. Error: {str(patch_err)}")
-                                self.orb.set_state("idle")
-                            self.active_context = None
-                            continue
-                        elif any(w in cmd_lower for w in no_words):
-                            self.orb.set_state("speaking")
-                            self.tts.speak("Understood, sir. I have discarded the patch.")
-                            self.orb.set_state("idle")
-                            self.active_context = None
-                            continue
+                                self.active_context = None
+                                continue
 
-                    elif ctx.get("type") == "confirm_quarantine_process":
-                        yes_words = ["yes", "go ahead", "do it", "confirm", "ok", "sure", "block", "kill", "quarantine"]
-                        no_words = ["no", "abort", "cancel", "don't", "dont", "allow", "ignore", "nah", "nope"]
+                        elif ctx.get("type") == "confirm_quarantine_process":
+                            yes_words = ["yes", "go ahead", "do it", "confirm", "ok", "sure", "block", "kill", "quarantine"]
+                            no_words = ["no", "abort", "cancel", "don't", "dont", "allow", "ignore", "nah", "nope"]
 
-                        pid = ctx["pid"]
-                        proc_name = ctx["proc_name"]
-                        if any(w in cmd_lower for w in yes_words):
-                            try:
-                                import psutil
-                                p = psutil.Process(pid)
-                                p.terminate()
-                                logger.info(f"Active context: terminated process {proc_name} (PID: {pid})")
+                            pid = ctx["pid"]
+                            proc_name = ctx["proc_name"]
+                            if any(w in cmd_lower for w in yes_words):
+                                try:
+                                    import psutil
+                                    p = psutil.Process(pid)
+                                    p.terminate()
+                                    logger.info(f"Active context: terminated process {proc_name} (PID: {pid})")
+                                    self.orb.set_state("speaking")
+                                    self.tts.speak(f"Process {proc_name} has been terminated and quarantined, sir.")
+                                    self.orb.set_state("idle")
+                                except Exception as kill_err:
+                                    logger.error(f"Error killing process in context: {kill_err}")
+                                    self.orb.set_state("speaking")
+                                    self.tts.speak(f"Sir, I was unable to terminate process {proc_name}. It may have already exited.")
+                                    self.orb.set_state("idle")
+                                self.active_context = None
+                                continue
+                            elif any(w in cmd_lower for w in no_words):
                                 self.orb.set_state("speaking")
-                                self.tts.speak(f"Process {proc_name} has been terminated and quarantined, sir.")
+                                self.tts.speak(f"Understood, sir. I will allow the connection for {proc_name}.")
                                 self.orb.set_state("idle")
-                            except Exception as kill_err:
-                                logger.error(f"Error killing process in context: {kill_err}")
+                                self.active_context = None
+                                continue
+
+                        elif ctx.get("type") == "confirm_ambiguous_intent":
+                            options = ctx["options"]
+                            selected_cmd = None
+                            
+                            # Check numerical or semantic options
+                            if any(w in cmd_lower for w in ["first", "one", "1"]):
+                                selected_cmd = options[0]["command"]
+                            elif any(w in cmd_lower for w in ["second", "two", "2"]):
+                                selected_cmd = options[1]["command"]
+                            else:
+                                if "lock" in cmd_lower or "secure" in cmd_lower:
+                                    selected_cmd = options[0]["command"]
+                                elif "python" in cmd_lower or "script" in cmd_lower or "write" in cmd_lower or "code" in cmd_lower or "log" in cmd_lower:
+                                    selected_cmd = options[1]["command"]
+                                    
+                            if selected_cmd:
                                 self.orb.set_state("speaking")
-                                self.tts.speak(f"Sir, I was unable to terminate process {proc_name}. It may have already exited.")
+                                self.tts.speak("Right away, sir.")
                                 self.orb.set_state("idle")
-                            self.active_context = None
-                            continue
-                        elif any(w in cmd_lower for w in no_words):
-                            self.orb.set_state("speaking")
-                            self.tts.speak(f"Understood, sir. I will allow the connection for {proc_name}.")
-                            self.orb.set_state("idle")
-                            self.active_context = None
-                            continue
+                                self.active_context = None
+                                self.process_command(selected_cmd)
+                                continue
+                    # If it's a long sentence or doesn't match yes/no, auto-clear context and fall through to regular processing
+                    logger.info("Active context bypassed and cleared: user issued a new/longer command.")
+                    self.active_context = None
 
                 # Check if we are waiting for a number response
                 if getattr(self, "awaiting_number_for", None):
@@ -1976,6 +2804,7 @@ class JARVIS:
                 if "secure the laptop" in cmd_lower or "sentry mode" in cmd_lower or "see the laptop" in cmd_lower:
                     self.is_asleep = True
                     self.is_authenticated = False
+                    self.face_verified = False
                     self.orb.set_state("speaking")
                     self.tts.speak("Sentry mode activated. Laptop is secure.")
                     self.os_ctrl.activate_sentry_mode()
@@ -1988,7 +2817,8 @@ class JARVIS:
                     self.os_ctrl.shutdown_system()
                     continue
 
-                logger.info(f"User Transcribed: {text}")
+                print(f"\nJARVIS Heard: {text}\n", flush=True)
+                logger.info(f"JARVIS Heard: {text}")
                 
                 # 3. Process
                 if not self.is_authenticated:

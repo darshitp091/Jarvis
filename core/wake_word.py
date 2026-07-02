@@ -122,6 +122,7 @@ class WakeWordDetector:
         self.audio = pyaudio.PyAudio()
         self.voice_profile_path = "config/voice_profile.json"
         self._load_voice_profile()
+        self.is_speaking_cb = None
 
     def _load_voice_profile(self):
         self.voice_profile = None
@@ -255,6 +256,12 @@ class WakeWordDetector:
 
         try:
             while True:
+                # If TTS is speaking, clear buffer and wait to prevent self-triggering feedback
+                if self.is_speaking_cb and self.is_speaking_cb():
+                    recent_frames.clear()
+                    time.sleep(0.05)
+                    continue
+
                 data = stream.read(CHUNK, exception_on_overflow=False)
                 audio_data = np.frombuffer(data, dtype=np.int16)
                 

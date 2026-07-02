@@ -39,11 +39,32 @@ memory:
   memory_ttl_days: 90
 
 spotify:
-  client_id: ""
-  client_secret: ""
+  client_id: "YOUR_SPOTIFY_CLIENT_ID"
+  client_secret: "YOUR_SPOTIFY_CLIENT_SECRET"
   redirect_uri: "http://127.0.0.1:8888/callback"
   api_enabled: false
 
 groq:
-  api_key: ""
+  api_key: "YOUR_GROQ_API_KEY"
   model: "llama-3.3-70b-versatile"
+
+sarvam:
+  api_key: "YOUR_SARVAM_API_KEY"
+  enabled: true
+  language: "hi-IN"
+  tts_speaker: "shubh"
+
+obsidian:
+  vault_path: "C:\\Users\\patel\\Documents\\Obsidian Vault"
+  daily_notes_folder: "Daily Notes"
+
+mistral:
+  api_key: "YOUR_MISTRAL_API_KEY"
+  models:
+    brain: "mistral-large-2512"
+    code: "codestral-2405"
+    vision: "ministral-8b-2512"
+
+ofoxai:
+  api_key: "YOUR_OFOXAI_API_KEY"
+  model: "z-ai/glm-4.7-flash:free"

@@ -11,7 +11,8 @@ from loguru import logger
 class ScreenVision:
     """PaliGemma-powered screen analysis"""
 
-    def __init__(self, config_path: str = "config/settings.yaml"):
+    def __init__(self, config_path: str = "config/settings.yaml", jarvis = None):
+        self.jarvis = jarvis
         # Resolve config path gracefully based on current working directory
         if not os.path.exists(config_path):
             fallback = os.path.join(os.path.dirname(__file__), "..", config_path)
@@ -73,6 +74,24 @@ class ScreenVision:
 
             with open(path, "rb") as f:
                 img_b64 = base64.b64encode(f.read()).decode()
+
+            if self.jarvis is not None:
+                messages = [{
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": context_prompt
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/png;base64,{img_b64}"
+                            }
+                        }
+                    ]
+                }]
+                return self.jarvis.query_llm(messages, provider="mistral", model="ministral-8b-2512")
 
             response = ollama.chat(
                 model=self.model,

@@ -40,7 +40,8 @@ class HudToast(QWidget):
         self.msg_label.setStyleSheet("color: #ffffff; font-size: 11px; font-family: 'Segoe UI', Arial;")
         layout.addWidget(self.msg_label)
 
-        self.setFixedSize(300, 80)
+        self.setFixedWidth(300)
+        self.setMinimumHeight(80)
         
         # Position in top-right of screen
         try:

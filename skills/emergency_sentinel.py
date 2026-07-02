@@ -25,7 +25,7 @@ class EmergencySentinel:
         # 2. Acoustic Check (Voice energy threshold > 330 indicating panicked shouting)
         is_acoustic_distress = avg_rms > 330.0
         
-        if matched_keywords or is_acoustic_distress:
+        if matched_keywords:
             logger.warning(f"EMERGENCY SENSING TRIGGERED! Keywords: {matched_keywords} | RMS: {avg_rms:.1f}")
             return {
                 "distress": True,

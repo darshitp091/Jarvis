@@ -27,8 +27,8 @@ class LocalAuth:
         """Saves a new PIN to the keyring if valid"""
         # We strip any spaces just in case STT formats it as "12 34 56"
         clean_pin = pin.replace(" ", "")
-        if not clean_pin.isdigit() or len(clean_pin) != 6:
-            logger.error("PIN setup failed: PIN must be exactly 6 digits.")
+        if not clean_pin.isdigit() or len(clean_pin) not in [4, 6]:
+            logger.error("PIN setup failed: PIN must be 4 or 6 digits.")
             return False
             
         hashed = self._hash_pin(clean_pin)

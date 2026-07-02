@@ -1,0 +1,12 @@
+user_name: "Sir"
+preferences:
+  coding_style: "tabs"
+  theme: "dark"
+  favorite_music: "lo-fi"
+  brightness_night: 35
+  brightness_day: 80
+routines:
+  morning_start: 6
+  afternoon_start: 12
+  evening_start: 17
+  night_start: 20

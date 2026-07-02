@@ -43,7 +43,20 @@ class TTSEngine:
         
         self.on_speak_start = None
         self.on_speak_end = None
-        
+        self.is_speaking = False
+        self.sarvam_config = {}
+        try:
+            import os
+            import yaml
+            config_path = "config/settings.yaml"
+            if not os.path.exists(config_path):
+                config_path = os.path.join(os.path.dirname(__file__), "..", config_path)
+            if os.path.exists(config_path):
+                with open(config_path, "r") as f:
+                    settings = yaml.safe_load(f) or {}
+                    self.sarvam_config = settings.get("sarvam", {})
+        except Exception as config_err:
+            logger.warning(f"TTSEngine: Failed to load settings.yaml: {config_err}")
         self._load_kokoro()
 
     def _load_kokoro(self):
@@ -83,6 +96,12 @@ class TTSEngine:
         if not text:
             return
             
+        self.is_speaking = True
+            
+        import sys
+        sys.stdout.write(f"JARVIS Replied: {text}\n")
+        sys.stdout.flush()
+            
         import time
         self.speak_start_time = time.time()
         self.interrupted = False
@@ -101,9 +120,75 @@ class TTSEngine:
                 logger.error(f"Error in on_speak_start callback: {cb_err}")
 
         try:
+            import re
+            spoken_text = text
+            if "```" in spoken_text:
+                spoken_text = re.sub(
+                    r"```[a-zA-Z0-9\-\_]*\n(.*?)\n```",
+                    " [Code output generated and displayed on screen, sir.] ",
+                    spoken_text,
+                    flags=re.DOTALL
+                )
+
+            # Check if Sarvam AI TTS is enabled and we have an API key
+            api_key = os.getenv("SARVAM_API_KEY") or self.sarvam_config.get("api_key")
+            if self.sarvam_config.get("enabled", False) and api_key:
+                # Detect Hindi/Hinglish cues in the output text
+                has_devanagari = any('\u0900' <= c <= '\u097F' for c in spoken_text)
+                hindi_triggers = {
+                    "karo", "kholo", "chalao", "batao", "gaana", "kya", "kaise", "band", "lagao", 
+                    "ha", "nahin", "nahi", "tum", "mera", "aap", "hu", "hai", "tha", "raha", "kar", 
+                    "se", "ko", "par", "ek", "yeh", "woh", "suno", "namaste", "shukriya", "bataiye"
+                }
+                words_clean = set(spoken_text.lower().replace(",", "").replace(".", "").replace("!", "").replace("?", "").split())
+                has_hindi_words = not words_clean.isdisjoint(hindi_triggers)
+
+                if has_devanagari or has_hindi_words:
+                    try:
+                        import tempfile
+                        from sarvamai import SarvamAI
+                        from sarvamai.play import save
+                        import soundfile as sf
+                    
+                        logger.info("Generating speech using Sarvam AI Bulbul v3...")
+                        client = SarvamAI(api_subscription_key=api_key)
+                        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+                            tmp_wav_path = f.name
+                            
+                        try:
+                            response = client.text_to_speech.convert(
+                                text=spoken_text,
+                                target_language_code=self.sarvam_config.get("language", "hi-IN"),
+                                model="bulbul:v3",
+                                speaker=self.sarvam_config.get("tts_speaker", "shubh"),
+                            )
+                            save(response, tmp_wav_path)
+                            
+                            data, sample_rate = sf.read(tmp_wav_path)
+                            if volume != 1.0:
+                                data = data * volume
+                                
+                            sd.play(data, sample_rate)
+                            while sd.get_stream().active:
+                                if self.interrupted:
+                                    sd.stop()
+                                    logger.info("Sarvam TTS playback stopped mid-sentence via interruption signal.")
+                                    break
+                                time.sleep(0.02)
+                                
+                            time.sleep(0.3)  # Clear room echo
+                            return
+                        finally:
+                            try:
+                                os.unlink(tmp_wav_path)
+                            except Exception:
+                                pass
+                    except Exception as sarvam_err:
+                        logger.error(f"Sarvam AI TTS error: {sarvam_err}. Falling back to local Kokoro.")
+
             if self.kokoro:
                 samples, sample_rate = self.kokoro.create(
-                    text, voice=use_voice, speed=use_speed, lang=lang 
+                    spoken_text, voice=use_voice, speed=use_speed, lang=lang 
                 )
                 
                 # Apply volume adjustment
@@ -129,11 +214,12 @@ class TTSEngine:
                 
                 time.sleep(0.3)  # Clear room echo before microphone opens
             else:
-                self._fallback_speak(text)
+                self._fallback_speak(spoken_text)
         except Exception as e:
             logger.error(f"TTS error: {e}")
-            self._fallback_speak(text)
+            self._fallback_speak(spoken_text)
         finally:
+            self.is_speaking = False
             if self.on_speak_end:
                 try:
                     self.on_speak_end()

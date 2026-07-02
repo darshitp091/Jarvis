@@ -310,17 +310,42 @@ class YouTubeMusicPlayer:
             return "MPV player is not installed, sir. Please install MPV to enable background streaming."
             
         import re
-        # Check if query contains volume specifications (e.g. "with 70% volume" or "at 50% volume")
-        volume_match = re.search(r"\b(?:with|at|set|to)\s+(\d+)%\s*(?:volume)?\b", query, re.IGNORECASE)
-        if volume_match:
-            try:
-                target_volume = int(volume_match.group(1))
-                self.volume = max(0, min(130, target_volume))
-                logger.info(f"Extracted volume {self.volume}% from play query")
-            except Exception:
-                pass
-            # Strip the volume spec from query so it doesn't affect search
-            query = re.sub(r"\b(?:with|at|set|to)\s+\d+%\s*(?:volume)?\b", "", query, flags=re.IGNORECASE).strip()
+        # Check if query contains volume specifications (e.g. "with 70% volume", "at 50 volume", "40 to 50 minor volume", "at max volume", "high volume")
+        parsed_volume = None
+
+        # 1. Check descriptive adjectives (max, high, medium, low, mute, etc.)
+        descriptors = {
+            r"\b(?:full|max|maximum|highest|100%)\b": 100,
+            r"\b(?:high|loud)\b": 80,
+            r"\b(?:medium|mid|moderate|normal)\b": 50,
+            r"\b(?:low|quiet|soft|min|minimum)\b": 20,
+            r"\b(?:silent|mute|zero)\b": 0
+        }
+        for pattern, val in descriptors.items():
+            comb_pattern = rf"\b(?:(?:with|at|set|to)\s+{pattern}(?:\s*(?:minor|major)?\s*(?:volume|vol))?|{pattern}\s*(?:minor|major)?\s*(?:volume|vol))\b"
+            match = re.search(comb_pattern, query, re.IGNORECASE)
+            if match:
+                parsed_volume = val
+                query = re.sub(comb_pattern, "", query, flags=re.IGNORECASE).strip()
+                query = re.sub(r"\s+", " ", query)
+                break
+
+        # 2. Check numerical ranges or plain numbers (e.g. "40 to 50 volume", "at 60 volume")
+        if parsed_volume is None:
+            num_pattern = r"\b(?:with|at|set|to)?\s*(?:(\d+)\s*(?:to|-)\s*)?(\d+)\s*(?:%|percent)?\s*(?:minor|major)?\s*(?:volume|vol)\b"
+            match = re.search(num_pattern, query, re.IGNORECASE)
+            if match:
+                try:
+                    parsed_volume = int(match.group(2))
+                    query = re.sub(num_pattern, "", query, flags=re.IGNORECASE).strip()
+                    query = re.sub(r"\s+", " ", query)
+                except Exception:
+                    pass
+
+        # Apply parsed volume if found
+        if parsed_volume is not None:
+            self.volume = max(0, min(130, parsed_volume))
+            logger.info(f"Extracted semantic volume {self.volume}% from play query. Remaining search query: '{query}'")
             
         try:
             import yt_dlp

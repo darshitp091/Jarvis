@@ -73,6 +73,18 @@ class JarvisSecureLock(QWidget):
             self.label.setStyleSheet("color: red; font-weight: bold;")
         else:
             self.label.setStyleSheet("color: darkred; font-weight: bold;")
+            
+        if os.path.exists(self.state_file):
+            try:
+                with open(self.state_file, "r") as f:
+                    content = f.read().strip()
+                if content == "unlocked":
+                    self.close()
+                elif content == "face_verified":
+                    self.sub_label.setText("FACE VERIFIED. AWAITING VOICE TRIGGER 'HEY JARVIS'.")
+                    self.sub_label.setStyleSheet("color: lime; font-weight: bold;")
+            except Exception:
+                pass
 
     def keyPressEvent(self, event):
         key = event.key()

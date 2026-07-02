@@ -1,0 +1,31 @@
+vscode:
+  process_names:
+    - code.exe
+  actions:
+    run_code: "ctrl+alt+n"
+    toggle_terminal: "ctrl+`"
+    open_settings: "ctrl+,"
+    close_editor: "ctrl+w"
+    save_file: "ctrl+s"
+
+chrome:
+  process_names:
+    - chrome.exe
+    - msedge.exe
+  actions:
+    new_tab: "ctrl+t"
+    close_tab: "ctrl+w"
+    address_bar: "ctrl+l"
+    reopen_tab: "ctrl+shift+t"
+    next_tab: "ctrl+pgdn"
+    prev_tab: "ctrl+pgup"
+
+spotify:
+  process_names:
+    - spotify.exe
+  actions:
+    play_pause: "space"
+    next_track: "ctrl+right"
+    prev_track: "ctrl+left"
+    volume_up: "ctrl+up"
+    volume_down: "ctrl+down"
