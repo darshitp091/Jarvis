@@ -4,8 +4,8 @@
 [![Python: 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 [![Local AI: Ollama](https://img.shields.io/badge/Local%20AI-Ollama-red.svg)](https://ollama.com/)
 [![TTS: Kokoro ONNX](https://img.shields.io/badge/TTS-Kokoro%20ONNX-green.svg)](https://github.com/hexgrad/kokoro)
-[![GitHub stars](https://img.shields.io/github/stars/darshitp091/YourCV.svg?style=social&label=Star)](https://github.com/darshitp091/YourCV)
-[![GitHub forks](https://img.shields.io/github/forks/darshitp091/YourCV.svg?style=social&label=Fork)](https://github.com/darshitp091/YourCV)
+[![GitHub stars](https://img.shields.io/github/stars/darshitp091/Jarvis.svg?style=social&label=Star)](https://github.com/darshitp091/Jarvis)
+[![GitHub forks](https://img.shields.io/github/forks/darshitp091/Jarvis.svg?style=social&label=Fork)](https://github.com/darshitp091/Jarvis)
 
 JARVIS is a **Stark-level, privacy-first desktop and mobile assistant** operating on a hybrid local-and-cloud architecture. It features local neural voice synthesis, real-time spatial computer vision (hand-gestures & eye-gaze tracking), local speech recognition, and an advanced cloud-API router with multi-provider fallbacks.
 
@@ -16,7 +16,7 @@ JARVIS executes complex Windows operations, conducts concurrent multi-engine web
 ### 📊 Repository Status & Activity
 <p align="center">
   <img src="https://github-readme-stats.vercel.app/api?username=darshitp091&show_icons=true&theme=dark" alt="GitHub Stats" width="48%" />
-  <img src="https://github-readme-stats.vercel.app/api/pin/?username=darshitp091&repo=YourCV&theme=dark" alt="Repo Card" width="48%" />
+  <img src="https://github-readme-stats.vercel.app/api/pin/?username=darshitp091&repo=Jarvis&theme=dark" alt="Repo Card" width="48%" />
 </p>
 
 ---
@@ -157,7 +157,7 @@ JARVIS coordinates multiple specialized models running locally and in the cloud:
 ## 📂 Repository Directory Structure
 
 ```
-YourCV/
+Jarvis/
 ├── core/                  # Core audio, routing, and verification modules
 │   ├── audio_engine.py    # Whisper-based STT, feedback, acoustic interrupt
 │   ├── intent_router.py   # Intent routing via regex & semantic embeddings
@@ -196,8 +196,8 @@ YourCV/
 
 ### Step 1: Clone the Repository
 ```bash
-git clone https://github.com/darshitp091/YourCV.git
-cd YourCV
+git clone https://github.com/darshitp091/Jarvis.git
+cd Jarvis
 ```
 
 ### Step 2: Set Up Virtual Environment & Dependencies
@@ -224,7 +224,7 @@ To run high-quality neural voice synthesis locally:
 1. Download the ONNX model file `kokoro-v1.0.onnx` and the voices binary file `voices-v1.0.bin` (e.g. from the [hexgrad/kokoro-onnx](https://github.com/hexgrad/kokoro-onnx) releases).
 2. Place both files in the root folder of the project.
 ```
-YourCV/
+Jarvis/
 ├── kokoro-v1.0.onnx
 ├── voices-v1.0.bin
 ├── main.py
