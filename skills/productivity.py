@@ -324,43 +324,166 @@ class ProductivityPlanner:
             logger.error(f"PDF editing failed: {e}")
             return f"Failed to edit PDF: {str(e)}"
 
-    def pptx_helper(self, title: str, subtitle: str, slides_content: list, output_path: str = "config/presentation.pptx") -> str:
-        """Creates a PowerPoint presentation using python-pptx locally."""
+    def pptx_helper(self, title: str, subtitle: str, theme: str, slides_content: list, output_path: str = "config/presentation.pptx") -> str:
+        """Creates a PowerPoint presentation with dynamic theme layouts using python-pptx locally."""
         try:
             from pptx import Presentation
+            from pptx.util import Inches, Pt
+            from pptx.dml.color import RGBColor
+            from pptx.enum.shapes import MSO_SHAPE
+            from pptx.enum.text import PP_ALIGN
+            
             prs = Presentation()
-            
-            # Title slide
-            title_slide_layout = prs.slide_layouts[0]
-            slide = prs.slides.add_slide(title_slide_layout)
-            slide.shapes.title.text = title
-            slide.placeholders[1].text = subtitle
-            
-            # Content slides
-            bullet_slide_layout = prs.slide_layouts[1]
+            # Set slide width and height to widescreen 16:9 format
+            prs.slide_width = Inches(13.333)
+            prs.slide_height = Inches(7.5)
+
+            # Theme parameters
+            THEMES = {
+                "stark_tech": {
+                    "bg": RGBColor(17, 24, 39),          # Dark gray
+                    "title_color": RGBColor(249, 115, 22), # Orange
+                    "body_color": RGBColor(243, 244, 246), # Light gray
+                    "accent": RGBColor(239, 68, 68),      # Red
+                    "font_title": "Trebuchet MS",
+                    "font_body": "Arial"
+                },
+                "midnight_cyberpunk": {
+                    "bg": RGBColor(15, 23, 42),           # Slate dark
+                    "title_color": RGBColor(56, 189, 248), # Cyan
+                    "body_color": RGBColor(255, 255, 255), # White
+                    "accent": RGBColor(236, 72, 153),      # Hot Pink
+                    "font_title": "Georgia",
+                    "font_body": "Calibri"
+                },
+                "light_professional": {
+                    "bg": RGBColor(248, 250, 252),        # Off-white
+                    "title_color": RGBColor(15, 23, 42),   # Deep Slate
+                    "body_color": RGBColor(71, 85, 105),   # Slate gray
+                    "accent": RGBColor(59, 130, 246),      # Cool Blue
+                    "font_title": "Arial",
+                    "font_body": "Arial"
+                },
+                "forest_minimalist": {
+                    "bg": RGBColor(244, 244, 245),        # Warm gray
+                    "title_color": RGBColor(6, 78, 59),    # Emerald
+                    "body_color": RGBColor(31, 41, 55),    # Dark gray
+                    "accent": RGBColor(120, 113, 108),     # Muted stone
+                    "font_title": "Georgia",
+                    "font_body": "Calibri"
+                }
+            }
+
+            style = THEMES.get(theme.lower(), THEMES["stark_tech"])
+
+            # 1. Slide 1: Title Slide (Full Layout custom styling)
+            blank_layout = prs.slide_layouts[6] # Blank slide
+            slide = prs.slides.add_slide(blank_layout)
+
+            # Set background color by drawing a full-slide rectangle
+            bg_rect = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, 0, 0, prs.slide_width, prs.slide_height)
+            bg_rect.fill.solid()
+            bg_rect.fill.fore_color.rgb = style["bg"]
+            bg_rect.line.fill.background()
+
+            # Decorative accent shape (a vertical colored line on the left side)
+            accent_bar = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0.8), Inches(2.2), Inches(0.1), Inches(3.2))
+            accent_bar.fill.solid()
+            accent_bar.fill.fore_color.rgb = style["accent"]
+            accent_bar.line.fill.background()
+
+            # Add Title Text Frame
+            tx_title = slide.shapes.add_textbox(Inches(1.2), Inches(2.0), Inches(11.0), Inches(2.0))
+            tf_title = tx_title.text_frame
+            tf_title.word_wrap = True
+            p_title = tf_title.paragraphs[0]
+            p_title.text = title
+            p_title.font.name = style["font_title"]
+            p_title.font.size = Pt(54)
+            p_title.font.bold = True
+            p_title.font.color.rgb = style["title_color"]
+
+            # Add Subtitle Text Frame
+            tx_sub = slide.shapes.add_textbox(Inches(1.2), Inches(3.8), Inches(11.0), Inches(1.5))
+            tf_sub = tx_sub.text_frame
+            tf_sub.word_wrap = True
+            p_sub = tf_sub.paragraphs[0]
+            p_sub.text = subtitle
+            p_sub.font.name = style["font_body"]
+            p_sub.font.size = Pt(22)
+            p_sub.font.color.rgb = style["body_color"]
+
+            # 2. Slides 2+: Content Slides
             for slide_data in slides_content:
                 s_title = slide_data.get("title", "Topic")
                 s_bullets = slide_data.get("bullets", [])
-                
-                slide = prs.slides.add_slide(bullet_slide_layout)
-                slide.shapes.title.text = s_title
-                tf = slide.placeholders[1].text_frame
-                
-                for i, bullet in enumerate(s_bullets):
-                    if i == 0:
-                        tf.text = bullet
+
+                slide = prs.slides.add_slide(blank_layout)
+
+                # Set background
+                bg_rect = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, 0, 0, prs.slide_width, prs.slide_height)
+                bg_rect.fill.solid()
+                bg_rect.fill.fore_color.rgb = style["bg"]
+                bg_rect.line.fill.background()
+
+                # Title Text Box
+                tx_header = slide.shapes.add_textbox(Inches(0.8), Inches(0.6), Inches(11.7), Inches(1.0))
+                tf_header = tx_header.text_frame
+                tf_header.word_wrap = True
+                p_header = tf_header.paragraphs[0]
+                p_header.text = s_title
+                p_header.font.name = style["font_title"]
+                p_header.font.size = Pt(36)
+                p_header.font.bold = True
+                p_header.font.color.rgb = style["title_color"]
+
+                # Accent line separator under header
+                sep_line = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0.8), Inches(1.5), Inches(11.7), Inches(0.04))
+                sep_line.fill.solid()
+                sep_line.fill.fore_color.rgb = style["accent"]
+                sep_line.line.fill.background()
+
+                # Content Bullet list textbox
+                tx_content = slide.shapes.add_textbox(Inches(0.8), Inches(1.8), Inches(11.7), Inches(5.0))
+                tf_content = tx_content.text_frame
+                tf_content.word_wrap = True
+
+                for idx, bullet in enumerate(s_bullets):
+                    if idx == 0:
+                        p_bullet = tf_content.paragraphs[0]
                     else:
-                        p = tf.add_paragraph()
-                        p.text = bullet
-                        
+                        p_bullet = tf_content.add_paragraph()
+
+                    p_bullet.text = "•  " + bullet
+                    p_bullet.font.name = style["font_body"]
+                    p_bullet.font.size = Pt(20)
+                    p_bullet.font.color.rgb = style["body_color"]
+                    p_bullet.space_after = Pt(14)
+                    p_bullet.line_spacing = 1.2
+
             out_p = os.path.abspath(os.path.expanduser(output_path))
             os.makedirs(os.path.dirname(out_p), exist_ok=True)
             prs.save(out_p)
-            return f"Successfully created PowerPoint presentation at {output_path}, sir."
+            logger.success(f"PowerPoint generated successfully at {output_path} with theme '{theme}'.")
+            return f"Successfully created PowerPoint presentation at {output_path} using theme '{theme}', sir."
         except ImportError:
             return "Please install python-pptx first (`pip install python-pptx`) to generate presentations, sir."
         except Exception as e:
+            logger.error(f"Failed to generate presentation: {e}")
             return f"Failed to generate presentation: {str(e)}"
+
+    def open_presentation(self, filepath: str = "config/presentation.pptx") -> str:
+        """Opens the generated presentation locally on Windows."""
+        try:
+            out_p = os.path.abspath(os.path.expanduser(filepath))
+            if os.path.exists(out_p):
+                os.startfile(out_p)
+                return f"Opening the presentation for you now, sir."
+            else:
+                return "Sir, I could not find the presentation file. Please create it first."
+        except Exception as e:
+            logger.error(f"Failed to open presentation: {e}")
+            return f"Failed to open the presentation: {e}"
 
     def create_mind_map(self, central_idea: str, nodes: list, save_path: str = "config/mindmap.png") -> str:
         """Generates a node-link mind map visualization image using matplotlib and networkx."""

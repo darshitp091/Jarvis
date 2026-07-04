@@ -17,27 +17,27 @@ class AutonomousCodingSandbox:
         self.max_attempts = 5
 
     def _get_groq_config(self) -> tuple[str, str]:
-        """Retrieves Groq API key and model from environment or settings.yaml."""
-        api_key = os.environ.get("GROQ_API_KEY", "")
-        model = "llama-3.3-70b-versatile"
+        """Retrieves Mistral API key and model from environment or settings.yaml (replaces Groq)."""
+        api_key = ""
+        model = "devstral-2512"
         
-        if not api_key and os.path.exists(self.config_path):
+        if os.path.exists(self.config_path):
             try:
                 with open(self.config_path, "r", encoding="utf-8") as f:
                     config = yaml.safe_load(f)
-                    groq_cfg = config.get("groq", {})
-                    api_key = groq_cfg.get("api_key", "")
-                    model = groq_cfg.get("model", "llama-3.3-70b-versatile")
+                    mistral_cfg = config.get("mistral", {})
+                    api_key = mistral_cfg.get("api_key", "")
+                    model = mistral_cfg.get("models", {}).get("code", "devstral-2512")
             except Exception as e:
-                logger.error(f"Failed to read settings.yaml for Groq config: {e}")
+                logger.error(f"Failed to read settings.yaml for Mistral config: {e}")
                 
         return api_key, model
 
     def _call_groq(self, system_prompt: str, user_prompt: str) -> str:
-        """Hits Groq's OpenAI-compatible completions endpoint."""
+        """Hits Mistral's completions endpoint (replaces Groq)."""
         api_key, model = self._get_groq_config()
         if not api_key:
-            return "ERROR: Groq API key is not configured, sir. Please set GROQ_API_KEY environment variable or save it in settings.yaml."
+            return "ERROR: Mistral API key is not configured, sir. Please check settings.yaml."
 
         headers = {
             "Authorization": f"Bearer {api_key}",
@@ -53,11 +53,11 @@ class AutonomousCodingSandbox:
         }
         
         try:
-            r = requests.post("https://api.groq.com/openai/v1/chat/completions", json=payload, headers=headers, timeout=25)
+            r = requests.post("https://api.mistral.ai/v1/chat/completions", json=payload, headers=headers, timeout=25)
             if r.status_code == 200:
                 return r.json()["choices"][0]["message"]["content"]
             else:
-                return f"ERROR: Groq API returned status {r.status_code}: {r.text}"
+                return f"ERROR: Mistral API returned status {r.status_code}: {r.text}"
         except Exception as e:
             return f"ERROR: HTTP request failed: {str(e)}"
 

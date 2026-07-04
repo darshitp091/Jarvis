@@ -243,7 +243,8 @@ class JARVIS:
         self.alert_lock = threading.Lock()
         self.active_context = None
         self.pending_code_snippet = None
-        self.is_asleep = True
+        self._is_asleep = True
+        self.last_command_time = 0.0
 
         # Import cognitive tracker
         from core.cognitive import CognitiveSentimentTracker
@@ -255,10 +256,15 @@ class JARVIS:
         self.hologram_widget = HologramSimWidget(self.camera)
         self.hologram_widget.node_clicked_signal.connect(self._on_hologram_node_clicked)
         self.domains["engineering"].hologram_widget = self.hologram_widget
+        self.gesture_ctrl.hologram_widget = self.hologram_widget
 
         # Import and initialize NetworkMapper
         from skills.network_mapper import NetworkMapper
         self.network_mapper = NetworkMapper()
+
+        # Import and initialize CADGenerator
+        from skills.cad_generator import CADGenerator
+        self.cad_gen = CADGenerator()
 
         # Initialize AgentLabWidget
         _p("INIT: AgentLabWidget")
@@ -322,6 +328,82 @@ class JARVIS:
 
         _p("INIT: EmergencySentinel")
         self.emergency_sentinel = EmergencySentinel()
+
+        # Initialize Multi-Agent Swarm Swarm (Multi-Working)
+        _p("INIT: Multi-Agent Swarm Agency")
+        from core.agency import Agency
+        from core.agents import (
+            AudioEngineAgent, TtsEngineAgent, WakeWordAgent, VoiceAuthAgent, IntentRouterAgent,
+            BrainAgent, CognitiveAgent, ContextSentinelAgent, ProactiveMonitorAgent, FocusTrackerAgent,
+            ProfileManagerAgent, VisionEngineAgent, SensoryHealthAgent, AirTypistAgent, P2PLinkAgent,
+            BusinessDomainAgent, DevelopmentDomainAgent, EngineeringDomainAgent, FinanceDomainAgent,
+            MedicalDomainAgent, ScienceDomainAgent, SecurityDomainAgent,
+            AppControlAgent, AppMapperAgent, CodeRunnerAgent, CodingSandboxAgent, DataAnalyzerAgent,
+            EmergencySentinelAgent, FileManagerAgent, FoodComparatorAgent, GestureControlAgent,
+            GitSentinelAgent, MacroRecorderAgent, MarketAnalyzerAgent, MediaSummarizerAgent,
+            NetworkMapperAgent, ObsidianControlAgent, OsControlAgent, PhoneControllerAgent,
+            PolyglotEngineerAgent, ProductivityAgent, ProductComparatorAgent, ResearchProdigyAgent,
+            ScreenVisionAgent, SecurityAuditorAgent, SelfHealingVisionAgent, SentryFirewallAgent,
+            SpotifyControlAgent, VisionTrackerAgent, WebResearchAgent, WorkspaceContextAgent,
+            YoutubeMusicAgent
+        )
+        self.agency = Agency()
+        
+        # Instantiate and register all 52 agents
+        self.agency.register_agent("AudioEngineAgent", AudioEngineAgent("AudioEngineAgent", self))
+        self.agency.register_agent("TtsEngineAgent", TtsEngineAgent("TtsEngineAgent", self))
+        self.agency.register_agent("WakeWordAgent", WakeWordAgent("WakeWordAgent", self))
+        self.agency.register_agent("VoiceAuthAgent", VoiceAuthAgent("VoiceAuthAgent", self))
+        self.agency.register_agent("IntentRouterAgent", IntentRouterAgent("IntentRouterAgent", self))
+        self.agency.register_agent("BrainAgent", BrainAgent("BrainAgent", self))
+        self.agency.register_agent("CognitiveAgent", CognitiveAgent("CognitiveAgent", self))
+        self.agency.register_agent("ContextSentinelAgent", ContextSentinelAgent("ContextSentinelAgent", self))
+        self.agency.register_agent("ProactiveMonitorAgent", ProactiveMonitorAgent("ProactiveMonitorAgent", self))
+        self.agency.register_agent("FocusTrackerAgent", FocusTrackerAgent("FocusTrackerAgent", self))
+        self.agency.register_agent("ProfileManagerAgent", ProfileManagerAgent("ProfileManagerAgent", self))
+        self.agency.register_agent("VisionEngineAgent", VisionEngineAgent("VisionEngineAgent", self))
+        self.agency.register_agent("SensoryHealthAgent", SensoryHealthAgent("SensoryHealthAgent", self))
+        self.agency.register_agent("AirTypistAgent", AirTypistAgent("AirTypistAgent", self))
+        self.agency.register_agent("P2PLinkAgent", P2PLinkAgent("P2PLinkAgent", self))
+        
+        self.agency.register_agent("BusinessDomainAgent", BusinessDomainAgent("BusinessDomainAgent", self))
+        self.agency.register_agent("DevelopmentDomainAgent", DevelopmentDomainAgent("DevelopmentDomainAgent", self))
+        self.agency.register_agent("EngineeringDomainAgent", EngineeringDomainAgent("EngineeringDomainAgent", self))
+        self.agency.register_agent("FinanceDomainAgent", FinanceDomainAgent("FinanceDomainAgent", self))
+        self.agency.register_agent("MedicalDomainAgent", MedicalDomainAgent("MedicalDomainAgent", self))
+        self.agency.register_agent("ScienceDomainAgent", ScienceDomainAgent("ScienceDomainAgent", self))
+        self.agency.register_agent("SecurityDomainAgent", SecurityDomainAgent("SecurityDomainAgent", self))
+        
+        self.agency.register_agent("AppControlAgent", AppControlAgent("AppControlAgent", self))
+        self.agency.register_agent("AppMapperAgent", AppMapperAgent("AppMapperAgent", self))
+        self.agency.register_agent("CodeRunnerAgent", CodeRunnerAgent("CodeRunnerAgent", self))
+        self.agency.register_agent("CodingSandboxAgent", CodingSandboxAgent("CodingSandboxAgent", self))
+        self.agency.register_agent("DataAnalyzerAgent", DataAnalyzerAgent("DataAnalyzerAgent", self))
+        self.agency.register_agent("EmergencySentinelAgent", EmergencySentinelAgent("EmergencySentinelAgent", self))
+        self.agency.register_agent("FileManagerAgent", FileManagerAgent("FileManagerAgent", self))
+        self.agency.register_agent("FoodComparatorAgent", FoodComparatorAgent("FoodComparatorAgent", self))
+        self.agency.register_agent("GestureControlAgent", GestureControlAgent("GestureControlAgent", self))
+        self.agency.register_agent("GitSentinelAgent", GitSentinelAgent("GitSentinelAgent", self))
+        self.agency.register_agent("MacroRecorderAgent", MacroRecorderAgent("MacroRecorderAgent", self))
+        self.agency.register_agent("MarketAnalyzerAgent", MarketAnalyzerAgent("MarketAnalyzerAgent", self))
+        self.agency.register_agent("MediaSummarizerAgent", MediaSummarizerAgent("MediaSummarizerAgent", self))
+        self.agency.register_agent("NetworkMapperAgent", NetworkMapperAgent("NetworkMapperAgent", self))
+        self.agency.register_agent("ObsidianControlAgent", ObsidianControlAgent("ObsidianControlAgent", self))
+        self.agency.register_agent("OsControlAgent", OsControlAgent("OsControlAgent", self))
+        self.agency.register_agent("PhoneControllerAgent", PhoneControllerAgent("PhoneControllerAgent", self))
+        self.agency.register_agent("PolyglotEngineerAgent", PolyglotEngineerAgent("PolyglotEngineerAgent", self))
+        self.agency.register_agent("ProductivityAgent", ProductivityAgent("ProductivityAgent", self))
+        self.agency.register_agent("ProductComparatorAgent", ProductComparatorAgent("ProductComparatorAgent", self))
+        self.agency.register_agent("ResearchProdigyAgent", ResearchProdigyAgent("ResearchProdigyAgent", self))
+        self.agency.register_agent("ScreenVisionAgent", ScreenVisionAgent("ScreenVisionAgent", self))
+        self.agency.register_agent("SecurityAuditorAgent", SecurityAuditorAgent("SecurityAuditorAgent", self))
+        self.agency.register_agent("SelfHealingVisionAgent", SelfHealingVisionAgent("SelfHealingVisionAgent", self))
+        self.agency.register_agent("SentryFirewallAgent", SentryFirewallAgent("SentryFirewallAgent", self))
+        self.agency.register_agent("SpotifyControlAgent", SpotifyControlAgent("SpotifyControlAgent", self))
+        self.agency.register_agent("VisionTrackerAgent", VisionTrackerAgent("VisionTrackerAgent", self))
+        self.agency.register_agent("WebResearchAgent", WebResearchAgent("WebResearchAgent", self))
+        self.agency.register_agent("WorkspaceContextAgent", WorkspaceContextAgent("WorkspaceContextAgent", self))
+        self.agency.register_agent("YoutubeMusicAgent", YoutubeMusicAgent("YoutubeMusicAgent", self))
 
         self._prewarm_models()
 
@@ -730,15 +812,34 @@ class JARVIS:
                 data = {
                     "model": target_model,
                     "messages": query_messages,
-                    "temperature": 0.2
+                    "temperature": 0.2,
+                    "stream": True
                 }
                 try:
-                    logger.info(f"Querying Mistral API using model '{target_model}'...")
-                    response = requests.post(url, headers=headers, json=data, timeout=25)
+                    logger.info(f"Querying Mistral API using model '{target_model}' (streaming enabled)...")
+                    response = requests.post(url, headers=headers, json=data, stream=True, timeout=25)
                     if response.status_code == 200:
-                        result = response.json()
-                        reply = result["choices"][0]["message"]["content"]
-                        logger.info("Successfully received response from Mistral.")
+                        reply_parts = []
+                        print("JARVIS: ", end="", flush=True)
+                        for line in response.iter_lines():
+                            if line:
+                                decoded_line = line.decode('utf-8').strip()
+                                if decoded_line.startswith("data:"):
+                                    data_content = decoded_line[5:].strip()
+                                    if data_content == "[DONE]":
+                                        break
+                                    try:
+                                        chunk_json = json.loads(data_content)
+                                        delta = chunk_json["choices"][0].get("delta", {})
+                                        if "content" in delta:
+                                            text_chunk = delta["content"]
+                                            print(text_chunk, end="", flush=True)
+                                            reply_parts.append(text_chunk)
+                                    except Exception:
+                                        pass
+                        print()
+                        reply = "".join(reply_parts)
+                        logger.info("Successfully received streamed response from Mistral.")
                         return reply
                     else:
                         logger.error(f"Mistral API returned error status {response.status_code}: {response.text}")
@@ -966,27 +1067,30 @@ class JARVIS:
         import re
         if not text:
             return ""
-        # 1. Remove markdown images
+        # 1. Remove parenthetical descriptions (e.g. (pauses), (smiling), (breathes softly))
+        text = re.sub(r"\([^)]*\)", "", text)
+
+        # 2. Remove markdown images
         text = re.sub(r"!\[.*?\]\(.*?\)", "", text)
         
-        # 2. Remove markdown links (keep text, discard URL)
+        # 3. Remove markdown links (keep text, discard URL)
         text = re.sub(r"\[(.*?)\]\(.*?\)", r"\1", text)
         text = re.sub(r"<(https?://\S+)>", "", text)
         text = re.sub(r"\bhttps?://\S+", "", text)
         
-        # 3. Remove bold/italic asterisks and underscores
+        # 4. Remove bold/italic asterisks and underscores
         text = text.replace("**", "").replace("*", "").replace("__", "").replace("_", "")
         
-        # 4. Remove markdown headers
+        # 5. Remove markdown headers
         text = re.sub(r"^#+\s+", "", text, flags=re.MULTILINE)
         
-        # 5. Clean bullet points at start of lines
+        # 6. Clean bullet points at start of lines
         text = re.sub(r"^[ \t]*[-\*+]\s+", "", text, flags=re.MULTILINE)
         
-        # 6. Clean numbered list markers at start of lines or sentences
+        # 7. Clean numbered list markers at start of lines or sentences
         text = re.sub(r"^[ \t]*\d+\.\s+", "", text, flags=re.MULTILINE)
         
-        # 7. Join lines into smooth flowing paragraphs
+        # 8. Join lines into smooth flowing paragraphs
         paragraphs = []
         for line in text.split("\n"):
             line = line.strip()
@@ -995,6 +1099,14 @@ class JARVIS:
         
         combined = " ".join(paragraphs)
         combined = re.sub(r"\s+", " ", combined).strip()
+
+        # 9. Interactive Turn Truncation:
+        # If the text contains an interactive question, truncate the text immediately after the question mark.
+        question_match = re.search(r"(\b(?:shall\s+we|would\s+you\s+like|should\s+i|can\s+i|do\s+you\s+want)\b[^?]*\?)", combined, flags=re.IGNORECASE)
+        if question_match:
+            idx = combined.find(question_match.group(1)) + len(question_match.group(1))
+            combined = combined[:idx].strip()
+
         return combined
 
     def on_orb_state_changed(self, state: str):
@@ -1250,6 +1362,10 @@ class JARVIS:
                     response = self.os_ctrl.hotkey(*keys)
                 elif action == "click":
                     response = self.os_ctrl.click(params.get("x", 0), params.get("y", 0))
+                elif action == "focus":
+                    response = self.os_ctrl.focus_app(params.get("app", ""))
+                elif action == "set_volume":
+                    response = self.os_ctrl.set_volume(params.get("percent", 50))
                 elif action == "show_dashboard":
                     self.orb.dashboard_toggle_signal.emit(True)
                     response = "Opening HUD diagnostics dashboard, sir."
@@ -1528,6 +1644,28 @@ class JARVIS:
                     else:
                         response = "Unsupported connectivity event, sir."
 
+                elif action == "throw":
+                    content = params.get("content", "")
+                    if not content:
+                        import pyperclip
+                        content = pyperclip.paste()
+                    response = self.phone.throw_file_to_phone(content)
+
+                elif action == "pull_screen":
+                    save_path = "config/phone_screen_pull.png"
+                    res = self.phone.pull_phone_screen_to_desktop(save_path)
+                    if "successfully" in res.lower():
+                        orig_shot = self.vision.latest_screenshot
+                        self.vision.latest_screenshot = save_path
+                        try:
+                            prompt = "This is a pulled screenshot from my Android phone. Describe what is visible on this screen in detail."
+                            analysis = self.vision.analyze(prompt)
+                            response = f"{res}\n\nPhone Screen Analysis:\n{analysis}"
+                        finally:
+                            self.vision.latest_screenshot = orig_shot
+                    else:
+                        response = res
+
                 else:
                     response = self._generate_response(text, domain)
 
@@ -1546,6 +1684,32 @@ class JARVIS:
                         self.orb.hologram_toggle_signal.emit(True)
                     threading.Thread(target=run_scan, daemon=True).start()
                     response = "Sweep initialized, sir."
+
+            elif skill == "vitals_check":
+                action = params.get("action", "")
+                if action == "check_vitals":
+                    self.tts.speak("Analyzing visual blood volume variations. Please look at the camera lens for a brief moment, sir.")
+                    time.sleep(1.5)  # Let OpenCV grab some frames
+                    res_dict = self.sensory_health.calculate_heart_rate()
+                    response = res_dict.get("msg", "Diagnostics failed.")
+                    face_rect = getattr(self.camera, "latest_face_rect", None)
+                    if face_rect:
+                        fx, fy, fw, fh = face_rect
+                        self.show_hud_target_highlighter(fx + fw//2, fy + fh//2, f"VITALS: {res_dict.get('bpm', 72)} BPM")
+
+            elif skill == "hologram_control":
+                action = params.get("action", "")
+                if action == "design":
+                    obj = params.get("object", "vibranium core")
+                    vertices, connections, name, labels = self.cad_gen.generate_mesh(obj)
+                    self.hologram_widget.set_hologram_object(vertices, connections, name, labels)
+                    self.hologram_widget.show()
+                    response = f"Designed 3D wireframe for {obj.upper()}. Projecting to holographic viewport now, sir."
+                elif action == "explode":
+                    enable = params.get("enable", True)
+                    self.hologram_widget.animate_explode(enable)
+                    state = "exploded" if enable else "assembled"
+                    response = f"Holographic model successfully {state}, sir."
 
             elif skill == "agent_lab":
                 action = params.get("action", "")
@@ -1738,6 +1902,36 @@ class JARVIS:
                         response = self.web.visual_search_and_summarize(query)
                     else:
                         response = self.web.headless_search_and_summarize(query)
+                        
+                    # Auto-convert research to presentation if requested in original command
+                    cmd_lower = text.lower()
+                    if "presentation" in cmd_lower or "ppt" in cmd_lower or "slides" in cmd_lower:
+                        import json
+                        title = query.title()
+                        prompt = (
+                            f"Create a high-end slide outline for a 3-slide presentation on '{title}' using the following research notes:\n\n"
+                            f"{response}\n\n"
+                            "Select and recommend one of these dynamic layout themes based on the topic: "
+                            "'stark_tech', 'midnight_cyberpunk', 'light_professional', or 'forest_minimalist'. "
+                            "Output ONLY a raw, valid JSON object containing: "
+                            '{"theme": "...", "title": "...", "subtitle": "...", "slides": [{"title": "...", "bullets": ["...", "..."]}]}. '
+                            "Do not include any markdown wrappers or backticks."
+                        )
+                        try:
+                            raw = self.query_llm([{"role": "user", "content": prompt}], provider="mistral", model="mistral-large-2512")
+                            raw = raw.strip().replace("```json", "").replace("```", "").strip()
+                            data = json.loads(raw)
+                            theme = data.get("theme", "stark_tech")
+                            slides_content = data.get("slides", [])
+                            pres_title = data.get("title", title)
+                            pres_subtitle = f"Generated by {self.config.get('jarvis', {}).get('name', 'JARVIS')}"
+                            
+                            # Generate presentation file
+                            self.productivity.pptx_helper(pres_title, pres_subtitle, theme, slides_content)
+                            response = f"I have conducted the research on {title} and created a beautiful {theme} presentation for you at config/presentation.pptx, sir."
+                        except Exception as e:
+                            logger.error(f"Failed to generate presentation from research: {e}")
+                            response = f"I did the research on {title}, sir, but encountered an error creating the slide deck: {e}"
 
             elif skill == "media_summarize":
                 url = params.get("url", "")
@@ -1930,19 +2124,35 @@ class JARVIS:
                 elif action == "create_presentation":
                     import json
                     title = params.get("title", "Topic")
-                    prompt = f"Create a slide bullet outline for a 3-slide presentation on '{title}'. Output raw JSON containing a list of objects with 'title' (string) and 'bullets' (list of strings). Do not include any markdown wrapper or backticks."
+                    prompt = (
+                        f"Create a high-end slide outline for a 3-slide presentation on '{title}'. "
+                        "Select and recommend one of these dynamic layout themes based on the topic: "
+                        "'stark_tech' (cyber/tech/dark), 'midnight_cyberpunk' (neon/creative/dark), "
+                        "'light_professional' (corporate/clean/light), or 'forest_minimalist' (organic/nature/light). "
+                        "Output ONLY a raw, valid JSON object containing: "
+                        '{"theme": "...", "title": "...", "subtitle": "...", "slides": [{"title": "...", "bullets": ["...", "..."]}]}. '
+                        "Do not include any markdown code wrappers, quotes, or backticks."
+                    )
                     try:
-                        res = ollama.chat(model=self.models["main_brain"], messages=[{"role": "user", "content": prompt}])
-                        raw = res["message"]["content"].strip().replace("```json", "").replace("```", "").strip()
-                        slides_content = json.loads(raw)
+                        raw = self.query_llm([{"role": "user", "content": prompt}], provider="mistral", model="mistral-large-2512")
+                        raw = raw.strip().replace("```json", "").replace("```", "").strip()
+                        data = json.loads(raw)
+                        theme = data.get("theme", "stark_tech")
+                        slides_content = data.get("slides", [])
+                        pres_title = data.get("title", title)
+                        pres_subtitle = data.get("subtitle", f"Generated by {self.config.get('jarvis', {}).get('name', 'JARVIS')}")
                     except Exception:
+                        theme = "stark_tech"
                         slides_content = [
                             {"title": "Introduction to " + title, "bullets": ["Overview of the topic", "Key components", "Initial analysis"]},
                             {"title": "Deep Dive", "bullets": ["Detailed explanations", "Current trends and developments", "Practical examples"]},
                             {"title": "Summary", "bullets": ["Conclusion of key points", "Next steps"]}
                         ]
-                    name = self.config.get("jarvis", {}).get("name", "JARVIS")
-                    response = self.productivity.pptx_helper(title, f"Generated by {name}", slides_content)
+                        pres_title = title
+                        pres_subtitle = f"Generated by {self.config.get('jarvis', {}).get('name', 'JARVIS')}"
+                    response = self.productivity.pptx_helper(pres_title, pres_subtitle, theme, slides_content)
+                elif action == "open_presentation":
+                    response = self.productivity.open_presentation()
                 elif action == "create_mind_map":
                     import json
                     central_idea = params.get("central_idea", "Idea")
@@ -2262,6 +2472,12 @@ class JARVIS:
         self.snipping_overlay.show()
         logger.info("Snipping tool activated.")
 
+    def show_hud_target_highlighter(self, x: int, y: int, label: str):
+        from ui.overlay_widgets import TargetReticleOverlay
+        overlay = TargetReticleOverlay(x, y, label)
+        overlay.show()
+        logger.info(f"Target highlighter activated at {x},{y} with label '{label}'")
+
     def _on_snipped_completed(self, path: str):
         self.snipping_overlay = None
         if path:
@@ -2434,6 +2650,7 @@ class JARVIS:
         time.sleep(1)
         self._startup_voice()
         
+        self._is_asleep = False
         self.is_asleep = True
         
         while True:
@@ -2504,6 +2721,7 @@ class JARVIS:
                         self.tts.speak(greeting)
                         
                     self.is_asleep = False
+                    self.last_command_time = time.time()
                 
                 # Ensure is_listening_to_command and ducking are active before recording command
                 self.is_listening_to_command = True
@@ -2540,12 +2758,12 @@ class JARVIS:
                         self.orb.set_state("idle")
                         continue
 
-                    time_since_owner = time.time() - getattr(self, "last_owner_seen_time", time.time())
-                    if time_since_owner < 120.0:
-                        logger.info(f"No speech, but owner verified {time_since_owner:.1f}s ago. Staying awake.")
+                    time_since_cmd = time.time() - getattr(self, "last_command_time", 0.0)
+                    if time_since_cmd < 360.0:
+                        logger.info(f"No speech, but wake lock timer active ({time_since_cmd:.1f}s / 360s). Staying awake.")
                         continue
                     else:
-                        logger.info(f"No speech and owner absent for {time_since_owner:.1f}s. Returning to standby.")
+                        logger.info(f"No speech and wake lock timer expired after {time_since_cmd:.1f}s. Returning to standby.")
                         self.is_asleep = True
                         self.orb.set_state("idle")
                         continue
@@ -2819,6 +3037,7 @@ class JARVIS:
 
                 print(f"\nJARVIS Heard: {text}\n", flush=True)
                 logger.info(f"JARVIS Heard: {text}")
+                self.last_command_time = time.time()
                 
                 # 3. Process
                 if not self.is_authenticated:
@@ -2847,6 +3066,27 @@ class JARVIS:
                     pass
                 time.sleep(2)
                 self.orb.set_state("idle")
+
+    @property
+    def is_asleep(self) -> bool:
+        return self._is_asleep
+
+    @is_asleep.setter
+    def is_asleep(self, value: bool):
+        old_val = getattr(self, "_is_asleep", None)
+        self._is_asleep = value
+        if old_val != value:
+            logger.info(f"Transitioning JARVIS sleep state: Asleep={value}")
+            if value:
+                if getattr(self, "camera", None) is not None:
+                    self.camera.stop()
+                if getattr(self, "gesture_ctrl", None) is not None:
+                    self.gesture_ctrl.stop()
+            else:
+                if getattr(self, "camera", None) is not None:
+                    self.camera.start()
+                if getattr(self, "gesture_ctrl", None) is not None:
+                    self.gesture_ctrl.start()
 
 if __name__ == "__main__":
     jarvis = JARVIS()

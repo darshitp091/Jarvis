@@ -39,6 +39,15 @@ class WebResearch:
 
     async def _async_headless_search(self, query: str, num_links: int = 10) -> str:
         """Uses crawl4ai (Playwright/Chromium) to search Google and extract pages"""
+        import asyncio
+        loop = asyncio.get_event_loop()
+        def exception_handler(loop, context):
+            exception = context.get('exception')
+            if exception and ('TargetClosedError' in str(exception) or 'browser has been closed' in str(exception)):
+                return
+            loop.default_exception_handler(context)
+        loop.set_exception_handler(exception_handler)
+
         try:
             from crawl4ai import AsyncWebCrawler
         except ImportError:
@@ -157,7 +166,7 @@ class WebResearch:
         user_message = f"Research query: {query}\n\nData Gathered:\n{context}\n\nProvide a concise, intelligent summary."
 
         if self.jarvis is not None:
-            return self.jarvis.query_llm([{"role": "user", "content": user_message}], system_prompt=system_prompt)
+            return self.jarvis.query_llm([{"role": "user", "content": user_message}], system_prompt=system_prompt, provider="mistral", model="open-mistral-nemo")
 
         try:
             response = ollama.chat(
@@ -306,12 +315,18 @@ class WebResearch:
         """Queries the web and runs an LLM-based fact checker evaluation on the statement."""
         logger.info(f"Fact-checking: {statement}")
         search_results = self.headless_search_and_summarize(statement, num_links=3)
+        system_prompt = "You are a fact-checking intelligence. Audit the provided statement against search results. Explain if it is True, False, or Partially True with clear bulleted reasons."
+        user_message = f"Statement to check: {statement}\n\nSearch context:\n{search_results}"
+        
+        if self.jarvis is not None:
+            return self.jarvis.query_llm([{"role": "user", "content": user_message}], system_prompt=system_prompt, provider="mistral", model="magistral-medium-2509")
+            
         try:
             response = ollama.chat(
                 model=self.model,
                 messages=[
-                    {"role": "system", "content": "You are a local fact-checking intelligence. Audit the provided statement against search results. Explain if it is True, False, or Partially True with clear bulleted reasons."},
-                    {"role": "user", "content": f"Statement to check: {statement}\n\nSearch context:\n{search_results}"}
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_message}
                 ]
             )
             return response["message"]["content"]
@@ -336,11 +351,17 @@ class WebResearch:
             context = "\n".join(compiled_news)
             
             logger.info("Summarizing headlines using LLM...")
+            system_prompt = "You are JARVIS, a Stark-level AI assistant. Summarize today's top news headlines into a clean, concise, categorized briefing. Focus strictly on the actual news events. Do not mention links, XML, RSS, or feed metadata."
+            user_message = f"Today's Headlines:\n{context}\n\nProvide the categorized briefing."
+            
+            if self.jarvis is not None:
+                return self.jarvis.query_llm([{"role": "user", "content": user_message}], system_prompt=system_prompt, provider="mistral", model="open-mistral-nemo")
+                
             response = ollama.chat(
                 model=self.model,
                 messages=[
-                    {"role": "system", "content": "You are JARVIS, a Stark-level AI assistant. Summarize today's top news headlines into a clean, concise, categorized briefing. Focus strictly on the actual news events. Do not mention links, XML, RSS, or feed metadata."},
-                    {"role": "user", "content": f"Today's Headlines:\n{context}\n\nProvide the categorized briefing."}
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_message}
                 ]
             )
             return response["message"]["content"]

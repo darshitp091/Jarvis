@@ -98,6 +98,67 @@ class PhoneController:
                 return f"Opening dialer with number {phone_number}, sir. Please press call on the screen."
             return f"Failed to initiate call: {output}"
 
+    def throw_file_to_phone(self, content_or_path: str) -> str:
+        """Pushes a file or text content to the Android device and displays it instantly."""
+        if not self.is_device_connected():
+            return "Please connect your Android device via USB, sir."
+
+        # If it's a file path that exists, use it. Otherwise, write content to a temp file.
+        pc_path = content_or_path
+        is_temp = False
+        if not os.path.exists(pc_path):
+            pc_path = "config/temp_throw.txt"
+            os.makedirs("config", exist_ok=True)
+            with open(pc_path, "w", encoding="utf-8") as f:
+                f.write(content_or_path)
+            is_temp = True
+
+        try:
+            # 1. Push file to phone SD card
+            phone_dest = "/sdcard/workspace_throw.txt"
+            success_push, err = self._run_adb_cmd(["push", pc_path, phone_dest])
+            if not success_push:
+                return f"ADB push failed: {err}"
+
+            # 2. Trigger Android action view intent to open the file on screen
+            self._run_adb_cmd([
+                "shell", "am", "start", "-a", "android.intent.action.VIEW", 
+                "-d", f"file://{phone_dest}", "-t", "text/plain"
+            ])
+            
+            # 3. Clean up local temp file
+            if is_temp and os.path.exists(pc_path):
+                os.remove(pc_path)
+
+            return f"File successfully thrown to your mobile device at '{phone_dest}', sir."
+        except Exception as e:
+            return f"Failed to transfer document to phone: {str(e)}"
+
+    def pull_phone_screen_to_desktop(self, save_path: str = "config/phone_screen_pull.png") -> str:
+        """Captures the phone screen buffer and downloads it to the desktop."""
+        if not self.is_device_connected():
+            return "Please connect your Android device via USB, sir."
+
+        try:
+            # 1. Capture screen on Android
+            phone_tmp = "/sdcard/screen_pull.png"
+            success_cap, err = self._run_adb_cmd(["shell", "screencap", "-p", phone_tmp])
+            if not success_cap:
+                return f"Failed to capture screen: {err}"
+
+            # 2. Pull screen back to PC
+            os.makedirs(os.path.dirname(save_path), exist_ok=True)
+            success_pull, err = self._run_adb_cmd(["pull", phone_tmp, save_path])
+            if not success_pull:
+                return f"Failed to pull screen: {err}"
+
+            # 3. Delete temp capture on phone to save space
+            self._run_adb_cmd(["shell", "rm", phone_tmp])
+
+            return f"Phone screen successfully pulled to '{save_path}', sir."
+        except Exception as e:
+            return f"Failed to sync phone screen: {str(e)}"
+
     def check_call_state(self) -> dict:
         """
         Checks current call state from telephony registries.

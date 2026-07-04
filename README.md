@@ -1,4 +1,4 @@
-# 🎙️ JARVIS: Stark-Level Voice & Gesture Assistant
+# 🎙️ JARVIS: AI Voice Assistant with Gesture Control
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python: 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
@@ -7,9 +7,9 @@
 [![GitHub stars](https://img.shields.io/github/stars/darshitp091/Jarvis.svg?style=social&label=Star)](https://github.com/darshitp091/Jarvis)
 [![GitHub forks](https://img.shields.io/github/forks/darshitp091/Jarvis.svg?style=social&label=Fork)](https://github.com/darshitp091/Jarvis)
 
-JARVIS is a **Stark-level, privacy-first desktop and mobile assistant** operating on a hybrid local-and-cloud architecture. It features local neural voice synthesis, real-time spatial computer vision (hand-gestures & eye-gaze tracking), local speech recognition, and an advanced cloud-API router with multi-provider fallbacks.
+JARVIS is an open-source **AI voice assistant** and **gesture control assistant** built for local, privacy-first **desktop automation** and hands-free control. Operating on a hybrid local-and-cloud architecture, it combines local neural **text-to-speech** (TTS) synthesis, real-time spatial **computer vision** (webcam hand gestures & eye-gaze tracking), local offline **speech-to-text** (STT), and an advanced LLM fallback router.
 
-JARVIS executes complex Windows operations, conducts concurrent multi-engine web research, runs local data analytics, scans host network security, and controls physical Android devices via a custom local USB ADB bridge.
+As a complete **hands-free computer controller**, JARVIS executes complex operating system commands, runs concurrent multi-engine web searches, automates file scripts, performs facial vitals (heart rate rPPG) diagnostics, and directs Android devices via a local USB ADB mobile bridge.
 
 ---
 
@@ -34,7 +34,7 @@ JARVIS grew from a simple voice-controlled CLI script into a fully integrated sp
 
 ---
 
-## 🛠️ Key Capabilities & Features
+## 🛠️ AI Assistant Core Capabilities & Features
 
 ### 1. 🗣️ Voice, Speech, & Audio
 *   **"JARVIS Heard" Feedback:** Displays direct console logging and stdout prints `JARVIS Heard: <transcribed text>` on transcription to provide instant visual feedback.
@@ -134,7 +134,7 @@ graph TD
 
 ---
 
-## 🤖 Hybrid Local & Cloud AI Model Stack
+## 🤖 Local AI Model Stack & Neural Engines
 
 JARVIS coordinates multiple specialized models running locally and in the cloud:
 

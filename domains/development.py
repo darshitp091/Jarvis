@@ -30,7 +30,7 @@ class DevelopmentDomain:
     def answer(self, query: str, memories: str = "") -> str:
         system_content = f"{self.system_prompt}\n{memories}"
         if self.jarvis is not None:
-            return self.jarvis.query_llm([{"role": "user", "content": query}], system_prompt=system_content, provider="mistral", model="codestral-2405")
+            return self.jarvis.query_llm([{"role": "user", "content": query}], system_prompt=system_content, provider="mistral", model="devstral-2512")
             
         try:
             response = ollama.chat(

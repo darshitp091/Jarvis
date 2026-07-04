@@ -159,3 +159,8 @@ class ObsidianControl:
             return f"The folder '{folder or 'root'}' is empty, sir."
         except Exception as e:
             return f"Failed to list notes inside folder '{folder}', sir. Error: {e}"
+
+    def sync_swarm_data(self, category: str, filename: str, content: str) -> str:
+        """Synchronizes swarm memory files into the Jarvis/ subfolder of the vault."""
+        folder = os.path.join("Jarvis", category)
+        return self.create_note(filename, content, folder)

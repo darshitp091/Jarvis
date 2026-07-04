@@ -31,7 +31,7 @@ class ScienceDomain:
         """Process a scientific research query"""
         system_content = f"{self.system_prompt}\n{memories}"
         if self.jarvis is not None:
-            return self.jarvis.query_llm([{"role": "user", "content": query}], system_prompt=system_content)
+            return self.jarvis.query_llm([{"role": "user", "content": query}], system_prompt=system_content, provider="mistral", model="magistral-medium-2509")
             
         try:
             response = ollama.chat(

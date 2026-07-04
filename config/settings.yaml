@@ -62,8 +62,10 @@ mistral:
   api_key: "YOUR_MISTRAL_API_KEY"
   models:
     brain: "mistral-large-2512"
-    code: "codestral-2405"
+    code: "devstral-2512"
     vision: "ministral-8b-2512"
+    reasoning: "magistral-medium-2509"
+    summary: "open-mistral-nemo"
 
 ofoxai:
   api_key: "YOUR_OFOXAI_API_KEY"

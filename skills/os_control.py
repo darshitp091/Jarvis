@@ -9,6 +9,38 @@ from loguru import logger
 class OSControl:
     """Controls the operating system for JARVIS"""
 
+    def _find_registry_app_path(self, app_name: str) -> str | None:
+        """Looks up the absolute path of an application from the Windows App Paths registry keys."""
+        import winreg
+        app_name_lower = app_name.lower().strip()
+        possible_names = [app_name_lower + ".exe", app_name_lower] if not app_name_lower.endswith(".exe") else [app_name_lower]
+
+        reg_paths = [
+            r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths",
+            r"SOFTWARE\Wow6432Node\Microsoft\Windows\CurrentVersion\App Paths"
+        ]
+
+        for reg_path in reg_paths:
+            for root_key in [winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER]:
+                try:
+                    with winreg.OpenKey(root_key, reg_path) as key:
+                        idx = 0
+                        while True:
+                            try:
+                                subkey_name = winreg.EnumKey(key, idx)
+                                subkey_lower = subkey_name.lower()
+                                if any(name in subkey_lower for name in possible_names):
+                                    with winreg.OpenKey(key, subkey_name) as subkey:
+                                        path_val, _ = winreg.QueryValueEx(subkey, "")
+                                        if path_val and os.path.exists(path_val):
+                                            return path_val
+                            except OSError:
+                                break
+                            idx += 1
+                except Exception:
+                    pass
+        return None
+
     def _find_windows_app_shortcut(self, app_name: str) -> str | None:
         """Find shortcut (.lnk file) in Windows Start Menu corresponding to the app name"""
         app_name_clean = app_name.lower().replace(" ", "")
@@ -80,6 +112,15 @@ class OSControl:
                     return f"Launched {matched_name.capitalize()}, sir."
                 except Exception:
                     pass
+            
+            # 1.5 Check Windows Registry App Paths
+            reg_app_path = self._find_registry_app_path(app_clean)
+            if reg_app_path:
+                try:
+                    os.startfile(reg_app_path)
+                    return f"Launched {app_name}, sir."
+                except Exception as e:
+                    logger.error(f"Registry launch failed for {reg_app_path}: {e}")
             
             # 2. Search start menu shortcuts using cleaned name
             shortcut_path = self._find_windows_app_shortcut(app_clean)
@@ -201,6 +242,35 @@ class OSControl:
         return pyautogui.size()
 
     # --- Stark-Level Upgrades ---
+
+    def focus_app(self, app_name: str) -> str:
+        """Brings an active application window to the foreground and sets focus using pywinauto."""
+        try:
+            from pywinauto import Desktop
+            windows = Desktop(backend="win32").windows()
+            matched_win = None
+            for w in windows:
+                title = w.window_text().lower()
+                if title and app_name.lower() in title:
+                    matched_win = w
+                    break
+            
+            if matched_win:
+                matched_win.set_focus()
+                return f"Focused the '{matched_win.window_text()}' window, sir."
+            else:
+                # Fallback to simple pygetwindow if pywinauto has permission issues
+                import pygetwindow as gw
+                titles = gw.getAllTitles()
+                matched_titles = [t for t in titles if app_name.lower() in t.lower() and t.strip()]
+                if matched_titles:
+                    win = gw.getWindowsWithTitle(matched_titles[0])[0]
+                    win.activate()
+                    return f"Focused the '{matched_titles[0]}' window, sir."
+                return f"I could not find an active window matching '{app_name}' to focus, sir."
+        except Exception as e:
+            logger.error(f"Error focusing app: {e}")
+            return f"Failed to focus application window: {str(e)}"
 
     def close_app(self, app_name: str) -> str:
         """Closes an active window matching the application name."""
@@ -420,6 +490,59 @@ class OSControl:
             return f"System brightness set to {p} percent, sir."
         except Exception as e:
             return f"Failed to adjust screen brightness: {str(e)}"
+
+    def set_volume(self, percent: int) -> str:
+        """Sets Windows master playback volume (0 to 100) using WASAPI audio endpoints."""
+        p = max(0, min(100, percent))
+        dec = p / 100.0
+        try:
+            ps_cmd = (
+                f"Add-Type -TypeDefinition '"
+                f"using System.Runtime.InteropServices; "
+                f"[Guid(\"5CDF2C82-841E-4546-9722-0CF74078229A\"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)] "
+                f"interface IAudioEndpointVolume {{ "
+                f"    int f(); int g(); int h(); int i(); "
+                f"    int SetMasterVolumeLevelScalar(float fLevel, System.Guid pguidEventContext); "
+                f"}} "
+                f"[Guid(\"D666063F-1587-4E43-81F1-B948E807363F\"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)] "
+                f"interface IMMDevice {{ "
+                f"    int Activate(ref System.Guid id, int clsCtx, int activationParams, out IAudioEndpointVolume aev); "
+                f"}} "
+                f"[Guid(\"A95664D2-9614-4F35-A746-DE8DB63617E6\"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)] "
+                f"interface IMMDeviceEnumerator {{ "
+                f"    int f(); "
+                f"    int GetDefaultAudioEndpoint(int dataFlow, int role, out IMMDevice endpoint); "
+                f"}} "
+                f"[ComImport, Guid(\"BCDE0395-E52F-467C-8E3D-C4579291692E\")] "
+                f"class MMDeviceEnumeratorComObject {{ }} "
+                f"public class Audio {{ "
+                f"    public static void SetVolume(float level) {{ "
+                f"        var enumerator = new MMDeviceEnumeratorComObject() as IMMDeviceEnumerator; "
+                f"        IMMDevice dev = null; "
+                f"        enumerator.GetDefaultAudioEndpoint(0, 1, out dev); "
+                f"        IAudioEndpointVolume epv = null; "
+                f"        var epvid = typeof(IAudioEndpointVolume).GUID; "
+                f"        dev.Activate(ref epvid, 23, 0, out epv); "
+                f"        epv.SetMasterVolumeLevelScalar(level, System.Guid.Empty); "
+                f"    }} "
+                f"}}'; [Audio]::SetVolume({dec})"
+            )
+            subprocess.run(["powershell", "-Command", ps_cmd], capture_output=True, text=True, check=True)
+            return f"Master playback volume set to {p} percent, sir."
+        except Exception as e:
+            # Fallback to user32 keypress adjustments
+            try:
+                import ctypes
+                for _ in range(50):
+                    ctypes.windll.user32.keybd_event(0xAE, 0, 0, 0)
+                    ctypes.windll.user32.keybd_event(0xAE, 0, 2, 0)
+                presses = int(p / 2)
+                for _ in range(presses):
+                    ctypes.windll.user32.keybd_event(0xAF, 0, 0, 0)
+                    ctypes.windll.user32.keybd_event(0xAF, 0, 2, 0)
+                return f"Adjusted volume to approximately {p} percent via system hotkeys, sir."
+            except Exception as inner_err:
+                return f"Failed to set volume: {str(e)} | Hotkey fallback: {str(inner_err)}"
 
     def toggle_battery_saver(self, enable: bool = True) -> str:
         """Toggles Power Saver active scheme using powercfg."""

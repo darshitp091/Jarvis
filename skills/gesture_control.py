@@ -40,10 +40,11 @@ def close_window_hwnd(hwnd):
 class GestureController:
     """Tracks hand landmarks and translates them into smooth mouse, click, and advanced Iron Man window gestures."""
 
-    def __init__(self, camera_engine, canvas=None, youtube_music=None):
+    def __init__(self, camera_engine, canvas=None, youtube_music=None, hologram_widget=None):
         self.camera = camera_engine
         self.canvas = canvas
         self.youtube_music = youtube_music
+        self.hologram_widget = hologram_widget
         self.is_running = False
         self.thread = None
         
@@ -126,7 +127,13 @@ class GestureController:
                     # Distance between the two index finger tips
                     dist = get_dist(h1[8], h2[8])
                     
-                    if self.prev_two_hand_dist is not None:
+                    if self.hologram_widget and self.hologram_widget.isVisible():
+                        # Map index finger distance (0.1 to 0.7) to explode factor (0.0 to 2.0)
+                        factor = max(0.0, min(2.0, (dist - 0.2) * 4.0))
+                        self.hologram_widget.target_explode_factor = factor
+                        self.prev_two_hand_dist = dist
+                        time.sleep(0.02)
+                    elif self.prev_two_hand_dist is not None:
                         diff = dist - self.prev_two_hand_dist
                         # If distance changes significantly, trigger system zoom hotkeys
                         if diff > 0.08:

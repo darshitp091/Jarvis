@@ -302,6 +302,10 @@ class IntentRouter:
         if brightness_match:
             return {"skill": "os_control", "params": {"action": "set_brightness", "percent": int(brightness_match.group(1))}, "domain": "general"}
 
+        volume_match = re.search(r"(?:set|change|adjust)\s+(?:master\s+|speaker\s+|system\s+)?volume\s+(?:to\s+)?(\d+)", cmd)
+        if volume_match:
+            return {"skill": "os_control", "params": {"action": "set_volume", "percent": int(volume_match.group(1))}, "domain": "general"}
+
         if any(p in cmd for p in ["turn on battery saver", "enable battery saver", "activate battery saver"]):
             return {"skill": "os_control", "params": {"action": "toggle_battery_saver", "enable": True}, "domain": "general"}
         if any(p in cmd for p in ["turn off battery saver", "disable battery saver", "deactivate battery saver"]):
@@ -347,6 +351,31 @@ class IntentRouter:
             return {"skill": "os_control", "params": {"action": "toggle_dark_mode", "dark": True}, "domain": "general"}
         if any(p in cmd for p in ["turn off dark mode", "disable dark mode", "deactivate dark mode", "set light theme"]):
             return {"skill": "os_control", "params": {"action": "toggle_dark_mode", "dark": False}, "domain": "general"}
+
+        # --- Vitals & Health Checks ---
+        if any(p in cmd for p in ["check my heart rate", "run vitals diagnostics", "check pulse", "vitals status", "check stress level"]):
+            return {"skill": "vitals_check", "params": {"action": "check_vitals"}, "domain": "general"}
+
+        # --- Phone Throw/Pull Spatial Bridge ---
+        if cmd.startswith("throw to phone") or cmd.startswith("throw file to phone") or cmd.startswith("throw this code to my phone") or cmd.startswith("throw this file to my phone") or cmd.startswith("throw code to my phone"):
+            # We will handle pulling the active file content directly in main.py if content is empty
+            return {"skill": "phone", "params": {"action": "throw", "content": ""}, "domain": "general"}
+        throw_match = re.match(r"^throw\s+(.+?)\s+(?:to my phone|to phone|to mobile)$", cmd)
+        if throw_match:
+            return {"skill": "phone", "params": {"action": "throw", "content": throw_match.group(1).strip()}, "domain": "general"}
+        if any(p in cmd for p in ["pull my phone screen", "pull screen from phone", "sync phone screen", "show mobile screen"]):
+            return {"skill": "phone", "params": {"action": "pull_screen"}, "domain": "general"}
+
+        # --- CAD Design & 3D Hologram Mesh ---
+        cad_match = re.search(r"\b(?:design|render|generate|create|show)\s+(?:a\s+)?(?:3d\s+)?(arc reactor|gearbox|gear|double helix|dna|sphere|globe|vibranium core)\b", cmd)
+        if cad_match:
+            return {"skill": "hologram_control", "params": {"action": "design", "object": cad_match.group(1)}, "domain": "general"}
+
+        # --- Hologram Explode / Assemble ---
+        if any(p in cmd for p in ["explode the hologram", "explode model", "explode assembly", "pull apart hologram"]):
+            return {"skill": "hologram_control", "params": {"action": "explode", "enable": True}, "domain": "general"}
+        if any(p in cmd for p in ["assemble the hologram", "assemble model", "assemble gearbox", "put back together hologram"]):
+            return {"skill": "hologram_control", "params": {"action": "explode", "enable": False}, "domain": "general"}
 
         printer_add_match = re.search(r"add printer (?:connection\s+)?(.+)", cmd)
         if printer_add_match:
@@ -447,9 +476,13 @@ class IntentRouter:
             angle_val = int(rotate_pdf_match.group(4)) if rotate_pdf_match.group(4) else 90
             return {"skill": "productivity", "params": {"action": "edit_pdf", "pdf_action": "rotate", "files_list": [rotate_pdf_match.group(2).strip()], "output_path": rotate_pdf_match.group(3).strip(), "page_num": int(rotate_pdf_match.group(1)), "angle": angle_val}, "domain": "general"}
 
-        ppt_match = re.search(r"^create presentation\s+(?:about|on\s+)?(.+)", cmd)
+        ppt_match = re.search(r"^(?:create|make)\s+(?:a\s+)?presentation\s+(?:for\s+me\s+)?(?:about|on\s+)?(.+)", cmd)
         if ppt_match:
             return {"skill": "productivity", "params": {"action": "create_presentation", "title": ppt_match.group(1).strip()}, "domain": "general"}
+
+        open_ppt_match = re.search(r"\b(?:project|open|show|play)\s+(?:the\s+)?(?:presentation|slides|pptx?)\b", cmd)
+        if open_ppt_match:
+            return {"skill": "productivity", "params": {"action": "open_presentation"}, "domain": "general"}
 
         mind_map_match = re.search(r"^create mind map\s+(?:for|about|on\s+)?(.+)", cmd)
         if mind_map_match:
@@ -758,6 +791,10 @@ class IntentRouter:
                 return {"skill": "self_healing", "params": {"action": "click_element", "element_name": elem}, "domain": "general"}
 
         # --- New OS Controls (Minimize/Close/Workspace/Drag/Video/Archiving) ---
+        if cmd.startswith("focus app ") or cmd.startswith("focus window ") or cmd.startswith("bring to front ") or cmd.startswith("focus "):
+            app = cmd.replace("focus app ", "").replace("focus window ", "").replace("bring to front ", "").replace("focus ", "").strip()
+            return {"skill": "os_control", "params": {"action": "focus", "app": app}, "domain": "general"}
+
         if cmd.startswith("close app ") or cmd.startswith("close window "):
             app = cmd.replace("close app ", "").replace("close window ", "").strip()
             return {"skill": "os_control", "params": {"action": "close", "app": app}, "domain": "general"}

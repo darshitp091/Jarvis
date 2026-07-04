@@ -1,7 +1,7 @@
 import os
 import time
 from PyQt6.QtWidgets import QWidget, QApplication, QLabel, QRubberBand
-from PyQt6.QtCore import Qt, QPoint, QSize, QRect, pyqtSignal
+from PyQt6.QtCore import Qt, QPoint, QSize, QRect, pyqtSignal, QTimer
 from PyQt6.QtGui import QPainter, QColor, QPen, QGuiApplication
 import pyautogui
 from PIL import Image
@@ -566,3 +566,93 @@ class IronManHUDOverlay(QWidget):
             # Ambient grid lines
             painter.setPen(QPen(dim_color, 0.5, Qt.PenStyle.DashLine))
             painter.drawLine(cx - 80, cy, cx + 80, cy)
+
+
+class TargetReticleOverlay(QWidget):
+    """Transparent overlay that draws a neon-green rotating targeting reticle around a coordinate."""
+    def __init__(self, x: int, y: int, label_text: str = "TARGET LOCK"):
+        super().__init__()
+        self.target_x = x
+        self.target_y = y
+        self.label_text = label_text
+        self.angle = 0
+        
+        # Borderless, stays on top, tool window, transparent input (doesn't block user clicks)
+        self.setWindowFlags(
+            Qt.WindowType.FramelessWindowHint | 
+            Qt.WindowType.WindowStaysOnTopHint | 
+            Qt.WindowType.Tool |
+            Qt.WindowType.WindowTransparentForInput
+        )
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
+        
+        # Cover virtual screen
+        rect = QGuiApplication.primaryScreen().virtualGeometry()
+        self.setGeometry(rect)
+        
+        # Timer for rotative animation (30 FPS)
+        self.anim_timer = QTimer(self)
+        self.anim_timer.timeout.connect(self.update_animation)
+        self.anim_timer.start(33)
+        
+        # Timer to self-close after 3 seconds
+        self.close_timer = QTimer(self)
+        self.close_timer.timeout.connect(self.close)
+        self.close_timer.setSingleShot(True)
+        self.close_timer.start(3000)
+        
+    def update_animation(self):
+        self.angle = (self.angle + 4) % 360
+        self.update()
+        
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        
+        # Neon green color
+        neon_color = QColor(0, 255, 120, 220)
+        pen = QPen(neon_color, 2)
+        painter.setPen(pen)
+        
+        # Target center
+        tx, ty = self.target_x, self.target_y
+        
+        # Draw target circular reticle
+        radius = 40
+        painter.drawEllipse(QPoint(tx, ty), radius, radius)
+        
+        # Draw outer rotating dashes
+        painter.save()
+        painter.translate(tx, ty)
+        painter.rotate(self.angle)
+        for i in range(4):
+            painter.rotate(90)
+            painter.drawLine(radius + 5, 0, radius + 15, 0)
+        painter.restore()
+        
+        # Draw crosshairs
+        painter.drawLine(tx - 10, ty, tx + 10, ty)
+        painter.drawLine(tx, ty - 10, tx, ty + 10)
+        
+        # Draw surrounding square brackets
+        offset = 60
+        size = 15
+        # Top-Left
+        painter.drawLine(tx - offset, ty - offset, tx - offset + size, ty - offset)
+        painter.drawLine(tx - offset, ty - offset, tx - offset, ty - offset + size)
+        # Top-Right
+        painter.drawLine(tx + offset, ty - offset, tx + offset - size, ty - offset)
+        painter.drawLine(tx + offset, ty - offset, tx + offset, ty - offset + size)
+        # Bottom-Left
+        painter.drawLine(tx - offset, ty + offset, tx - offset + size, ty + offset)
+        painter.drawLine(tx - offset, ty + offset, tx - offset, ty + offset - size)
+        # Bottom-Right
+        painter.drawLine(tx + offset, ty + offset, tx + offset - size, ty + offset)
+        painter.drawLine(tx + offset, ty + offset, tx + offset, ty + offset - size)
+        
+        # Draw text label under the target
+        painter.setFont(QGuiApplication.font())
+        painter.setPen(QPen(QColor(0, 255, 120, 255)))
+        painter.drawText(tx - 80, ty + offset + 20, 160, 20, Qt.AlignmentFlag.AlignCenter, self.label_text)
+
