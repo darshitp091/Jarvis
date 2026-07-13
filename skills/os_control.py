@@ -209,8 +209,31 @@ class OSControl:
         os.system("shutdown /s /t 5")
         return "Initiating shutdown protocol. Goodbye, sir."
 
-    def activate_sentry_mode(self):
+    def activate_sentry_mode(self, camera=None, tts=None):
         self.lock_screen()
+        self.sentry_active = True
+        
+        def sentry_loop():
+            import time
+            import pyautogui
+            last_pos = pyautogui.position()
+            logger.info("Active Sentry Monitor Thread started.")
+            while getattr(self, "sentry_active", False):
+                time.sleep(1.0)
+                current_pos = pyautogui.position()
+                if current_pos != last_pos:
+                    logger.warning("Sentry Mode: Desktop interaction detected!")
+                    last_pos = current_pos
+                    if camera and camera.has_face_model and camera.latest_frame is not None:
+                        is_owner = camera.identify_face(camera.latest_frame)
+                        if not is_owner:
+                            logger.error("Sentry Mode: Face validation failed! Intruder detected!")
+                            if tts:
+                                tts.speak("Unauthorized system access attempt detected. Lock down engaged.")
+                            self.lock_screen()
+
+        import threading
+        threading.Thread(target=sentry_loop, daemon=True).start()
         return "Sentry mode activated. Laptop is secure."
 
     def move_mouse(self, x: int, y: int) -> str:

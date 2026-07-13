@@ -45,3 +45,8 @@ bin/
 scratch/
 auth/.adb_wireless_config
 config/voice_profile.json
+
+# Local user directories and media
+models/
+obsidian_vault/
+*.mp3

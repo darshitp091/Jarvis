@@ -1,23 +1,14 @@
 import os
+import sys
 import random
+import re
+import time
+import asyncio
+import numpy as np
 import sounddevice as sd
+import soundfile as sf
 import subprocess
 from loguru import logger
-
-import numpy as np
-
-# Monkey-patch numpy.load to allow pickle loading for Kokoro voices-v1.0.bin
-orig_load = np.load
-def patched_load(*args, **kwargs):
-    kwargs['allow_pickle'] = True
-    return orig_load(*args, **kwargs)
-np.load = patched_load
-
-try:
-    from kokoro_onnx import Kokoro
-except ImportError:
-    Kokoro = None
-    logger.warning("kokoro_onnx not installed. Please run `pip install kokoro-onnx`")
 
 FILLER_PHRASES = [
     "On it, sir.",
@@ -31,200 +22,229 @@ FILLER_PHRASES = [
 ]
 
 class TTSEngine:
-    """Kokoro TTS for human-like voice output with support for multiple languages and accents."""
+    """High-Fidelity Edge TTS Engine with Punctuation & Rule-Based Emotion Mapping."""
 
-    def __init__(self, model_path: str = "kokoro-v1.0.onnx", voices_path: str = "voices-v1.0.bin", default_voice: str = "af_heart", default_speed: float = 1.0):
-        self.model_path = model_path
-        self.voices_path = voices_path
+    def __init__(self, default_voice: str = "hinglish", default_speed: float = 1.15):
         self.default_voice = default_voice
         self.default_speed = default_speed
-        self.kokoro = None
         self.interrupted = False
-        
         self.on_speak_start = None
         self.on_speak_end = None
         self.is_speaking = False
-        self.sarvam_config = {}
+        
+        # Load settings
+        self.settings = {}
         try:
-            import os
             import yaml
             config_path = "config/settings.yaml"
             if not os.path.exists(config_path):
                 config_path = os.path.join(os.path.dirname(__file__), "..", config_path)
             if os.path.exists(config_path):
                 with open(config_path, "r") as f:
-                    settings = yaml.safe_load(f) or {}
-                    self.sarvam_config = settings.get("sarvam", {})
+                    self.settings = yaml.safe_load(f) or {}
+                    tts_conf = self.settings.get("tts", {})
+                    self.default_voice = tts_conf.get("default_voice", default_voice)
+                    self.voices_config = tts_conf.get("voices", {})
+                    self.default_speed = tts_conf.get("speaking_rate", default_speed)
         except Exception as config_err:
             logger.warning(f"TTSEngine: Failed to load settings.yaml: {config_err}")
-        self._load_kokoro()
+            self.voices_config = {}
 
-    def _load_kokoro(self):
-        if not Kokoro:
-            return
+        logger.info("Edge TTS Engine initialized.")
 
-        try:
-            if not os.path.exists(self.model_path):
-                logger.warning(f"Kokoro model not found at {self.model_path}. You might need to download it.")
-                logger.info("Run: wget https://github.com/thewh1teagle/kokoro-onnx/releases/download/model/kokoro-v1.0.onnx")
-            if not os.path.exists(self.voices_path):
-                logger.warning(f"Kokoro voices json not found at {self.voices_path}. You might need to download it.")
-                logger.info("Run: wget https://github.com/thewh1teagle/kokoro-onnx/releases/download/model/voices.json")
-            
-            if os.path.exists(self.model_path) and os.path.exists(self.voices_path):
-                # Ensure espeak-ng is installed and in path, which Kokoro uses under the hood for phonemizing
-                import onnxruntime as rt
-                if "CUDAExecutionProvider" in rt.get_available_providers():
-                    os.environ["ONNX_PROVIDER"] = "CUDAExecutionProvider"
-                    logger.info("Attempting to load Kokoro TTS with CUDA Execution Provider...")
-                else:
-                    os.environ["ONNX_PROVIDER"] = "CPUExecutionProvider"
-                
-                try:
-                    self.kokoro = Kokoro(self.model_path, self.voices_path)
-                    logger.info("Kokoro TTS loaded successfully")
-                except Exception as gpu_err:
-                    logger.warning(f"Failed to load Kokoro with GPU/CUDA: {gpu_err}. Retrying on CPU.")
-                    os.environ["ONNX_PROVIDER"] = "CPUExecutionProvider"
-                    self.kokoro = Kokoro(self.model_path, self.voices_path)
-                    logger.info("Kokoro TTS loaded successfully on CPU")
-        except Exception as e:
-            logger.error(f"Failed to load Kokoro: {e}")
+    @staticmethod
+    def _detect_language(text: str) -> str:
+        """Auto-detect if text is Hindi/Hinglish or English based on content."""
+        devanagari_count = sum(1 for c in text if '\u0900' <= c <= '\u097F')
+        if devanagari_count > 2:
+            return "hi"
+        hindi_markers = ['hai', 'hoon', 'kya', 'nahi', 'aap', 'kaise', 'kar', 'rahi', 'raha',
+                         'mein', 'main', 'yeh', 'woh', 'toh', 'bhi', 'aur', 'lekin', 'abhi',
+                         'karo', 'dijiye', 'chaliye', 'thoda', 'bohot', 'bahut', 'accha',
+                         'namaste', 'dhanyavaad', 'suno', 'bolo', 'dekho', 'chalo', 'sir',
+                         'haan', 'ji', 'acha', 'theek', 'samajh', 'pata', 'kuch', 'sab']
+        words = text.lower().split()
+        hindi_word_count = sum(1 for w in words if w.strip('.,!?') in hindi_markers)
+        if hindi_word_count >= 2 or (len(words) > 0 and hindi_word_count / max(len(words), 1) > 0.15):
+            return "hi"
+        return "en"
 
-    def speak(self, text: str, voice: str = None, speed: float = None, lang: str = "en-us", volume: float = 1.0, whisper: bool = False):
-        """Speak text aloud using Kokoro with adjustable speed, volume, and whisper support."""
+    def _parse_emotion_rules(self, text: str):
+        """Rule-based emotion mapping from text context, punctuation, and keyword signals."""
+        emotion = None
+        # Detect legacy bracketed tags if present in LLM response
+        for tag in ["excited", "thoughtful", "sigh", "sad", "laugh", "laziness", "happy", "serious", "energetic"]:
+            if f"[{tag}]" in text.lower():
+                emotion = tag
+                break
+
+        # Sentiment keywords and punctuation rules
+        text_lower = text.lower()
+        
+        if "!" in text or any(w in text_lower for w in ["great", "perfect", "amazing", "awesome", "success", "yes!"]):
+            if not emotion:
+                emotion = "excited"
+        elif "?" in text or any(w in text_lower for w in ["checking", "analyzing", "hmm", "let me see"]):
+            if not emotion:
+                emotion = "thoughtful"
+        elif any(w in text_lower for w in ["sorry", "error", "failed", "broken", "unfortunately", "wrong"]):
+            if not emotion:
+                emotion = "serious"
+
+        # Default voice offset adjustments
+        rate_offset = 0
+        pitch_offset = 0
+
+        if emotion in ["excited", "happy"]:
+            rate_offset = 8      # Speed up slightly
+            pitch_offset = 4     # Raise pitch
+        elif emotion == "thoughtful":
+            rate_offset = -10    # Slow down
+            pitch_offset = -1
+        elif emotion in ["sigh", "laziness"]:
+            rate_offset = -12
+            pitch_offset = -2
+        elif emotion in ["serious", "sad"]:
+            rate_offset = -8
+            pitch_offset = -3
+        elif emotion == "energetic":
+            rate_offset = 12
+            pitch_offset = 5
+
+        clean_text = re.sub(r'\[.*?\]', '', text).strip()
+        return clean_text, emotion, rate_offset, pitch_offset
+
+    def speak(self, text: str, voice: str = None, speed: float = None, lang: str = None, volume: float = 1.0, whisper: bool = False, telephone: bool = False):
+        """Synthesize and play expressive Hinglish/English speech."""
         if not text:
             return
-            
+
         self.is_speaking = True
-            
-        import sys
-        sys.stdout.write(f"JARVIS Replied: {text}\n")
-        sys.stdout.flush()
-            
-        import time
-        self.speak_start_time = time.time()
         self.interrupted = False
-        use_voice = voice if voice else self.default_voice
-        use_speed = speed if speed is not None else self.default_speed
-        
-        if whisper:
-            volume = 0.25
-            use_speed = 0.8
-            logger.info("Whisper mode enabled for speech output.")
-            
+
+        # Output text immediately to console
+        try:
+            sys.stdout.write(f"JARVIS Replied: {text}\n")
+            sys.stdout.flush()
+        except Exception:
+            try:
+                print(f"JARVIS Replied: {text.encode('ascii', errors='replace').decode('ascii')}")
+            except Exception:
+                pass
+
         if self.on_speak_start:
             try:
                 self.on_speak_start()
             except Exception as cb_err:
                 logger.error(f"Error in on_speak_start callback: {cb_err}")
 
+        # Clean markdown code blocks from spoken output
+        spoken_text = text
+        if "```" in spoken_text:
+            spoken_text = re.sub(
+                r"```[a-zA-Z0-9\-\_]*\n(.*?)\n```",
+                " [Code output generated and displayed on screen, sir.] ",
+                spoken_text,
+                flags=re.DOTALL
+            )
+
+        # Parse rule-based emotions
+        clean_text, emotion, rate_off, pitch_off = self._parse_emotion_rules(spoken_text)
+        if not clean_text:
+            self.is_speaking = False
+            return
+
+        # Determine speaker profile
+        spk = voice if voice else self.default_voice
+        if spk not in self.voices_config:
+            spk = "hinglish"
+        voice_params = self.voices_config.get(spk, {})
+        ref_speaker = voice_params.get("ref_speaker", "hi-IN-SwaraNeural")
+
         try:
-            import re
-            spoken_text = text
-            if "```" in spoken_text:
-                spoken_text = re.sub(
-                    r"```[a-zA-Z0-9\-\_]*\n(.*?)\n```",
-                    " [Code output generated and displayed on screen, sir.] ",
-                    spoken_text,
-                    flags=re.DOTALL
-                )
+            # Calculate speaking rate for Edge TTS (base rate + emotion offset)
+            base_speed = speed if speed else self.default_speed
+            # Base percentage offset from 1.0
+            rate_percentage = int((base_speed - 1.0) * 100) + rate_off
+            rate_str = f"{'+' if rate_percentage >= 0 else ''}{rate_percentage}%"
+            pitch_str = f"{'+' if pitch_off >= 0 else ''}{pitch_off}Hz"
+            volume_str = "+0%"
 
-            # Check if Sarvam AI TTS is enabled and we have an API key
-            api_key = os.getenv("SARVAM_API_KEY") or self.sarvam_config.get("api_key")
-            if self.sarvam_config.get("enabled", False) and api_key:
-                # Detect Hindi/Hinglish cues in the output text
-                has_devanagari = any('\u0900' <= c <= '\u097F' for c in spoken_text)
-                hindi_triggers = {
-                    "karo", "kholo", "chalao", "batao", "gaana", "kya", "kaise", "band", "lagao", 
-                    "ha", "nahin", "nahi", "tum", "mera", "aap", "hu", "hai", "tha", "raha", "kar", 
-                    "se", "ko", "par", "ek", "yeh", "woh", "suno", "namaste", "shukriya", "bataiye"
-                }
-                words_clean = set(spoken_text.lower().replace(",", "").replace(".", "").replace("!", "").replace("?", "").split())
-                has_hindi_words = not words_clean.isdisjoint(hindi_triggers)
+            logger.info(f"Synthesizing Edge TTS ({ref_speaker}) | Emotion: {emotion or 'neutral'} | Text: '{clean_text[:60]}...'")
+            
+            # Run asynchronous speech generation in a synchronous wrapper
+            asyncio.run(self._speak_edge_async(clean_text, ref_speaker, rate_str, pitch_str, volume_str, whisper, telephone, volume))
+        except Exception as e:
+            logger.error(f"Edge TTS Generation Error: {e}")
+            self._fallback_speak(clean_text)
 
-                if has_devanagari or has_hindi_words:
-                    try:
-                        import tempfile
-                        from sarvamai import SarvamAI
-                        from sarvamai.play import save
-                        import soundfile as sf
-                    
-                        logger.info("Generating speech using Sarvam AI Bulbul v3...")
-                        client = SarvamAI(api_subscription_key=api_key)
-                        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-                            tmp_wav_path = f.name
-                            
-                        try:
-                            response = client.text_to_speech.convert(
-                                text=spoken_text,
-                                target_language_code=self.sarvam_config.get("language", "hi-IN"),
-                                model="bulbul:v3",
-                                speaker=self.sarvam_config.get("tts_speaker", "shubh"),
-                            )
-                            save(response, tmp_wav_path)
-                            
-                            data, sample_rate = sf.read(tmp_wav_path)
-                            if volume != 1.0:
-                                data = data * volume
-                                
-                            sd.play(data, sample_rate)
-                            while sd.get_stream().active:
-                                if self.interrupted:
-                                    sd.stop()
-                                    logger.info("Sarvam TTS playback stopped mid-sentence via interruption signal.")
-                                    break
-                                time.sleep(0.02)
-                                
-                            time.sleep(0.3)  # Clear room echo
-                            return
-                        finally:
-                            try:
-                                os.unlink(tmp_wav_path)
-                            except Exception:
-                                pass
-                    except Exception as sarvam_err:
-                        logger.error(f"Sarvam AI TTS error: {sarvam_err}. Falling back to local Kokoro.")
+    async def _speak_edge_async(self, text: str, voice_name: str, rate_str: str, pitch_str: str, volume_str: str, whisper: bool, telephone: bool, base_vol: float):
+        """Asynchronously stream voice, convert format, and play live."""
+        import edge_tts
+        temp_dir = "scratch"
+        os.makedirs(temp_dir, exist_ok=True)
+        temp_mp3 = os.path.join(temp_dir, f"edge_{int(time.time())}_{random.randint(100, 999)}.mp3")
+        temp_wav = temp_mp3.replace(".mp3", ".wav")
 
-            if self.kokoro:
-                samples, sample_rate = self.kokoro.create(
-                    spoken_text, voice=use_voice, speed=use_speed, lang=lang 
-                )
-                
-                # Apply volume adjustment
-                if volume != 1.0:
-                    samples = samples * volume
+        try:
+            # Generate Edge TTS MP3
+            communicate = edge_tts.Communicate(text, voice_name, rate=rate_str, pitch=pitch_str, volume=volume_str)
+            await communicate.save(temp_mp3)
 
-                # Prepend a small silent padding (e.g. 0.2 seconds) to allow the audio output device
-                # to initialize and wake up, avoiding the first syllable being cut off (e.g. "vis" instead of "Jarvis").
-                silence_duration = 0.2  # seconds
-                silence_samples = np.zeros(int(silence_duration * sample_rate), dtype=np.float32)
-                samples = np.concatenate([silence_samples, samples])
-                
-                # Play audio using sounddevice asynchronously
-                sd.play(samples, sample_rate)
-                
-                import time
+            # Convert to 24kHz mono wav using ffmpeg
+            cmd = ["ffmpeg", "-y", "-i", temp_mp3, "-ar", "24000", "-ac", "1", temp_wav]
+            res = subprocess.run(cmd, capture_output=True)
+            if res.returncode != 0:
+                raise RuntimeError(f"FFmpeg conversion failed: {res.stderr.decode('utf-8', errors='ignore')}")
+
+            # Load and play audio
+            audio, sr = sf.read(temp_wav, dtype='float32')
+            audio = audio.flatten()
+
+            if audio is not None and len(audio) > 0:
+                # Add environment effects (whisper/telephone) if requested
+                from pedalboard import Pedalboard, HighpassFilter, LowpassFilter
+                dsp_effects = []
+                if whisper:
+                    dsp_effects.append(HighpassFilter(cutoff_frequency_hz=1000))
+                    base_vol *= 0.25
+                elif telephone:
+                    dsp_effects.append(HighpassFilter(cutoff_frequency_hz=350))
+                    dsp_effects.append(LowpassFilter(cutoff_frequency_hz=3200))
+
+                if dsp_effects:
+                    active_board = Pedalboard(dsp_effects)
+                    audio = active_board(audio, sr)
+
+                if base_vol != 1.0:
+                    audio *= base_vol
+
+                # Pad silence to prevent audio pops
+                silence = np.zeros(int(0.1 * sr), dtype=np.float32)
+                audio = np.concatenate([silence, audio])
+
+                sd.play(audio, sr)
                 while sd.get_stream().active:
                     if self.interrupted:
                         sd.stop()
-                        logger.info("Speech playback stopped mid-sentence via interruption signal.")
                         break
-                    time.sleep(0.02)
-                
-                time.sleep(0.3)  # Clear room echo before microphone opens
-            else:
-                self._fallback_speak(spoken_text)
-        except Exception as e:
-            logger.error(f"TTS error: {e}")
-            self._fallback_speak(spoken_text)
+                    await asyncio.sleep(0.02)
+
         finally:
             self.is_speaking = False
             if self.on_speak_end:
                 try:
                     self.on_speak_end()
                 except Exception as cb_err:
-                    logger.error(f"Error in on_speak_end callback: {cb_err}")
+                    logger.error(f"Error in on_speak_end: {cb_err}")
+
+            # Clear temporary files
+            for fp in [temp_mp3, temp_wav]:
+                if os.path.exists(fp):
+                    try:
+                        os.remove(fp)
+                    except Exception:
+                        pass
 
     def stop_speech(self):
         """Stops active speech immediately."""
@@ -235,25 +255,20 @@ class TTSEngine:
             pass
 
     def _fallback_speak(self, text: str):
-        """Fallback to Windows built-in TTS if Kokoro fails"""
+        """Fallback to Windows SAPI speech if everything fails."""
         try:
             safe_text = text.replace("'", "''")
             cmd = f'powershell -Command "Add-Type -AssemblyName System.Speech; (New-Object System.Speech.Synthesis.SpeechSynthesizer).Speak(\'{safe_text}\')"'
             subprocess.run(cmd, shell=True)
-            import time
             time.sleep(0.3)
         except Exception as e:
-            logger.error(f"Fallback TTS failed: {e}")
+            logger.error(f"Fallback SAPI failed: {e}")
             print(f"[JARVIS SAYS]: {text}")
 
     def speak_filler(self):
-        """Speak a random filler while main model thinks"""
+        """Speak a random filler while main model thinks."""
         self.speak(random.choice(FILLER_PHRASES))
-
 
 if __name__ == "__main__":
     engine = TTSEngine()
-    engine.speak("JARVIS online. All systems operational.")
-    
-    # Example for Indian English
-    # engine.speak("Namaste, I am JARVIS. How can I assist you today?", lang="en-in")
+    engine.speak("Namaste sir, kaise hain aap? [excited] I am speaking using high-fidelity edge tts! Let's analyze the code error.")

@@ -38,22 +38,77 @@ class ObsidianControl:
             logger.warning(f"Obsidian Vault path '{self.vault_path}' is empty or invalid. Falling back to workspace folder: '{fallback_dir}'")
             self.vault_path = fallback_dir
 
+    def _structure_note_with_llm(self, raw_content: str, requested_title: str = None) -> tuple[str, str]:
+        """Call Llama 3.1 8B via ollama to format the content and generate a descriptive title."""
+        import ollama
+        import json
+        from loguru import logger
+        
+        sys_prompt = (
+            "You are a cognitive processor. Given a raw dictation or spoken text to remember/note, your task is to:\n"
+            "1. Clean up and format the text logically (line-wise or paragraph-wise), removing meta-speech triggers like 'remember this', 'note down', 'likh le'.\n"
+            "2. Generate a short, clear, professional title for the note (max 4-5 words).\n"
+            "3. Output ONLY a valid JSON object matching this structure: {\"title\": \"Suggested Title\", \"content\": \"Cleaned and formatted note content\"}"
+        )
+        
+        user_prompt = f"Raw Speech Text: '{raw_content}'"
+        if requested_title:
+            user_prompt += f"\nRequested Title (use if appropriate): '{requested_title}'"
+            
+        try:
+            # Query LLM (will redirect to Cloudflare)
+            response = ollama.chat(
+                model="qwen2.5-coder:7b",
+                messages=[
+                    {"role": "system", "content": sys_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                format="json"
+            )
+            raw = response["message"]["content"].strip()
+            data = json.loads(raw)
+            title = data.get("title", "").strip()
+            content = data.get("content", "").strip()
+            if title and content:
+                return title, content
+        except Exception as e:
+            logger.warning(f"Failed to structure note with LLM: {e}. Falling back to default naming.")
+            
+        # Fallback
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        if requested_title:
+            title = requested_title
+        else:
+            words = re.sub(r'[^\w\s]', '', raw_content).strip().split()
+            if words:
+                title = "_".join(words[:5])
+            else:
+                title = f"Note_{timestamp}"
+        return title, raw_content
+
     def create_note(self, title: str, content: str, folder: str = "") -> str:
         """Creates or overwrites a note with the given title and content in the vault."""
         self._verify_vault()
         
+        # Structure note content and generate clean title
+        final_title, final_content = self._structure_note_with_llm(content, title)
+        
         # Sanitize filename
-        filename = f"{title}.md" if not title.endswith(".md") else title
+        filename = f"{final_title}.md" if not final_title.endswith(".md") else final_title
         
         # Determine subdirectory
         target_dir = os.path.join(self.vault_path, folder) if folder else self.vault_path
         try:
             os.makedirs(target_dir, exist_ok=True)
             filepath = os.path.join(target_dir, filename)
+            
+            # Embed date metadata
+            date_header = f"---\nDate: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n---\n\n"
+            
             with open(filepath, "w", encoding="utf-8") as f:
-                f.write(content)
+                f.write(date_header + final_content)
             logger.info(f"Obsidian note created successfully at: {filepath}")
-            return f"I have written the note '{title}' to your Obsidian vault, sir."
+            return f"I have stored it in your Obsidian vault under the name: '{final_title}', sir."
         except Exception as e:
             logger.error(f"Failed to write note: {e}")
             return f"I could not create the note in your vault, sir. Error: {e}"

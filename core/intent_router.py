@@ -36,6 +36,20 @@ class IntentRouter:
         cmd = text.lower().strip()
         cmd = re.sub(r"[,\?\!\.\"\']", "", cmd).strip()
 
+        # 0. Smart Note Creation & Retrieval (English / Hindi / Hinglish)
+        # Handles triggers like: "remember this: ...", "yaad rakhna ki ...", "likh le ..."
+        note_create_match = re.search(r"\b(?:note|remember|keep|store|yaad\s+rakhna|likh\s+le|save\s+kar\s+lo)\s+(?:this|that|down|info)?\s*(?::|-)?\s*(.+)", cmd)
+        if note_create_match:
+            content_val = note_create_match.group(1).strip()
+            return {"skill": "obsidian", "params": {"action": "create_note", "content": content_val}, "domain": "general"}
+
+        # Handles triggers like: "what did I save under ...", "maine is name se kya save kiya tha..."
+        note_retrieve_match = re.search(r"\b(?:what\s+did\s+i\s+save\s+under|show\s+note|read\s+note|kya\s+save\s+kiya\s+tha|maine\s+kya\s+yaad|kya\s+likha\s+tha)\s+(?:about|under|name|ke\s+name\s+se)?\s*(?::|-)?\s*(.+)", cmd)
+        if note_retrieve_match:
+            query_val = note_retrieve_match.group(1).strip()
+            query_val = re.sub(r"\b(?:batao|bataiye|dikhao|bhejo|tell\s+me|show\s+me|woh|kya\s+tha)\b", "", query_val).strip()
+            return {"skill": "obsidian", "params": {"action": "read_note", "title": query_val}, "domain": "general"}
+
         # 13. Mobile phone / ADB Controls (Placed at top to prevent desktop skill trigger conflicts)
         # Navigation & Basic
         if any(p in cmd for p in ["go home on phone", "phone home screen", "return to home screen on phone"]):
@@ -577,11 +591,12 @@ class IntentRouter:
             return {"skill": "obsidian", "params": {"action": "list_notes"}, "domain": "general"}
 
         # 2. System Monitor
-        if any(p in cmd for p in ["system monitor", "cpu", "ram", "memory usage", "status of the system", "system resources"]):
+        words = cmd.split()
+        if any(p in cmd for p in ["system monitor", "status of the system", "system resources"]) or "cpu" in words or "ram" in words:
             return {"skill": "system_monitor", "params": {}, "domain": "general"}
 
         # 3. Screen Vision
-        if any(p in cmd for p in ["screen", "see", "what's on my screen", "describe my screen", "what do you see"]):
+        if any(p in cmd for p in ["screen", "what's on my screen", "describe my screen", "what do you see", "what can you see"]):
             return {"skill": "screen_vision", "params": {}, "domain": "general"}
 
         # 4. Media Summarization
@@ -911,7 +926,13 @@ class IntentRouter:
             return {"skill": "web_research", "params": {"action": "daily_news"}, "domain": "general"}
 
         # Stock/Crypto Market Analysis triggers (Indian, US, HK, Crypto)
-        stock_keywords = ["stock", "share price", "stock price", "crypto", "price", "trend"]
+        if any(p in cmd for p in ["watchlist", "good stocks", "recommend stocks", "suggest stocks", "stock suggestions", "what stocks to buy", "which stocks to buy", "suggest buy"]):
+            return {"skill": "market_analyzer", "params": {"action": "analyze", "query": "watchlist"}, "domain": "general"}
+
+        stock_keywords = [
+            "stock", "share price", "stock price", "crypto", "price", "trend", 
+            "should i buy", "buy suggestion", "buy recommendation", "stock suggestion", "buy target"
+        ]
         for kw in stock_keywords:
             if kw in cmd:
                 asset = cmd.replace(kw, "").replace("analyze", "").replace("check", "").replace("price of", "").replace("trend of", "").strip()
@@ -947,6 +968,15 @@ class IntentRouter:
             return {"skill": "vision_tracker", "params": {"action": "analyze_fatigue"}, "domain": "general"}
         if any(p in cmd for p in ["see me", "tell me what i've wore", "what am i wearing", "analyze appearance", "matching colors on me"]):
             return {"skill": "vision_tracker", "params": {"action": "analyze_appearance"}, "domain": "general"}
+
+        # --- Productivity Presentations ---
+        pres_match = re.search(r"\b(?:make|create|build|generate|design)\s+(?:a\s+)?(?:presentation|ppt|slides?)\s+(?:on|about|for|of)?\s*(.+)", cmd)
+        if not pres_match:
+            pres_match = re.search(r"\b(.+?)\s+(?:par|pe)\s+(?:presentation|ppt|slides?)\s+(?:banana|create|make|design)\b", cmd)
+        if pres_match:
+            topic = pres_match.group(1).strip()
+            topic = re.sub(r"\b(?:hai|please|plz|for\s+the\s+business|business\s+ke\s+liye|so\s+let\s+me\s+make\s+it)\b", "", topic).strip()
+            return {"skill": "productivity", "params": {"action": "create_presentation", "title": topic}, "domain": "general"}
 
         # --- Product Price Comparison ---
         # Match: "compare/find/buy [product] under [budget]" (with or without INR/rupees)

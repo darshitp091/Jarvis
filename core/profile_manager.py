@@ -65,13 +65,13 @@ class ProfileManager:
         user_name = self.profile.get("user_name", "sir")
 
         if m_start <= hour < a_start:
-            return f"Good morning, {user_name}. I hope you slept well. Ready to tackle today's stack?", False
+            return f"Good morning, {user_name}! Aasha hai aap ache se soye. Ready ho aaj ke stack ke liye? Boliye, kya help karu?", False
         elif a_start <= hour < e_start:
-            return f"Good afternoon, {user_name}. How is your day progressing?", False
+            return f"Good afternoon, {user_name}! Kaisa chal raha hai aapka din? Batao, kya madad karu aapki?", False
         elif e_start <= hour < n_start:
-            return f"Good evening, {user_name}. I hope you are having a productive session.", False
+            return f"Good evening, {user_name}! Ek productive session ke liye bilkul ready hu. Boliye sir, kya karna hai?", False
         else:
-            return f"Good evening, {user_name}. Activating night-mode HUD and launching your lo-fi focus deck.", True
+            return f"Good evening, {user_name}! Night-mode HUD activate kar diya hai. Lofi focus deck ready hai, sir.", True
 
     def get_preference(self, key: str, default=None):
         """Retrieves a nested user preference key."""

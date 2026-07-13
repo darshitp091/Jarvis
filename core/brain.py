@@ -214,6 +214,66 @@ class JarvisBrain:
             logger.warning(f"Facts retrieve error, falling back to keyword search: {e}")
             return self._fallback_keyword_search(query, self.facts, top_k)
 
+    def consolidate_memories(self) -> list[str]:
+        """Runs a background consolidation job to extract stable user preferences/facts from conversation log."""
+        if len(self.memories) < 3:
+            logger.debug("Brain: Too few memories to consolidate. Skipping job.")
+            return []
+
+        # Gather last 25 conversational turns
+        recent_turns = self.memories[-25:]
+        conversation_log = ""
+        for turn in recent_turns:
+            role = "User" if turn.get("role") == "user" else "JARVIS"
+            conversation_log += f"{role}: {turn.get('text')}\n"
+
+        logger.info("Brain: Running episodic memory consolidation...")
+        import ollama
+        
+        sys_prompt = (
+            "You are a cognitive consolidator. Analyze the following conversation history between the user and JARVIS.\n"
+            "Extract any stable long-term user facts, preferences, habits, or rules (e.g., 'User prefers tabs over spaces', 'User lives in Mumbai', 'User works on trading stocks').\n"
+            "Only extract persistent facts, not temporary conversational remarks. Format the output as a valid JSON list of strings: [\"Fact 1\", \"Fact 2\"...]. Return ONLY the JSON list."
+        )
+        
+        extracted_facts = []
+        try:
+            response = ollama.chat(
+                model="qwen2.5-coder:7b",
+                messages=[
+                    {"role": "system", "content": sys_prompt},
+                    {"role": "user", "content": f"Conversation History:\n{conversation_log}"}
+                ],
+                format="json"
+            )
+            raw = response["message"]["content"].strip()
+            new_facts = json.loads(raw)
+            if isinstance(new_facts, list):
+                for fact in new_facts:
+                    fact = fact.strip()
+                    if not fact:
+                        continue
+                    # Check for duplicates using keyword / semantic check
+                    existing = self.retrieve_facts(fact, top_k=2)
+                    # If similarity or word match is very close, skip
+                    is_duplicate = False
+                    for old_fact in existing:
+                        # Simple overlap match check
+                        old_words = set(old_fact.lower().split())
+                        new_words = set(fact.lower().split())
+                        overlap = len(old_words.intersection(new_words)) / max(len(new_words), 1)
+                        if overlap > 0.75:
+                            is_duplicate = True
+                            break
+                    if not is_duplicate:
+                        logger.info(f"Brain: Consolidated new fact: '{fact}'")
+                        self.store_fact(fact)
+                        extracted_facts.append(fact)
+        except Exception as e:
+            logger.error(f"Brain memory consolidation failed: {e}")
+
+        return extracted_facts
+
     def format_memories_for_prompt(self, query: str) -> str:
         facts = self.retrieve_facts(query)
         memories = self.retrieve(query)

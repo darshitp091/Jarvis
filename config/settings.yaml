@@ -6,14 +6,14 @@ jarvis:
   pin_enabled: false  # set true after first run
 
 models:
-  main_brain: yasserrmd/Human-Like-Qwen2.5-1.5B-Instruct:latest
+  main_brain: qwen2.5-coder:7b
   vision: moondream:latest
-  code: yasserrmd/Human-Like-Qwen2.5-1.5B-Instruct:latest
-  medical: yasserrmd/Human-Like-Qwen2.5-1.5B-Instruct:latest
-  safety: yasserrmd/Human-Like-Qwen2.5-1.5B-Instruct:latest
-  filler: yasserrmd/Human-Like-Qwen2.5-1.5B-Instruct:latest
+  code: qwen2.5-coder:7b
+  medical: qwen2.5-coder:7b
+  safety: qwen2.5-coder:7b
+  filler: qwen2.5-coder:7b
   embeddings: nomic-embed-text:latest
-  science: yasserrmd/Human-Like-Qwen2.5-1.5B-Instruct:latest
+  science: qwen2.5-coder:7b
 
 audio:
   sample_rate: 16000
@@ -21,10 +21,18 @@ audio:
   wake_word_sensitivity: 0.5
 
 tts:
-  voice_model: kokoro-v1.0.onnx  # Ensure model downloaded
-  voices_json: voices-v1.0.bin       # Voices file for Kokoro
-  default_voice: af_heart        # Default English voice
-  speaking_rate: 1.25
+  engine: edge                    # Edge TTS (online)
+  default_voice: hinglish         # Options: english, hinglish
+  voices:
+    english:
+      ref_speaker: en-IN-NeerjaNeural
+    hinglish:
+      ref_speaker: hi-IN-SwaraNeural
+  speaking_rate: 1.15             # 15% speed boost for natural human flow
+  dsp:
+    reverb_room_size: 0.15
+    reverb_wet_level: 0.05
+    reverb_dry_level: 0.95
 
 ui:
   orb_size_idle: 80
@@ -42,7 +50,7 @@ spotify:
   client_id: "YOUR_SPOTIFY_CLIENT_ID"
   client_secret: "YOUR_SPOTIFY_CLIENT_SECRET"
   redirect_uri: "http://127.0.0.1:8888/callback"
-  api_enabled: false
+  api_enabled: true
 
 groq:
   api_key: "YOUR_GROQ_API_KEY"
@@ -50,9 +58,9 @@ groq:
 
 sarvam:
   api_key: "YOUR_SARVAM_API_KEY"
-  enabled: true
+  enabled: false
   language: "hi-IN"
-  tts_speaker: "shubh"
+  tts_speaker: "kavya"
 
 obsidian:
   vault_path: "C:\\Users\\patel\\Documents\\Obsidian Vault"
@@ -70,3 +78,14 @@ mistral:
 ofoxai:
   api_key: "YOUR_OFOXAI_API_KEY"
   model: "z-ai/glm-4.7-flash:free"
+
+groww:
+  api_key: "YOUR_GROWW_API_KEY"
+  api_secret: "YOUR_GROWW_API_SECRET"
+
+cloudflare:
+  enabled: true
+  account_id: "YOUR_CLOUDFLARE_ACCOUNT_ID"
+  api_token: "YOUR_CLOUDFLARE_API_TOKEN"
+  model: "@cf/meta/llama-3.1-8b-instruct"
+

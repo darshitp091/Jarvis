@@ -231,7 +231,20 @@ Jarvis/
 ...
 ```
 
-### Step 5: Configure API Keys
+### Step 5: Install MPV Player for Local Music Streaming
+To stream music from YouTube in the background for free without requiring a Spotify Premium subscription:
+1. Download the Windows build of **MPV** (e.g., from [mpv.io](https://mpv.io/)).
+2. Create a folder named `bin` in the root of the project if it does not exist:
+   ```
+   Jarvis/
+   ├── bin/
+   │   └── mpv.exe
+   ├── main.py
+   ...
+   ```
+3. Place `mpv.exe` directly inside the `bin/` directory.
+
+### Step 6: Configure API Keys (Optional)
 Open `config/settings.yaml` and configure your API keys:
 ```yaml
 mistral:
@@ -240,7 +253,15 @@ ofoxai:
   api_key: "YOUR_OFOXAI_API_KEY"
 groq:
   api_key: "YOUR_GROQ_API_KEY"
+spotify:
+  client_id: "YOUR_SPOTIFY_CLIENT_ID"
+  client_secret: "YOUR_SPOTIFY_CLIENT_SECRET"
+  redirect_uri: "http://127.0.0.1:8888/callback"
+  api_enabled: true
 ```
+
+> [!NOTE]
+> **Dynamic Music Routing**: If you configure Spotify credentials and set `api_enabled` to true, JARVIS uses the Spotify Web API to stream. If credentials are left as placeholders or `api_enabled` is false, it automatically falls back to streaming local YouTube audio using `mpv.exe` in the background.
 
 ---
 

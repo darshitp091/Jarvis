@@ -14,15 +14,28 @@ class AudioEngine:
     def __init__(self, sample_rate: int = 16000, silence_sec: float = 1.5):
         self.sample_rate = sample_rate
         self.silence_sec = silence_sec
-        # We use a simple RMS energy threshold for Voice Activity Detection
+        # We use a simple RMS energy threshold for Voice Activity Detection fallback
         self.energy_threshold = 100  
         self.last_avg_rms = 100.0
         self.last_speech_rate = 3.0
         self.latest_raw_audio = None
-        logger.info("Loading Whisper model (base)...")
+
+        # Load Silero VAD model
+        logger.info("Loading Silero VAD model...")
+        try:
+            import torch
+            torch.set_num_threads(1)  # Limit thread overhead
+            from silero_vad import load_silero_vad
+            self.vad_model = load_silero_vad()
+            logger.info("Silero VAD model loaded successfully.")
+        except Exception as e:
+            logger.error(f"Failed to load Silero VAD: {e}")
+            self.vad_model = None
+
+        logger.info("Loading Whisper model (small)...")
         try:
             # Try to load Whisper on GPU (CUDA)
-            self.whisper = WhisperModel("base", device="cuda", compute_type="int8_float16")
+            self.whisper = WhisperModel("small", device="cuda", compute_type="int8_float16")
             
             # Force lazy-loaded CUDA DLL checks by transcribing a silent dummy buffer
             dummy_audio = np.zeros(16000, dtype=np.int16)
@@ -44,7 +57,7 @@ class AudioEngine:
                     pass
         except Exception as e:
             logger.warning(f"Failed to load/verify Whisper on GPU (CUDA): {e}. Falling back to CPU.")
-            self.whisper = WhisperModel("base", device="cpu", compute_type="int8")
+            self.whisper = WhisperModel("small", device="cpu", compute_type="int8")
             logger.info("Whisper loaded on CPU")
         self.is_speaking_cb = None
         self.sarvam_config = {}
@@ -61,8 +74,20 @@ class AudioEngine:
             logger.warning(f"AudioEngine: Failed to load settings.yaml: {config_err}")
 
     def _is_speech(self, chunk: bytes) -> bool:
+        if self.vad_model is not None:
+            try:
+                import torch
+                # Normalize 16-bit PCM buffer to float32 range [-1.0, 1.0]
+                audio_data = np.frombuffer(chunk, dtype=np.int16).astype(np.float32) / 32768.0
+                tensor = torch.from_numpy(audio_data)
+                # Compute VAD speech probability
+                prob = self.vad_model(tensor, self.sample_rate).item()
+                return prob > 0.45
+            except Exception as e:
+                logger.error(f"Silero VAD execution error: {e}")
+        
+        # Fallback to RMS threshold if Silero VAD is not loaded/fails
         try:
-            # Simple RMS energy check
             audio_data = np.frombuffer(chunk, dtype=np.int16)
             rms = np.sqrt(np.mean(np.square(audio_data.astype(np.float32))))
             return rms > self.energy_threshold
@@ -74,7 +99,7 @@ class AudioEngine:
         logger.info("JARVIS: Listening...")
         sys.stdout.write("JARVIS: Listening...\n")
         sys.stdout.flush()
-        frame_duration = 30  # ms
+        frame_duration = 32  # 32ms yields exactly 512 samples at 16000Hz, matching Silero VAD expectations
         frame_size = int(self.sample_rate * frame_duration / 1000)
         silence_frames_needed = int(self.silence_sec * 1000 / frame_duration)
         
@@ -179,7 +204,7 @@ class AudioEngine:
         try:
             # Set initial prompt to guide Whisper towards correct English and Hinglish song names in Roman script
             initial_prompt = "Hey JARVIS, play some songs, gaana bajao, lagao, Arijit Singh, Shreya Ghoshal, Kaise Hua, Tum Hi Ho, Apna Bana Le, play music, play bollywood songs"
-            segments, info = self.whisper.transcribe(tmp_path, language="en", initial_prompt=initial_prompt)
+            segments, info = self.whisper.transcribe(tmp_path, initial_prompt=initial_prompt)
             local_text = " ".join(s.text for s in segments).strip()
 
             # Post-processing filter for common Whisper hallucinations on low-energy signals

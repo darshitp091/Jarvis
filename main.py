@@ -49,6 +49,9 @@ from loguru import logger; _p("DBG: loguru ok")
 logger.remove()
 logger.add("jarvis.log", level="INFO", rotation="10 MB", encoding="utf-8")
 from PyQt6.QtWidgets import QApplication; _p("DBG: PyQt6 ok")
+import core.llm_client
+core.llm_client.patch_ollama()
+
 from core.audio_engine import AudioEngine
 from core.tts_engine import TTSEngine
 from core.wake_word import WakeWordDetector
@@ -133,10 +136,8 @@ class JARVIS:
         # Core
         _p("INIT: AudioEngine"); self.audio = AudioEngine(silence_sec=self.config["audio"]["silence_threshold"])
         _p("INIT: TTSEngine"); self.tts = TTSEngine(
-            model_path=self.config["tts"].get("voice_model", "kokoro-v1.0.onnx"),
-            voices_path=self.config["tts"].get("voices_json", "voices-v1.0.bin"),
-            default_voice=self.config["tts"].get("default_voice", "af_heart"),
-            default_speed=self.config["tts"].get("speaking_rate", 1.25)
+            default_voice=self.config["tts"].get("default_voice", "hinglish"),
+            default_speed=self.config["tts"].get("speaking_rate", 1.0)
         )
         _p("INIT: WakeWordDetector"); self.wake = WakeWordDetector()
         self.wake.is_music_playing_cb = self._is_music_playing
@@ -192,6 +193,17 @@ class JARVIS:
 
         _p("INIT: WorkspaceContext"); self.workspace_context = WorkspaceContext()
         _p("INIT: SelfHealingVision"); self.self_healing = SelfHealingVision()
+        
+        # Self-Healing Engine & Memory Consolidation QTimer
+        _p("INIT: SelfHealingEngine")
+        from core.self_healing import SelfHealingEngine
+        self.healer = SelfHealingEngine()
+        
+        from PyQt6.QtCore import QTimer
+        self.consolidation_timer = QTimer(self.orb)
+        self.consolidation_timer.setInterval(20 * 60 * 1000) # every 20 minutes
+        self.consolidation_timer.timeout.connect(self._run_memory_consolidation)
+        self.consolidation_timer.start()
 
         _p("INIT: auth check")
         self.is_authenticated = not self.config["jarvis"].get("pin_enabled", False)
@@ -411,6 +423,19 @@ class JARVIS:
         _p("INIT: starting background thread")
         threading.Thread(target=self._unlock_monitor, daemon=True).start()
         threading.Thread(target=self.run, daemon=True).start()
+
+    def _run_memory_consolidation(self):
+        """Periodically run memory consolidation in a background thread to extract facts."""
+        def job():
+            try:
+                new_facts = self.brain.consolidate_memories()
+                if new_facts:
+                    logger.info(f"Consolidated memories: extracted {len(new_facts)} new facts.")
+            except Exception as e:
+                logger.error(f"Error in background memory consolidation: {e}")
+        
+        import threading
+        threading.Thread(target=job, daemon=True).start()
 
     def _ensure_ollama_server(self):
         """Checks if Ollama server is running on port 11434, and if not, launches it in the background."""
@@ -787,7 +812,7 @@ class JARVIS:
                 self.tts.speak("Authentication required. Please state your six digit PIN.")
         else:
             name = self.config.get("jarvis", {}).get("name", "JARVIS")
-            self.tts.speak(f"{name} online. All systems operational. Waiting on your command, sir.")
+            self.tts.speak(f"{name} online. All systems are operational, waiting for your command, sir.")
 
     def query_llm(self, messages: list, system_prompt: str = None, provider: str = "mistral", model: str = None) -> str:
         """Queries the active LLM provider (mistral, ofoxai, groq, or local Ollama fallback)."""
@@ -1121,7 +1146,7 @@ class JARVIS:
 
     def split_chained_commands(self, text: str) -> list[str]:
         import re
-        pattern = r"\b(?:and\s+then|then|after\s+that|and\s+after\s+that)\b"
+        pattern = r"\b(?:and\s+then|then|after\s+that|and\s+after\s+that|uske\s+baad|iske\s+baad|phir|aur\s+phir|aur\s+uske\s+baad)\b"
         splits = re.split(pattern, text, flags=re.IGNORECASE)
         commands = [c.strip() for c in splits if c.strip()]
         return commands
@@ -1252,6 +1277,14 @@ class JARVIS:
                     with open(filename, "w", encoding="utf-8") as f:
                         f.write(snippet)
                     response = f"I have written the script to {filename}, sir."
+                    
+                    # Auto-open in VS Code and Explorer
+                    import subprocess
+                    try:
+                        subprocess.Popen(f"code {filename}", shell=True)
+                        subprocess.Popen(f"explorer /select,{os.path.abspath(filename)}", shell=True)
+                    except Exception as open_err:
+                        logger.error(f"Failed to auto-open file/explorer: {open_err}")
                 except Exception as write_err:
                     response = f"Failed to write script, sir. {write_err}"
                 self.orb.set_state("speaking")
@@ -1272,6 +1305,10 @@ class JARVIS:
                     self.orb.set_state("idle")
                     self.brain.store(response, role="assistant")
                     import subprocess
+                    try:
+                        subprocess.Popen(f"code {filename}", shell=True)
+                    except Exception:
+                        pass
                     subprocess.Popen(f".\\jarvis_env\\Scripts\\python.exe {filename}", shell=True)
                 except Exception as run_err:
                     response = f"Failed to execute script, sir. {run_err}"
@@ -2002,6 +2039,8 @@ class JARVIS:
                 if not use_spotify:
                     if action == "play":
                         response = self.youtube_music.play_song(query)
+                        self.is_asleep = True
+                        self.orb.set_state("idle")
                     elif action in ["pause", "resume", "next", "previous", "volume_up", "volume_down"]:
                         if action == "pause":
                             if "stop" in text.lower():
@@ -2019,6 +2058,8 @@ class JARVIS:
                 else:
                     if action == "play":
                         response = self.spotify_ctrl.play_song(query)
+                        self.is_asleep = True
+                        self.orb.set_state("idle")
                     elif action in ["pause", "resume", "next", "previous", "volume_up", "volume_down"]:
                         response = self.spotify_ctrl.control_media(action)
                     else:
@@ -2353,7 +2394,13 @@ class JARVIS:
                 
         except Exception as e:
             logger.error(f"Skill execution failed: {e}")
-            response = "I encountered a minor fault while executing that command, sir."
+            import traceback
+            tb_str = traceback.format_exc()
+            success, heal_msg = self.healer.heal_error(tb_str)
+            if success:
+                response = heal_msg
+            else:
+                response = f"I encountered a minor fault while executing that command, sir. Specifically: {e}."
 
         # Safety check
         if not self._safety_check(response):
@@ -2647,7 +2694,7 @@ class JARVIS:
     def run(self):
         """Main voice loop in background thread"""
         # Give UI a moment to show up
-        time.sleep(1)
+        time.sleep(3)
         self._startup_voice()
         
         self._is_asleep = False
@@ -3015,6 +3062,13 @@ class JARVIS:
                     self.is_asleep = True
                     self.orb.set_state("speaking")
                     self.tts.speak("Going to sleep, sir. Wake me if you need me.")
+                    continue
+
+                # Dedicated PC system sleep command
+                if any(phrase in cmd_lower for phrase in ["sleep the pc", "sleep the computer", "put the laptop to sleep", "put the pc to sleep", "put the computer to sleep"]):
+                    self.is_asleep = True
+                    self.orb.set_state("speaking")
+                    self.tts.speak("Putting the system to sleep, sir. Goodbye.")
                     self.os_ctrl.sleep_system()
                     continue
                     
@@ -3025,7 +3079,7 @@ class JARVIS:
                     self.face_verified = False
                     self.orb.set_state("speaking")
                     self.tts.speak("Sentry mode activated. Laptop is secure.")
-                    self.os_ctrl.activate_sentry_mode()
+                    self.os_ctrl.activate_sentry_mode(self.camera, self.tts)
                     continue
                     
                 # Shutdown command
@@ -3087,6 +3141,18 @@ class JARVIS:
                     self.camera.start()
                 if getattr(self, "gesture_ctrl", None) is not None:
                     self.gesture_ctrl.start()
+
+    @property
+    def is_authenticated(self) -> bool:
+        return getattr(self, "_is_authenticated", False)
+
+    @is_authenticated.setter
+    def is_authenticated(self, value: bool):
+        self._is_authenticated = value
+        if value:
+            if getattr(self, "os_ctrl", None) is not None:
+                self.os_ctrl.sentry_active = False
+                logger.info("Deactivated Sentry Mode (authenticated owner present).")
 
 if __name__ == "__main__":
     jarvis = JARVIS()
