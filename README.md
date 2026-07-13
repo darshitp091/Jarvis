@@ -18,11 +18,14 @@
 
 ---
 
-### 📊 Repository Activity
-<p align="center">
-  <img src="https://github-readme-stats.vercel.app/api?username=darshitp091&show_icons=true&theme=dark" alt="GitHub Stats" width="48%" />
-  <img src="https://github-readme-stats.vercel.app/api/pin/?username=darshitp091&repo=Jarvis&theme=dark" alt="Repo Card" width="48%" />
-</p>
+### 📊 Project Metrics & Architecture Highlights
+| Core Layer | Primary Engine | Status / Connectivity |
+| :--- | :--- | :--- |
+| 🧠 **Orchestrator** | PyQt6 Multi-threading | Local Event Loop |
+| 🗣️ **Speech Engine** | Faster-Whisper & Edge-TTS | Hybrid (Auto Fallback) |
+| 🖐️ **Vision Sensor** | MediaPipe & OpenCV | Local (30 FPS Webcam Feed) |
+| ☁️ **Serverless Router** | Cloudflare Workers (Llama 3.1 8B) | Active / Connected |
+| 📂 **Workspace Database**| SQLite3 & Obsidian API | Local Vault Synchronized |
 
 ---
 
