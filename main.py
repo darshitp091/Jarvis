@@ -580,6 +580,10 @@ class JARVIS:
                                 logger.info("Keyboard PIN verified. Unlocking...")
                                 self.is_authenticated = True
                                 self.is_asleep = False
+                                if getattr(self, "camera", None) is not None:
+                                    self.camera.start()
+                                if getattr(self, "gesture_ctrl", None) is not None:
+                                    self.gesture_ctrl.start()
                                 self.orb.set_state("speaking")
                                 self.tts.speak("Welcome back, sir. Lock screen deactivated.")
                                 self.os_ctrl.unlock_screen()
@@ -1461,9 +1465,12 @@ class JARVIS:
             "apen": "open",
             "play music": "play some music",
             "spotifai": "spotify",
+            "spotifaee": "spotify",
             "dish clean up": "disk cleanup",
             "dish clean": "disk cleanup",
-            "mailware": "malware"
+            "mailware": "malware",
+            "garo": "karo",
+            "buja": "baja"
         }
         words = text.lower().split()
         modified = False
@@ -1684,6 +1691,10 @@ class JARVIS:
                         self.is_asleep = True
                         self.is_authenticated = False
                         self.face_verified = False
+                        if getattr(self, "camera", None) is not None:
+                            self.camera.stop()
+                        if getattr(self, "gesture_ctrl", None) is not None:
+                            self.gesture_ctrl.stop()
                         self.os_ctrl.lock_screen()
                         response = "System locked and secure, sir."
                     elif action == "unlock":
@@ -1693,6 +1704,10 @@ class JARVIS:
                             self.os_ctrl.unlock_screen()
                             self.os_ctrl.wake_monitor()
                             self.is_authenticated = True
+                            if getattr(self, "camera", None) is not None:
+                                self.camera.start()
+                            if getattr(self, "gesture_ctrl", None) is not None:
+                                self.gesture_ctrl.start()
                             response = "System unlocked and authenticated, sir. Welcome back."
                         else:
                             response = f"Access denied, sir. {msg}"
@@ -2370,37 +2385,49 @@ class JARVIS:
                             response = self._generate_response(text, domain)
                     else:
                         if action == "play":
-                            for attempt in range(1, 4):
-                                logger.info(f"Visual validation check for Spotify playback attempt {attempt}/3...")
-                                response = self.spotify_ctrl.play_song(query)
-                                self.is_spotify_playing = True
-                                
-                                # Visual verification using VLM
-                                time.sleep(2.5)  # Allow Spotify interface to load and update state
-                                vlm_prompt = (
-                                    "Analyze the screenshot. Is Spotify open and active on the screen, and is a song currently playing? "
-                                    "Reply with exactly 'yes' or 'no'."
-                                )
-                                try:
-                                    vlm_result = self.vision.analyze(vlm_prompt).strip().lower()
-                                    if "yes" in vlm_result:
-                                        logger.success("VLM verified Spotify track playback successfully started!")
-                                        response += " Aur maine visually verify kiya hai, play ho raha hai."
+                            # Check for general queries to avoid playing random tracks blindly
+                            query_clean = query.lower().strip() if query else ""
+                            general_cues = [
+                                "", "some music", "some songs", "music", "songs", "song", "gaana", "gaane",
+                                "acche gaane", "acche se gaane", "acche se song", "good music", "good songs",
+                                "some good music", "some good songs", "koi acche se gaane", "koi ache se gane",
+                                "koi acche gaane", "koi ache gane", "play music", "play songs", "play song", "gaana chalao",
+                                "song chalao", "gaana bajao", "song bajao", "chalao", "bajao"
+                            ]
+                            if query_clean in general_cues:
+                                response = "Sir, aapko kis tarah ke gaane sunne hain? Aap mujhe koi specific song, artist ya genre bata sakte hain, main use play kar dungi."
+                            else:
+                                for attempt in range(1, 4):
+                                    logger.info(f"Visual validation check for Spotify playback attempt {attempt}/3...")
+                                    response = self.spotify_ctrl.play_song(query)
+                                    self.is_spotify_playing = True
+                                    
+                                    # Visual verification using VLM
+                                    time.sleep(2.5)  # Allow Spotify interface to load and update state
+                                    vlm_prompt = (
+                                        "Analyze the screenshot. Is Spotify open and active on the screen, and is a song currently playing? "
+                                        "Reply with exactly 'yes' or 'no'."
+                                    )
+                                    try:
+                                        vlm_result = self.vision.analyze(vlm_prompt).strip().lower()
+                                        if "yes" in vlm_result:
+                                            logger.success("VLM verified Spotify track playback successfully started!")
+                                            response += " Aur maine visually verify kiya hai, play ho raha hai."
+                                            break
+                                        else:
+                                            logger.warning(f"VLM reported Spotify not playing on attempt {attempt}/3. Pressing Spacebar fallback and retrying...")
+                                            import pyautogui
+                                            pyautogui.press('space')
+                                            time.sleep(1.0)
+                                            if attempt == 3:
+                                                response += " Aur verification ke baad playback start nahi ho saka, sir."
+                                    except Exception as vision_err:
+                                        logger.error(f"VLM play confirmation failed: {vision_err}")
                                         break
-                                    else:
-                                        logger.warning(f"VLM reported Spotify not playing on attempt {attempt}/3. Pressing Spacebar fallback and retrying...")
-                                        import pyautogui
-                                        pyautogui.press('space')
-                                        time.sleep(1.0)
-                                        if attempt == 3:
-                                            response += " Aur verification ke baad playback start nahi ho saka, sir."
-                                except Exception as vision_err:
-                                    logger.error(f"VLM play confirmation failed: {vision_err}")
-                                    break
-                                
-                            if not is_chained:
-                                self.is_asleep = True
-                                self.orb.set_state("idle")
+                                    
+                                if not is_chained:
+                                    self.is_asleep = True
+                                    self.orb.set_state("idle")
                         elif action in ["pause", "resume", "next", "previous", "volume_up", "volume_down"]:
                             if action == "pause":
                                 self.is_spotify_playing = False
@@ -3079,6 +3106,10 @@ class JARVIS:
                     if not self.is_authenticated:
                         self.is_authenticated = True
                         self.is_asleep = False
+                        if getattr(self, "camera", None) is not None:
+                            self.camera.start()
+                        if getattr(self, "gesture_ctrl", None) is not None:
+                            self.gesture_ctrl.start()
                         
                         self.os_ctrl.unlock_screen()
                         self.os_ctrl.wake_monitor()
@@ -3505,16 +3536,6 @@ class JARVIS:
         self._is_asleep = value
         if old_val != value:
             logger.info(f"Transitioning JARVIS sleep state: Asleep={value}")
-            if value:
-                if getattr(self, "camera", None) is not None:
-                    self.camera.stop()
-                if getattr(self, "gesture_ctrl", None) is not None:
-                    self.gesture_ctrl.stop()
-            else:
-                if getattr(self, "camera", None) is not None:
-                    self.camera.start()
-                if getattr(self, "gesture_ctrl", None) is not None:
-                    self.gesture_ctrl.start()
 
     @property
     def is_authenticated(self) -> bool:
