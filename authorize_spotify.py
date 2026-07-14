@@ -113,9 +113,13 @@ try:
     sp = spotipy.Spotify(auth_manager=auth_manager)
     user = sp.current_user()
 
+    display_name = user.get("display_name") or user.get("id", "Unknown")
+    email = user.get("email", "(email not shared)")
+
     print()
     print("=" * 58)
-    print(f"  SUCCESS! Authorized as: {user['display_name']} ({user['email']})")
+    print(f"  SUCCESS! Authorized as: {display_name}")
+    print(f"  Account email : {email}")
     print(f"  Token saved to: .cache-jarvis-spotify")
     print()
     print("  JARVIS will now use Spotify API automatically.")
