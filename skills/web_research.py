@@ -37,8 +37,68 @@ class WebResearch:
             logger.error(f"Headless search failed: {e}")
             return "Sir, I encountered an error while researching the web."
 
+    async def _crawl_query_links(self, crawler, query: str, num_links: int) -> str:
+        """Helper to discover search engine result links and crawl their markdown contents in parallel."""
+        import asyncio
+        engines = {
+            "Google": f"https://www.google.com/search?q={query.replace(' ', '+')}",
+            "DuckDuckGo": f"https://html.duckduckgo.com/html/?q={query.replace(' ', '+')}",
+            "Bing": f"https://www.bing.com/search?q={query.replace(' ', '+')}"
+        }
+        
+        tasks = [crawler.arun(url=url) for url in engines.values()]
+        search_results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        links = []
+        for r in search_results:
+            if not r or isinstance(r, Exception) or not r.success:
+                continue
+            if hasattr(r, 'links') and "external" in r.links:
+                for link in r.links["external"]:
+                    href = link.get("href", "")
+                    if href.startswith("http") and not any(d in href for d in ["google.com", "bing.com", "yahoo.com", "duckduckgo.com", "microsoft.com"]):
+                        if href not in links:
+                            links.append(href)
+                            if len(links) >= num_links:
+                                break
+                                
+        # Fallback to duckduckgo_search API
+        if not links:
+            try:
+                from duckduckgo_search import DDGS
+                with DDGS() as ddgs:
+                    ddg_res = list(ddgs.text(query, max_results=num_links))
+                    links = [item.get('href') for item in ddg_res if item.get('href')]
+            except Exception as e:
+                logger.error(f"DDGS link lookup failed: {e}")
+                
+        if not links:
+            return ""
+            
+        sem = asyncio.Semaphore(5)
+        async def scrape_single_link(index, link):
+            async with sem:
+                logger.info(f"Scraping ({index+1}/{len(links)}): {link}")
+                try:
+                    page_result = await asyncio.wait_for(crawler.arun(url=link), timeout=15.0)
+                    if page_result.success and page_result.markdown:
+                        content_lower = page_result.markdown.lower()
+                        # Detect and filter out obvious Cloudflare or bot protection block messages
+                        if any(term in content_lower for term in ["cloudflare", "access denied", "captcha", "checking your browser", "ddos"]):
+                            logger.warning(f"Skipping link {link} due to detected bot block page.")
+                            return ""
+                        logger.success(f"Finished scraping ({index+1}/{len(links)}): {link}")
+                        return f"\n\n--- Source: {link} ---\n{page_result.markdown[:3000]}"
+                except Exception as e:
+                    logger.warning(f"Error scraping {link}: {e}")
+                return ""
+                
+        tasks = [scrape_single_link(i, link) for i, link in enumerate(links)]
+        scraped_pages = await asyncio.gather(*tasks)
+        return "".join(p for p in scraped_pages if p)
+
     async def _async_headless_search(self, query: str, num_links: int = 10) -> str:
-        """Uses crawl4ai (Playwright/Chromium) to search Google and extract pages"""
+        """Uses crawl4ai (Playwright/Chromium) to search Google and extract pages with a refinement retry loop"""
         import asyncio
         loop = asyncio.get_event_loop()
         def exception_handler(loop, context):
@@ -47,82 +107,43 @@ class WebResearch:
                 return
             loop.default_exception_handler(context)
         loop.set_exception_handler(exception_handler)
-
+ 
         try:
             from crawl4ai import AsyncWebCrawler
         except ImportError:
             logger.error("crawl4ai not installed.")
             return "Sir, I cannot access the web crawler module."
-
-        logger.info(f"Initiating concurrent multi-engine search (Google, DuckDuckGo, Bing, Yahoo) for: {query}")
-        
-        engines = {
-            "Google": f"https://www.google.com/search?q={query.replace(' ', '+')}",
-            "DuckDuckGo": f"https://html.duckduckgo.com/html/?q={query.replace(' ', '+')}",
-            "Bing": f"https://www.bing.com/search?q={query.replace(' ', '+')}",
-            "Yahoo": f"https://search.yahoo.com/search?p={query.replace(' ', '+')}"
-        }
+ 
+        logger.info(f"Initiating concurrent multi-engine search for: {query}")
         
         async with AsyncWebCrawler() as crawler:
-            # Query all search engines in parallel
-            tasks = [crawler.arun(url=url) for url in engines.values()]
-            search_results = await asyncio.gather(*tasks, return_exceptions=True)
+            compiled_content = ""
+            active_query = query
             
-            links = []
-            for r in search_results:
-                if not r or isinstance(r, Exception) or not r.success:
-                    continue
-                if hasattr(r, 'links') and "external" in r.links:
-                    for link in r.links["external"]:
-                        href = link.get("href", "")
-                        # Filter out internal/search engine domains to isolate raw external content
-                        if href.startswith("http") and not any(d in href for d in ["google.com", "bing.com", "yahoo.com", "duckduckgo.com", "microsoft.com"]):
-                            if href not in links:
-                                links.append(href)
-                                if len(links) >= num_links:
-                                    break
-                                    
-            # Fallback for bot protection (which can block headless browsers)
-            if not links:
-                logger.info("Search engines returned no direct links, falling back to DDGS API for URL discovery...")
-                try:
-                    from duckduckgo_search import DDGS
-                    with DDGS() as ddgs:
-                        ddg_res = list(ddgs.text(query, max_results=num_links))
-                        links = [item.get('href') for item in ddg_res if item.get('href')]
-                except Exception as e:
-                    logger.error(f"DDGS fallback failed: {e}")
+            # Loop 3: Intelligent Web Research Refinement Loop (Retry up to 3 times)
+            for attempt in range(1, 4):
+                logger.info(f"Web Research Loop - Attempt {attempt}/3 using query: '{active_query}'")
+                compiled_content = await self._crawl_query_links(crawler, active_query, num_links)
+                
+                content_lower = compiled_content.lower().strip()
+                has_bot_block = any(term in content_lower for term in ["cloudflare", "access denied", "captcha", "checking your browser", "ddos"])
+                is_empty = len(content_lower) < 150
+                
+                if not has_bot_block and not is_empty:
+                    logger.success(f"Web research loop successfully verified content quality on attempt {attempt}/3!")
+                    break
+                else:
+                    logger.warning(f"Attempt {attempt}/3 failed quality checks (empty={is_empty}, bot_block={has_bot_block}). Refining query...")
+                    refinements = [
+                        f"{query} wikipedia",
+                        f"{query} explanation documentation",
+                        f"{query} github repo"
+                    ]
+                    active_query = refinements[attempt - 1] if (attempt - 1) < len(refinements) else query
             
-            if not links:
-                 return "I couldn't find any relevant links for that query, sir."
-
-            # Step 2: Crawl the top links concurrently in parallel
-            logger.info(f"Found top {len(links)} links. Simulating scrolling and extracting content in parallel (limit: 5 concurrent tabs)...")
-            
-            sem = asyncio.Semaphore(5)
-            
-            async def scrape_single_link(index, link):
-                async with sem:
-                    logger.info(f"Scraping ({index+1}/{len(links)}): {link}")
-                    try:
-                        # Enforce 15s timeout per page to prevent hangs
-                        page_result = await asyncio.wait_for(crawler.arun(url=link), timeout=15.0)
-                        if page_result.success and page_result.markdown:
-                            logger.success(f"Finished scraping ({index+1}/{len(links)}): {link}")
-                            return f"\n\n--- Source: {link} ---\n{page_result.markdown[:3000]}"
-                        else:
-                            logger.warning(f"Failed to scrape ({index+1}/{len(links)}): {link}")
-                    except asyncio.TimeoutError:
-                        logger.warning(f"Timeout reached for ({index+1}/{len(links)}): {link}")
-                    except Exception as e:
-                        logger.error(f"Error scraping ({index+1}/{len(links)}): {link} - {e}")
-                    return ""
-
-            # Gather all scrapers concurrently
-            tasks = [scrape_single_link(i, link) for i, link in enumerate(links)]
-            scraped_pages = await asyncio.gather(*tasks)
-            compiled_content = "".join(p for p in scraped_pages if p)
-
+            if not compiled_content:
+                return "I couldn't find any scrapeable details or clean references for that query, sir."
+ 
         # Step 3: Summarize
         return self._summarize_context(query, compiled_content)
 

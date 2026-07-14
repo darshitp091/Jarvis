@@ -1201,6 +1201,18 @@ class JARVIS:
         skill = intent.get("skill", "conversation")
         params = intent.get("params", {})
         
+        # Loop 4: Self-Corrective STT & Phonetic Routing Loop
+        if skill == "conversation":
+            candidates = self._get_phonetic_candidates(text)
+            for cand in candidates:
+                cand_intent = self.router.route(cand)
+                cand_skill = cand_intent.get("skill", "conversation")
+                if cand_skill != "conversation":
+                    intent = cand_intent
+                    skill = cand_skill
+                    params = intent.get("params", {})
+                    domain = intent.get("domain", "general")
+                    break
         if is_hinglish:
             if skill == "os_control":
                 action = params.get("action", "")
@@ -1432,6 +1444,95 @@ class JARVIS:
                 translated_words.append(w)
         return " ".join(translated_words)
 
+    def _get_phonetic_candidates(self, text: str) -> list[str]:
+        mappings = {
+            "risakhal": "recycle",
+            "vine": "bin",
+            "tresh": "trash",
+            "fayas": "files",
+            "dilet": "delete",
+            "temathareree": "temporary",
+            "kesh": "cache",
+            "rimo": "remove",
+            "leptob": "laptop",
+            "leptop": "laptop",
+            "aplication": "application",
+            "opun": "open",
+            "apen": "open",
+            "play music": "play some music",
+            "spotifai": "spotify",
+            "dish clean up": "disk cleanup",
+            "dish clean": "disk cleanup",
+            "mailware": "malware"
+        }
+        words = text.lower().split()
+        modified = False
+        candidates = []
+        
+        # Word replacement candidate
+        replaced_words = []
+        for w in words:
+            clean_w = w.strip(",.!?\"'")
+            punctuation = w[len(clean_w):] if w.endswith(clean_w) else ""
+            lead_punctuation = w[:w.find(clean_w)] if clean_w in w else ""
+            if clean_w in mappings:
+                replaced_words.append(lead_punctuation + mappings[clean_w] + punctuation)
+                modified = True
+            else:
+                replaced_words.append(w)
+        if modified:
+            candidates.append(" ".join(replaced_words))
+            
+        # Substring replacement candidate
+        phrase = text.lower()
+        phrase_modified = False
+        for k, v in mappings.items():
+            if k in phrase:
+                phrase = phrase.replace(k, v)
+                phrase_modified = True
+        if phrase_modified:
+            candidates.append(phrase)
+            
+        return list(set(candidates))
+
+    def _reload_skill_instance(self, filepath: str) -> bool:
+        try:
+            import importlib
+            import sys
+            norm_filepath = os.path.abspath(filepath)
+            cwd = os.path.abspath(os.getcwd())
+            rel_path = os.path.relpath(norm_filepath, cwd).replace("\\", "/")
+            mappings = {
+                "skills/os_control.py": ("os_ctrl", "OSControl"),
+                "skills/spotify_control.py": ("spotify_ctrl", "SpotifyControl"),
+                "skills/web_research.py": ("web", "WebResearch"),
+                "skills/gesture_control.py": ("gesture_ctrl", "GestureController"),
+                "core/intent_router.py": ("router", "IntentRouter")
+            }
+            if rel_path not in mappings:
+                return False
+            attr_name, class_name = mappings[rel_path]
+            module_name = rel_path.replace(".py", "").replace("/", ".")
+            if module_name in sys.modules:
+                importlib.reload(sys.modules[module_name])
+            else:
+                sys.modules[module_name] = importlib.import_module(module_name)
+            module = sys.modules[module_name]
+            self._reinstantiate_skill(attr_name, class_name, module)
+            return True
+        except Exception:
+            return False
+
+    def _reinstantiate_skill(self, attr_name: str, class_name: str, module):
+        class_obj = getattr(module, class_name)
+        if attr_name == "web":
+            new_inst = class_obj(jarvis=self)
+        elif attr_name == "gesture_ctrl":
+            new_inst = class_obj(self.camera, canvas=self.canvas, youtube_music=self.youtube_music)
+        else:
+            new_inst = class_obj()
+        setattr(self, attr_name, new_inst)
+
     def _process_single_command(self, text: str, speak_filler: bool = True, is_chained: bool = False):
         """Full pipeline: route → execute → respond → speak"""
         self.orb.set_state("thinking")
@@ -1532,622 +1633,891 @@ class JARVIS:
                     return
 
         response = ""
-
-        try:
-            # Dispatch to skill
-            if skill == "screen_vision":
-                action = params.get("action", "")
-                if action == "calibrate":
-                    self.tts.speak("Please look directly at the camera, sir. I will capture 15 frames of your face to configure your face model.")
-                    success = self.camera.calibrate_owner()
-                    if success:
-                        response = "Face ID setup is complete, sir. All lock systems are fully operational."
-                    else:
-                        response = "Calibration encountered a fault. Please ensure your lighting is adequate and look directly at the lens, sir."
-                elif action == "calibrate_voice":
-                    response = self.calibrate_voice_profile()
-                else:
-                    response = self.vision.analyze(text)
-
-            elif skill == "os_control":
-                action = params.get("action", "")
-                if action == "launch":
-                    app_to_launch = params.get("app", "")
-                    response = self.os_ctrl.launch_app(app_to_launch)
-                    if "Launched" in response:
-                        time.sleep(2.0)  # Allow application window to render
-                        logger.info(f"Visual validation: Checking if {app_to_launch} is visible on desktop.")
-                        vlm_prompt = (
-                            f"Analyze the screenshot. Is the application window for '{app_to_launch}' open and visible on the desktop screen? "
-                            "Reply in one brief, natural Hinglish sentence confirming its visibility status."
-                        )
-                        try:
-                            vlm_confirm = self.vision.analyze(vlm_prompt)
-                            response += f" Aur maine visually verify kiya hai, {vlm_confirm}"
-                        except Exception as vision_err:
-                            logger.error(f"VLM launch confirmation failed: {vision_err}")
-                elif action == "secure":
-                    self.is_asleep = True
-                    self.is_authenticated = False
-                    self.face_verified = False
-                    self.os_ctrl.lock_screen()
-                    response = "System locked and secure, sir."
-                elif action == "unlock":
-                    pin = params.get("pin", "")
-                    success, msg = self.auth.verify_pin(pin)
-                    if success:
-                        self.os_ctrl.unlock_screen()
-                        self.os_ctrl.wake_monitor()
-                        self.is_authenticated = True
-                        response = "System unlocked and authenticated, sir. Welcome back."
-                    else:
-                        response = f"Access denied, sir. {msg}"
-                elif action == "open_browser":
-                    response = self.os_ctrl.open_browser(
-                        query=params.get("query", None),
-                        url=params.get("url", None)
-                    )
-                elif action == "type":
-                    response = self.os_ctrl.type_text(params.get("text", ""))
-                elif action == "hotkey":
-                    keys = params.get("keys", "").split("+")
-                    response = self.os_ctrl.hotkey(*keys)
-                elif action == "click":
-                    response = self.os_ctrl.click(params.get("x", 0), params.get("y", 0))
-                elif action == "focus":
-                    response = self.os_ctrl.focus_app(params.get("app", ""))
-                elif action == "set_volume":
-                    response = self.os_ctrl.set_volume(params.get("percent", 50))
-                elif action == "show_dashboard":
-                    self.orb.dashboard_toggle_signal.emit(True)
-                    response = "Opening HUD diagnostics dashboard, sir."
-                elif action == "hide_dashboard":
-                    self.orb.dashboard_toggle_signal.emit(False)
-                    response = "Closing dashboard display, sir."
-                elif action == "show_hologram":
-                    self.orb.hologram_toggle_signal.emit(True)
-                    response = "Activating holographic simulator viewport, sir."
-                elif action == "hide_hologram":
-                    self.orb.hologram_toggle_signal.emit(False)
-                    response = "Deactivating holographic simulator, sir."
-                elif action == "close":
-                    response = self.os_ctrl.close_app(params.get("app", ""))
-                elif action == "minimize":
-                    response = self.os_ctrl.minimize_app(params.get("app", ""))
-                elif action == "switch_workspace":
-                    response = self.os_ctrl.switch_workspace(params.get("direction", "right"))
-                elif action == "drag_and_drop":
-                    response = self.os_ctrl.drag_and_drop(
-                        params.get("x1", 0), params.get("y1", 0),
-                        params.get("x2", 0), params.get("y2", 0)
-                    )
-                elif action == "record_screen":
-                    response = self.os_ctrl.record_screen_video(params.get("duration", 5.0))
-                elif action == "annotate_screenshot":
-                    response = self.os_ctrl.capture_and_annotate_screenshot()
-                elif action == "list_startup":
-                    response = self.os_ctrl.list_startup_programs()
-                elif action == "set_brightness":
-                    response = self.os_ctrl.set_brightness(params.get("percent", 50))
-                elif action == "toggle_battery_saver":
-                    response = self.os_ctrl.toggle_battery_saver(params.get("enable", True))
-                elif action == "clean_disk":
-                    response = self.os_ctrl.clean_disk()
-                elif action == "empty_recycle_bin":
-                    response = self.os_ctrl.empty_recycle_bin()
-                elif action == "wifi_control":
-                    response = self.os_ctrl.wifi_control(params.get("wifi_action", "status"), params.get("profile", ""))
-                elif action == "bluetooth_control":
-                    response = self.os_ctrl.bluetooth_control(params.get("bt_action", "status"), params.get("device", ""))
-                elif action == "check_network_speed":
-                    response = self.os_ctrl.check_network_speed()
-                elif action == "toggle_mute_mic":
-                    response = self.os_ctrl.toggle_mute_mic(params.get("mute", True))
-                elif action == "set_mouse_speed":
-                    response = self.os_ctrl.set_mouse_speed(params.get("speed", 10))
-                elif action == "set_keyboard_lights":
-                    response = self.os_ctrl.set_keyboard_lights(params.get("color_hex", "ffffff"))
-                elif action == "sync_time":
-                    response = self.os_ctrl.sync_time()
-                elif action == "toggle_dark_mode":
-                    response = self.os_ctrl.toggle_dark_mode(params.get("dark", True))
-                elif action == "printer_setup":
-                    response = self.os_ctrl.printer_setup(params.get("printer_action", "list"), params.get("printer", ""))
-                elif action == "toggle_game_mode":
-                    response = self.os_ctrl.toggle_game_mode(params.get("enable", True))
-                elif action == "run_auto_update":
-                    response = self.os_ctrl.run_auto_update()
-                elif action == "pin_window_topmost":
-                    response = self.os_ctrl.pin_window_topmost(params.get("topmost", True))
-                elif action == "set_wallpaper":
-                    response = self.os_ctrl.set_wallpaper(params.get("image_path", ""))
-                elif action == "toggle_desktop_icons":
-                    response = self.os_ctrl.toggle_desktop_icons(params.get("show", True))
-                elif action == "snap_window":
-                    response = self.os_ctrl.snap_window(params.get("direction", "left"))
-                elif action == "refresh_desktop":
-                    response = self.os_ctrl.refresh_desktop()
-                elif action == "copy_file_path":
-                    response = self.os_ctrl.copy_file_path(params.get("file_path", ""))
-                elif action == "create_shortcut":
-                    response = self.os_ctrl.create_shortcut(params.get("target_path", ""), params.get("shortcut_path", ""))
-                elif action == "toggle_eye_care":
-                    response = self.os_ctrl.toggle_eye_care(params.get("enable", True))
-                elif action == "show_screen_ruler":
-                    response = self.os_ctrl.show_screen_ruler()
-                elif action == "show_snipping_tool":
-                    response = self.os_ctrl.show_snipping_tool()
-                else:
-                    response = self._generate_response(text, domain)
-
-            elif skill == "phone":
-                action = params.get("action", "")
-                name = params.get("name", "")
-                number = params.get("number", "")
-                app_name = params.get("app_name", "")
-
-                if action == "make_call":
-                    if name:
-                        resolved_number = self.phone.get_contact_by_name(name)
-                        if resolved_number:
-                            response = self.phone.make_call(resolved_number)
+        max_attempts = 3
+        for attempt in range(1, max_attempts + 1):
+            try:
+                # Dispatch to skill
+                if skill == "screen_vision":
+                    action = params.get("action", "")
+                    if action == "calibrate":
+                        self.tts.speak("Please look directly at the camera, sir. I will capture 15 frames of your face to configure your face model.")
+                        success = self.camera.calibrate_owner()
+                        if success:
+                            response = "Face ID setup is complete, sir. All lock systems are fully operational."
                         else:
-                            self.awaiting_number_for = name
-                            response = f"I could not find a contact named {name} in your address book, sir. What is their phone number?"
+                            response = "Calibration encountered a fault. Please ensure your lighting is adequate and look directly at the lens, sir."
+                    elif action == "calibrate_voice":
+                        response = self.calibrate_voice_profile()
                     else:
-                        response = self.phone.make_call(number)
+                        response = self.vision.analyze(text)
 
-                elif action == "call_and_save":
-                    self.phone.make_call(number)
-                    success = self.phone.save_contact(name, number)
-                    if success:
-                        response = f"Dialing number on your phone and saving contact {name}, sir."
-                    else:
-                        response = f"Dialing number, but failed to save contact {name} to address book, sir."
-
-                elif action == "save_contact":
-                    success = self.phone.save_contact(name, number)
-                    if success:
-                        response = f"I have saved contact {name} with number {number} on your device, sir."
-                    else:
-                        response = f"I was unable to save contact {name} on your device, sir."
-
-                elif action == "launch_app":
-                    response = self.phone.launch_app_on_phone(app_name)
-
-                elif action == "answer":
-                    self.phone.answer_call()
-                    response = "Answering the call on your phone, sir."
-
-                elif action == "hangup":
-                    self.phone.hangup_call()
-                    response = "Terminating the call on your phone, sir."
-
-                elif action == "go_home":
-                    response = self.phone.go_home()
-
-                elif action == "flashlight":
-                    if params.get("toggle"):
-                        response = self.phone.toggle_flashlight()
-                    else:
-                        response = self.phone.set_flashlight(params.get("state", True))
-
-                elif action == "volume":
-                    vol_action = params.get("vol_action", "")
-                    if vol_action == "adjust":
-                        response = self.phone.adjust_volume(params.get("direction", "up"))
-                    elif vol_action == "set_level":
-                        response = self.phone.set_volume_level(params.get("percent", 50))
-                    elif vol_action == "mute":
-                        response = self.phone.mute_unmute(params.get("mute", True))
-                    elif vol_action == "profile":
-                        response = self.phone.set_sound_profile(params.get("profile", "normal"))
-                    elif vol_action == "status":
-                        response = self.phone.get_volume_status()
-                    else:
-                        response = "Unsupported phone volume operation, sir."
-
-                elif action == "brightness":
-                    bright_action = params.get("bright_action", "")
-                    if bright_action == "adjust":
-                        response = self.phone.adjust_brightness(params.get("direction", "up"))
-                    elif bright_action == "set_level":
-                        response = self.phone.set_brightness_level(params.get("percent", 50))
-                    elif bright_action == "max_min":
-                        response = self.phone.set_brightness_max_min(params.get("max", True))
-                    elif bright_action == "auto":
-                        response = self.phone.set_auto_brightness(params.get("enable", True))
-                    elif bright_action == "status":
-                        response = self.phone.get_brightness_status()
-                    else:
-                        response = "Unsupported phone brightness operation, sir."
-
-                elif action == "open_camera":
-                    response = self.phone.open_camera()
-
-                elif action == "click_shutter":
-                    response = self.phone.click_shutter()
-
-                elif action == "flip_camera":
-                    response = self.phone.flip_camera()
-
-                elif action == "take_photo_handsfree":
-                    response = self.phone.take_photo_handsfree()
-
-                elif action == "screen_analysis":
-                    self.tts.speak("Capturing your phone's screen layout for visual analysis, sir.")
-                    img_path = self.phone.capture_screen_for_analysis()
-                    if img_path.startswith("Error"):
-                        response = img_path
-                    else:
-                        logger.info(f"Feeding phone screen to ScreenVision: {img_path}")
-                        orig_shot = self.vision.latest_screenshot
-                        self.vision.latest_screenshot = img_path
-                        try:
-                            prompt = "This is a screenshot from my Android phone. Describe what is visible on this screen in detail."
-                            response = self.vision.analyze(prompt)
-                        finally:
-                            self.vision.latest_screenshot = orig_shot
-
-                elif action == "camera_analysis":
-                    self.tts.speak("Triggering phone camera capture to analyze your physical surroundings, sir.")
-                    img_path = self.phone.capture_camera_for_analysis()
-                    if img_path.startswith("Error"):
-                        response = img_path
-                    else:
-                        logger.info(f"Feeding phone camera capture to ScreenVision: {img_path}")
-                        orig_shot = self.vision.latest_screenshot
-                        self.vision.latest_screenshot = img_path
-                        try:
-                            prompt = "This is a photo captured from my Android phone camera. Analyze my physical surroundings visible in this image."
-                            response = self.vision.analyze(prompt)
-                        finally:
-                            self.vision.latest_screenshot = orig_shot
-
-                elif action == "reminder":
-                    msg = params.get("message", "Reminder")
-                    time_val = params.get("time", "")
-                    response = self.phone.set_smart_reminder(msg, time_val)
-
-                elif action == "system_info":
-                    info_type = params.get("info_type", "")
-                    if info_type == "battery":
-                        response = self.phone.get_battery_status()
-                    elif info_type == "time_date":
-                        response = self.phone.get_device_time_date()
-                    elif info_type == "weather":
-                        response = self.phone.get_local_weather(params.get("location", ""))
-                    elif info_type == "location":
-                        response = self.phone.get_current_location()
-                    else:
-                        response = "Unsupported phone telemetry requested, sir."
-
-                elif action == "sms":
-                    phone_dest = params.get("phone", "")
-                    msg = params.get("message", "")
-                    response = self.phone.send_sms(phone_dest, msg)
-
-                elif action == "whatsapp_message":
-                    dest = params.get("contact", "")
-                    msg = params.get("message", "")
-                    response = self.phone.send_whatsapp_message_adb(dest, msg)
-
-                elif action == "whatsapp_call":
-                    dest = params.get("name", "")
-                    video_mode = params.get("video", False)
-                    response = self.phone.whatsapp_call_adb(dest, video_mode)
-
-                elif action == "navigation":
-                    nav_action = params.get("nav_action", "")
-                    q = params.get("query", "")
-                    if nav_action == "navigate":
-                        response = self.phone.start_navigation(q)
-                    elif nav_action == "view":
-                        response = self.phone.view_on_map(q)
-                    elif nav_action == "nearby":
-                        response = self.phone.find_nearby_places(q)
-                    else:
-                        response = "Unsupported maps request, sir."
-
-                elif action == "lock_power":
-                    lock_action = params.get("lock_action", "")
-                    if lock_action == "lock":
-                        response = self.phone.lock_phone()
-                    elif lock_action == "power_menu":
-                        response = self.phone.open_power_menu()
-                    else:
-                        response = "Unsupported power event, sir."
-
-                elif action == "spotify":
-                    spotify_action = params.get("spotify_action", "")
-                    if spotify_action == "play":
-                        response = self.phone.play_spotify_track(params.get("query", ""))
-                    elif spotify_action == "resume":
-                        response = self.phone.resume_playback()
-                    else:
-                        response = "Unsupported media event, sir."
-
-                elif action == "connectivity":
-                    conn_action = params.get("conn_action", "")
-                    if conn_action == "toggle":
-                        response = self.phone.toggle_network(params.get("interface", ""), params.get("enable", True))
-                    elif conn_action == "airplane":
-                        response = self.phone.toggle_airplane_mode(params.get("enable", True))
-                    else:
-                        response = "Unsupported connectivity event, sir."
-
-                elif action == "throw":
-                    content = params.get("content", "")
-                    if not content:
-                        import pyperclip
-                        content = pyperclip.paste()
-                    response = self.phone.throw_file_to_phone(content)
-
-                elif action == "pull_screen":
-                    save_path = "config/phone_screen_pull.png"
-                    res = self.phone.pull_phone_screen_to_desktop(save_path)
-                    if "successfully" in res.lower():
-                        orig_shot = self.vision.latest_screenshot
-                        self.vision.latest_screenshot = save_path
-                        try:
-                            prompt = "This is a pulled screenshot from my Android phone. Describe what is visible on this screen in detail."
-                            analysis = self.vision.analyze(prompt)
-                            response = f"{res}\n\nPhone Screen Analysis:\n{analysis}"
-                        finally:
-                            self.vision.latest_screenshot = orig_shot
-                    else:
-                        response = res
-
-                else:
-                    response = self._generate_response(text, domain)
-
-            elif skill == "network_mapper":
-                action = params.get("action", "")
-                if action == "scan_and_project":
-                    self.tts.speak("Scanning local network topology, sir. I will project the active nodes onto the holographic viewport.")
-                    
-                    def run_scan():
-                        devices = self.network_mapper.scan_local_subnet()
-                        self.tts.speak(f"Scan complete, sir. Discovered {len(devices)} active network devices.")
-                        vertices, connections, name = self.network_mapper.generate_3d_topology(devices)
-                        labels = [d[1] for d in devices]
-                        labels = ["GATEWAY ROUTER"] + labels
-                        self.hologram_widget.set_hologram_object(vertices, connections, name, labels)
+                elif skill == "os_control":
+                    action = params.get("action", "")
+                    if action == "launch":
+                        app_to_launch = params.get("app", "")
+                        for attempt in range(1, 4):
+                            logger.info(f"Visual validation check for '{app_to_launch}' launch attempt {attempt}/3...")
+                            response = self.os_ctrl.launch_app(app_to_launch)
+                            
+                            if "Launched" in response or "focus" in response:
+                                time.sleep(2.0)  # Wait for application window to render
+                                vlm_prompt = (
+                                    f"Analyze the screenshot. Is the application window for '{app_to_launch}' open and visible on the desktop screen? "
+                                    "Reply with exactly 'yes' or 'no'."
+                                )
+                                try:
+                                    vlm_result = self.vision.analyze(vlm_prompt).strip().lower()
+                                    if "yes" in vlm_result:
+                                        logger.success(f"VLM verified '{app_to_launch}' is successfully open and visible!")
+                                        response += f" Aur maine visually verify kiya hai, app successfully open ho chuka hai, sir."
+                                        break
+                                    else:
+                                        logger.warning(f"VLM reported '{app_to_launch}' window not found on attempt {attempt}/3. Retrying launch...")
+                                        if attempt == 3:
+                                            response += f" Aur verification ke baad, main app display visually confirm nahi kar paa rahi hu, sir."
+                                except Exception as vision_err:
+                                    logger.error(f"VLM launch confirmation failed: {vision_err}")
+                                    break
+                            else:
+                                time.sleep(1.0)
+                    elif action == "secure":
+                        self.is_asleep = True
+                        self.is_authenticated = False
+                        self.face_verified = False
+                        self.os_ctrl.lock_screen()
+                        response = "System locked and secure, sir."
+                    elif action == "unlock":
+                        pin = params.get("pin", "")
+                        success, msg = self.auth.verify_pin(pin)
+                        if success:
+                            self.os_ctrl.unlock_screen()
+                            self.os_ctrl.wake_monitor()
+                            self.is_authenticated = True
+                            response = "System unlocked and authenticated, sir. Welcome back."
+                        else:
+                            response = f"Access denied, sir. {msg}"
+                    elif action == "open_browser":
+                        response = self.os_ctrl.open_browser(
+                            query=params.get("query", None),
+                            url=params.get("url", None)
+                        )
+                    elif action == "type":
+                        response = self.os_ctrl.type_text(params.get("text", ""))
+                    elif action == "hotkey":
+                        keys = params.get("keys", "").split("+")
+                        response = self.os_ctrl.hotkey(*keys)
+                    elif action == "click":
+                        response = self.os_ctrl.click(params.get("x", 0), params.get("y", 0))
+                    elif action == "focus":
+                        response = self.os_ctrl.focus_app(params.get("app", ""))
+                    elif action == "set_volume":
+                        response = self.os_ctrl.set_volume(params.get("percent", 50))
+                    elif action == "show_dashboard":
+                        self.orb.dashboard_toggle_signal.emit(True)
+                        response = "Opening HUD diagnostics dashboard, sir."
+                    elif action == "hide_dashboard":
+                        self.orb.dashboard_toggle_signal.emit(False)
+                        response = "Closing dashboard display, sir."
+                    elif action == "show_hologram":
                         self.orb.hologram_toggle_signal.emit(True)
-                    threading.Thread(target=run_scan, daemon=True).start()
-                    response = "Sweep initialized, sir."
-
-            elif skill == "vitals_check":
-                action = params.get("action", "")
-                if action == "check_vitals":
-                    self.tts.speak("Analyzing visual blood volume variations. Please look at the camera lens for a brief moment, sir.")
-                    time.sleep(1.5)  # Let OpenCV grab some frames
-                    res_dict = self.sensory_health.calculate_heart_rate()
-                    response = res_dict.get("msg", "Diagnostics failed.")
-                    face_rect = getattr(self.camera, "latest_face_rect", None)
-                    if face_rect:
-                        fx, fy, fw, fh = face_rect
-                        self.show_hud_target_highlighter(fx + fw//2, fy + fh//2, f"VITALS: {res_dict.get('bpm', 72)} BPM")
-
-            elif skill == "hologram_control":
-                action = params.get("action", "")
-                if action == "design":
-                    obj = params.get("object", "vibranium core")
-                    vertices, connections, name, labels = self.cad_gen.generate_mesh(obj)
-                    self.hologram_widget.set_hologram_object(vertices, connections, name, labels)
-                    self.hologram_widget.show()
-                    response = f"Designed 3D wireframe for {obj.upper()}. Projecting to holographic viewport now, sir."
-                elif action == "explode":
-                    enable = params.get("enable", True)
-                    self.hologram_widget.animate_explode(enable)
-                    state = "exploded" if enable else "assembled"
-                    response = f"Holographic model successfully {state}, sir."
-
-            elif skill == "agent_lab":
-                action = params.get("action", "")
-                task = params.get("task", "")
-                if action == "open_lab":
-                    self.agent_lab.show()
-                    response = "Opening cognitive agent laboratory, sir."
-                elif action == "close_lab":
-                    self.agent_lab.hide()
-                    response = "Closing agent lab, sir."
-                elif action == "collaborate":
-                    self.agent_lab.show()
-                    self.agent_lab.clear_chat()
-                    self.tts.speak(f"Initializing swarm collaboration for: {task}, sir.")
-                    
-                    def run_lab():
-                        self.agent_lab.add_message("System", f"Swarm initialized for task: {task}")
-                        
-                        # 1. Architect turns
-                        self.agent_lab.set_agent_status("Architect", "thinking")
-                        import time
-                        time.sleep(2)
-                        arch_prompt = f"Design the system structure and UX flow for this task: {task}"
-                        try:
-                            arch_reply = get_agent_response("UX Architect", arch_prompt)
-                        except Exception as e:
-                            arch_reply = f"Error generating plan: {e}"
-                        self.agent_lab.set_agent_status("Architect", "idle")
-                        self.agent_lab.add_message("Architect", arch_reply)
-                        self.tts.speak("Architect has finished the blueprint. Auditor is checking.")
-                        
-                        # 2. Auditor turns
-                        self.agent_lab.set_agent_status("Auditor", "thinking")
-                        time.sleep(2)
-                        aud_prompt = f"Audit this design for security vulnerabilities and local data storage privacy:\n{arch_reply}"
-                        try:
-                            aud_reply = get_agent_response("Security Auditor", aud_prompt)
-                        except Exception as e:
-                            aud_reply = f"Error auditing design: {e}"
-                        self.agent_lab.set_agent_status("Auditor", "idle")
-                        self.agent_lab.add_message("Auditor", aud_reply)
-                        self.tts.speak("Auditor has signed off. QA is now validating.")
-                        
-                        # 3. QA turns
-                        self.agent_lab.set_agent_status("QA", "thinking")
-                        time.sleep(2)
-                        qa_prompt = f"Provide a QA test suite and validation checklist for the proposed system and security guidelines:\nDesign: {arch_reply}\nSecurity: {aud_reply}"
-                        try:
-                            qa_reply = get_agent_response("QA Engineer", qa_prompt)
-                        except Exception as e:
-                            qa_reply = f"Error generating tests: {e}"
-                        self.agent_lab.set_agent_status("QA", "idle")
-                        self.agent_lab.add_message("QA", qa_reply)
-                        self.agent_lab.add_message("System", "Collaborate loop complete. Solution ready for review, sir.")
-                        self.tts.speak("Swarm review complete, sir. All checks passed.")
-
-                    def get_agent_response(role, prompt):
-                        system_prompt = f"You are JARVIS's expert {role}. Speak in a concise, technical manner (max 3 sentences). Keep your tone professional and helpful."
-                        res = ollama.chat(
-                            model=self.models["main_brain"],
-                            messages=[
-                                {"role": "system", "content": system_prompt},
-                                {"role": "user", "content": prompt}
-                            ],
-                            options={"temperature": 0.4}
+                        response = "Activating holographic simulator viewport, sir."
+                    elif action == "hide_hologram":
+                        self.orb.hologram_toggle_signal.emit(False)
+                        response = "Deactivating holographic simulator, sir."
+                    elif action == "close":
+                        response = self.os_ctrl.close_app(params.get("app", ""))
+                    elif action == "minimize":
+                        response = self.os_ctrl.minimize_app(params.get("app", ""))
+                    elif action == "switch_workspace":
+                        response = self.os_ctrl.switch_workspace(params.get("direction", "right"))
+                    elif action == "drag_and_drop":
+                        response = self.os_ctrl.drag_and_drop(
+                            params.get("x1", 0), params.get("y1", 0),
+                            params.get("x2", 0), params.get("y2", 0)
                         )
-                        return res["message"]["content"].strip()
-                    threading.Thread(target=run_lab, daemon=True).start()
-                    response = "Swarm collaboration initialized. Loading agent profiles, sir."
-
-            elif skill == "sensory_health":
-                action = params.get("action", "")
-                if action == "check":
-                    analysis = self.sensory_health.analyze_environment()
-                    response = analysis.get("message", "Environment check nominal, sir.")
-                elif action == "recalibrate":
-                    response = self.sensory_health.recalibrate_posture()
-
-            elif skill == "p2p_link":
-                action = params.get("action", "")
-                peer_ip = params.get("peer_ip", "")
-                if action == "list_peers":
-                    response = self.p2p_link.list_peers()
-                elif action == "send_clipboard":
-                    response = self.p2p_link.send_clipboard(peer_ip)
-                elif action == "send_speech":
-                    message = params.get("message", "Ping")
-                    response = self.p2p_link.send_speech(peer_ip, message)
-
-            elif skill == "air_typist":
-                action = params.get("action", "")
-                if action == "start":
-                    response = self.air_typist.start()
-                elif action == "stop":
-                    response = self.air_typist.stop()
-
-            elif skill == "hologram_control":
-                action = params.get("action", "")
-                if action == "explode":
-                    enable = params.get("enable", True)
-                    self.hologram_widget.animate_explode(enable)
-                    response = "Expanding holographic structure coordinates, sir." if enable else "Collapsing coordinates to baseline state, sir."
-                elif action == "set_rotation":
-                    speed = params.get("speed", "slow")
-                    self.hologram_widget.set_rotation_speed(speed)
-                    response = f"Adjusting rotation parameters to {speed}, sir."
-                elif action == "toggle_heatmap":
-                    enable = params.get("enable", True)
-                    self.hologram_widget.toggle_heatmap(enable)
-                    response = "Visualizing simulated load heatmap layer, sir." if enable else "Hiding heatmap layer, sir."
-
-            elif skill == "git_sentinel":
-                action = params.get("action", "")
-                if action == "check":
-                    self.tts.speak("Initializing git sentinel diagnostic sweep, sir. Checking changed files.")
-                    check_res = self.git_sentinel.check_workspace()
-                    
-                    if check_res["status"] == "clean":
-                        response = "Workspace diagnostic checks are clean, sir. No compilation breaks found."
+                    elif action == "record_screen":
+                        response = self.os_ctrl.record_screen_video(params.get("duration", 5.0))
+                    elif action == "annotate_screenshot":
+                        response = self.os_ctrl.capture_and_annotate_screenshot()
+                    elif action == "list_startup":
+                        response = self.os_ctrl.list_startup_programs()
+                    elif action == "set_brightness":
+                        response = self.os_ctrl.set_brightness(params.get("percent", 50))
+                    elif action == "toggle_battery_saver":
+                        response = self.os_ctrl.toggle_battery_saver(params.get("enable", True))
+                    elif action == "clean_disk":
+                        response = self.os_ctrl.clean_disk()
+                    elif action == "empty_recycle_bin":
+                        response = self.os_ctrl.empty_recycle_bin()
+                    elif action == "wifi_control":
+                        response = self.os_ctrl.wifi_control(params.get("wifi_action", "status"), params.get("profile", ""))
+                    elif action == "bluetooth_control":
+                        response = self.os_ctrl.bluetooth_control(params.get("bt_action", "status"), params.get("device", ""))
+                    elif action == "check_network_speed":
+                        response = self.os_ctrl.check_network_speed()
+                    elif action == "toggle_mute_mic":
+                        response = self.os_ctrl.toggle_mute_mic(params.get("mute", True))
+                    elif action == "set_mouse_speed":
+                        response = self.os_ctrl.set_mouse_speed(params.get("speed", 10))
+                    elif action == "set_keyboard_lights":
+                        response = self.os_ctrl.set_keyboard_lights(params.get("color_hex", "ffffff"))
+                    elif action == "sync_time":
+                        response = self.os_ctrl.sync_time()
+                    elif action == "toggle_dark_mode":
+                        response = self.os_ctrl.toggle_dark_mode(params.get("dark", True))
+                    elif action == "printer_setup":
+                        response = self.os_ctrl.printer_setup(params.get("printer_action", "list"), params.get("printer", ""))
+                    elif action == "toggle_game_mode":
+                        response = self.os_ctrl.toggle_game_mode(params.get("enable", True))
+                    elif action == "run_auto_update":
+                        response = self.os_ctrl.run_auto_update()
+                    elif action == "pin_window_topmost":
+                        response = self.os_ctrl.pin_window_topmost(params.get("topmost", True))
+                    elif action == "set_wallpaper":
+                        response = self.os_ctrl.set_wallpaper(params.get("image_path", ""))
+                    elif action == "toggle_desktop_icons":
+                        response = self.os_ctrl.toggle_desktop_icons(params.get("show", True))
+                    elif action == "snap_window":
+                        response = self.os_ctrl.snap_window(params.get("direction", "left"))
+                    elif action == "refresh_desktop":
+                        response = self.os_ctrl.refresh_desktop()
+                    elif action == "copy_file_path":
+                        response = self.os_ctrl.copy_file_path(params.get("file_path", ""))
+                    elif action == "create_shortcut":
+                        response = self.os_ctrl.create_shortcut(params.get("target_path", ""), params.get("shortcut_path", ""))
+                    elif action == "toggle_eye_care":
+                        response = self.os_ctrl.toggle_eye_care(params.get("enable", True))
+                    elif action == "show_screen_ruler":
+                        response = self.os_ctrl.show_screen_ruler()
+                    elif action == "show_snipping_tool":
+                        response = self.os_ctrl.show_snipping_tool()
                     else:
-                        broken_file = check_res["file_path"]
-                        short_name = os.path.basename(broken_file)
-                        self.tts.speak(f"Compile break detected in {short_name}. Querying Ollama self-healing patch, sir.")
-                        
-                        # Generate self-healing patch
-                        patch_content = self.git_sentinel.generate_healing_patch(
-                            broken_file,
-                            check_res["error"],
-                            check_res["diff"],
-                            self.models["main_brain"],
-                            ollama
-                        )
-                        
-                        if patch_content:
-                            # Save in active context for user verification before applying
-                            self.active_context = {
-                                "type": "confirm_file_patch",
-                                "file_path": broken_file,
-                                "patched_content": patch_content
-                            }
-                            response = f"I've drafted a self-healing patch to restore compiles in {short_name}. Shall I write it to disk, sir?"
+                        response = self._generate_response(text, domain)
+
+                elif skill == "phone":
+                    action = params.get("action", "")
+                    name = params.get("name", "")
+                    number = params.get("number", "")
+                    app_name = params.get("app_name", "")
+
+                    if action == "make_call":
+                        if name:
+                            resolved_number = self.phone.get_contact_by_name(name)
+                            if resolved_number:
+                                response = self.phone.make_call(resolved_number)
+                            else:
+                                self.awaiting_number_for = name
+                                response = f"I could not find a contact named {name} in your address book, sir. What is their phone number?"
                         else:
-                            response = f"Compile break detected in {short_name}, but I was unable to construct a corrective patch automatically."
+                            response = self.phone.make_call(number)
 
-            elif skill == "sentry_firewall":
-                action = params.get("action", "")
-                ip = params.get("ip", "")
-                if action == "quarantine":
-                    response = self.sentry_firewall.quarantine_ip(ip)
-                elif action == "remove_quarantine":
-                    response = self.sentry_firewall.remove_quarantine(ip)
-                elif action == "list_blocks":
-                    response = self.sentry_firewall.list_blocks()
+                    elif action == "call_and_save":
+                        self.phone.make_call(number)
+                        success = self.phone.save_contact(name, number)
+                        if success:
+                            response = f"Dialing number on your phone and saving contact {name}, sir."
+                        else:
+                            response = f"Dialing number, but failed to save contact {name} to address book, sir."
 
-            elif skill == "focus_tracker":
-                action = params.get("action", "")
-                if action == "open_dashboard":
-                    self.vitals_dashboard.show()
-                    response = "Displaying vitals and cognitive focus monitor on the HUD overlay, sir."
-                elif action == "close_dashboard":
-                    self.vitals_dashboard.hide()
-                    response = "Closing vitals monitor, sir."
+                    elif action == "save_contact":
+                        success = self.phone.save_contact(name, number)
+                        if success:
+                            response = f"I have saved contact {name} with number {number} on your device, sir."
+                        else:
+                            response = f"I was unable to save contact {name} on your device, sir."
 
-            elif skill == "web_research":
-                action = params.get("action", "")
-                query = params.get("query", text)
-                url = params.get("url", "")
-                if action == "download":
-                    response = self.web.download_file(url)
-                elif action == "daily_news":
-                    response = self.web.get_daily_news_summary()
-                elif action == "track_competitor":
-                    response = self.web.track_competitor_website(url)
-                elif action == "extract_tables":
-                    response = self.web.extract_tables_from_webpage(url)
-                elif action == "monitor_rss":
-                    response = self.web.monitor_rss_feed(url)
-                elif action == "search_papers":
-                    response = self.web.search_academic_papers(params.get("query", ""))
-                elif action == "fact_check":
-                    response = self.web.fact_check(params.get("statement", ""))
-                elif action == "whatsapp_message":
-                    response = self.web.whatsapp_message(params.get("phone", ""), params.get("message", ""))
-                elif action == "search_food":
-                    response = self.web.search_food(params.get("query", ""))
-                elif action == "track_package":
-                    response = self.web.track_package(params.get("carrier", ""), params.get("tracking_number", ""))
-                else:
-                    if "mode" in params and params["mode"] == "visual":
-                        response = self.web.visual_search_and_summarize(query)
+                    elif action == "launch_app":
+                        response = self.phone.launch_app_on_phone(app_name)
+
+                    elif action == "answer":
+                        self.phone.answer_call()
+                        response = "Answering the call on your phone, sir."
+
+                    elif action == "hangup":
+                        self.phone.hangup_call()
+                        response = "Terminating the call on your phone, sir."
+
+                    elif action == "go_home":
+                        response = self.phone.go_home()
+
+                    elif action == "flashlight":
+                        if params.get("toggle"):
+                            response = self.phone.toggle_flashlight()
+                        else:
+                            response = self.phone.set_flashlight(params.get("state", True))
+
+                    elif action == "volume":
+                        vol_action = params.get("vol_action", "")
+                        if vol_action == "adjust":
+                            response = self.phone.adjust_volume(params.get("direction", "up"))
+                        elif vol_action == "set_level":
+                            response = self.phone.set_volume_level(params.get("percent", 50))
+                        elif vol_action == "mute":
+                            response = self.phone.mute_unmute(params.get("mute", True))
+                        elif vol_action == "profile":
+                            response = self.phone.set_sound_profile(params.get("profile", "normal"))
+                        elif vol_action == "status":
+                            response = self.phone.get_volume_status()
+                        else:
+                            response = "Unsupported phone volume operation, sir."
+
+                    elif action == "brightness":
+                        bright_action = params.get("bright_action", "")
+                        if bright_action == "adjust":
+                            response = self.phone.adjust_brightness(params.get("direction", "up"))
+                        elif bright_action == "set_level":
+                            response = self.phone.set_brightness_level(params.get("percent", 50))
+                        elif bright_action == "max_min":
+                            response = self.phone.set_brightness_max_min(params.get("max", True))
+                        elif bright_action == "auto":
+                            response = self.phone.set_auto_brightness(params.get("enable", True))
+                        elif bright_action == "status":
+                            response = self.phone.get_brightness_status()
+                        else:
+                            response = "Unsupported phone brightness operation, sir."
+
+                    elif action == "open_camera":
+                        response = self.phone.open_camera()
+
+                    elif action == "click_shutter":
+                        response = self.phone.click_shutter()
+
+                    elif action == "flip_camera":
+                        response = self.phone.flip_camera()
+
+                    elif action == "take_photo_handsfree":
+                        response = self.phone.take_photo_handsfree()
+
+                    elif action == "screen_analysis":
+                        self.tts.speak("Capturing your phone's screen layout for visual analysis, sir.")
+                        img_path = self.phone.capture_screen_for_analysis()
+                        if img_path.startswith("Error"):
+                            response = img_path
+                        else:
+                            logger.info(f"Feeding phone screen to ScreenVision: {img_path}")
+                            orig_shot = self.vision.latest_screenshot
+                            self.vision.latest_screenshot = img_path
+                            try:
+                                prompt = "This is a screenshot from my Android phone. Describe what is visible on this screen in detail."
+                                response = self.vision.analyze(prompt)
+                            finally:
+                                self.vision.latest_screenshot = orig_shot
+
+                    elif action == "camera_analysis":
+                        self.tts.speak("Triggering phone camera capture to analyze your physical surroundings, sir.")
+                        img_path = self.phone.capture_camera_for_analysis()
+                        if img_path.startswith("Error"):
+                            response = img_path
+                        else:
+                            logger.info(f"Feeding phone camera capture to ScreenVision: {img_path}")
+                            orig_shot = self.vision.latest_screenshot
+                            self.vision.latest_screenshot = img_path
+                            try:
+                                prompt = "This is a photo captured from my Android phone camera. Analyze my physical surroundings visible in this image."
+                                response = self.vision.analyze(prompt)
+                            finally:
+                                self.vision.latest_screenshot = orig_shot
+
+                    elif action == "reminder":
+                        msg = params.get("message", "Reminder")
+                        time_val = params.get("time", "")
+                        response = self.phone.set_smart_reminder(msg, time_val)
+
+                    elif action == "system_info":
+                        info_type = params.get("info_type", "")
+                        if info_type == "battery":
+                            response = self.phone.get_battery_status()
+                        elif info_type == "time_date":
+                            response = self.phone.get_device_time_date()
+                        elif info_type == "weather":
+                            response = self.phone.get_local_weather(params.get("location", ""))
+                        elif info_type == "location":
+                            response = self.phone.get_current_location()
+                        else:
+                            response = "Unsupported phone telemetry requested, sir."
+
+                    elif action == "sms":
+                        phone_dest = params.get("phone", "")
+                        msg = params.get("message", "")
+                        response = self.phone.send_sms(phone_dest, msg)
+
+                    elif action == "whatsapp_message":
+                        dest = params.get("contact", "")
+                        msg = params.get("message", "")
+                        response = self.phone.send_whatsapp_message_adb(dest, msg)
+
+                    elif action == "whatsapp_call":
+                        dest = params.get("name", "")
+                        video_mode = params.get("video", False)
+                        response = self.phone.whatsapp_call_adb(dest, video_mode)
+
+                    elif action == "navigation":
+                        nav_action = params.get("nav_action", "")
+                        q = params.get("query", "")
+                        if nav_action == "navigate":
+                            response = self.phone.start_navigation(q)
+                        elif nav_action == "view":
+                            response = self.phone.view_on_map(q)
+                        elif nav_action == "nearby":
+                            response = self.phone.find_nearby_places(q)
+                        else:
+                            response = "Unsupported maps request, sir."
+
+                    elif action == "lock_power":
+                        lock_action = params.get("lock_action", "")
+                        if lock_action == "lock":
+                            response = self.phone.lock_phone()
+                        elif lock_action == "power_menu":
+                            response = self.phone.open_power_menu()
+                        else:
+                            response = "Unsupported power event, sir."
+
+                    elif action == "spotify":
+                        spotify_action = params.get("spotify_action", "")
+                        if spotify_action == "play":
+                            response = self.phone.play_spotify_track(params.get("query", ""))
+                        elif spotify_action == "resume":
+                            response = self.phone.resume_playback()
+                        else:
+                            response = "Unsupported media event, sir."
+
+                    elif action == "connectivity":
+                        conn_action = params.get("conn_action", "")
+                        if conn_action == "toggle":
+                            response = self.phone.toggle_network(params.get("interface", ""), params.get("enable", True))
+                        elif conn_action == "airplane":
+                            response = self.phone.toggle_airplane_mode(params.get("enable", True))
+                        else:
+                            response = "Unsupported connectivity event, sir."
+
+                    elif action == "throw":
+                        content = params.get("content", "")
+                        if not content:
+                            import pyperclip
+                            content = pyperclip.paste()
+                        response = self.phone.throw_file_to_phone(content)
+
+                    elif action == "pull_screen":
+                        save_path = "config/phone_screen_pull.png"
+                        res = self.phone.pull_phone_screen_to_desktop(save_path)
+                        if "successfully" in res.lower():
+                            orig_shot = self.vision.latest_screenshot
+                            self.vision.latest_screenshot = save_path
+                            try:
+                                prompt = "This is a pulled screenshot from my Android phone. Describe what is visible on this screen in detail."
+                                analysis = self.vision.analyze(prompt)
+                                response = f"{res}\n\nPhone Screen Analysis:\n{analysis}"
+                            finally:
+                                self.vision.latest_screenshot = orig_shot
+                        else:
+                            response = res
+
                     else:
-                        response = self.web.headless_search_and_summarize(query)
+                        response = self._generate_response(text, domain)
+
+                elif skill == "network_mapper":
+                    action = params.get("action", "")
+                    if action == "scan_and_project":
+                        self.tts.speak("Scanning local network topology, sir. I will project the active nodes onto the holographic viewport.")
+                    
+                        def run_scan():
+                            devices = self.network_mapper.scan_local_subnet()
+                            self.tts.speak(f"Scan complete, sir. Discovered {len(devices)} active network devices.")
+                            vertices, connections, name = self.network_mapper.generate_3d_topology(devices)
+                            labels = [d[1] for d in devices]
+                            labels = ["GATEWAY ROUTER"] + labels
+                            self.hologram_widget.set_hologram_object(vertices, connections, name, labels)
+                            self.orb.hologram_toggle_signal.emit(True)
+                        threading.Thread(target=run_scan, daemon=True).start()
+                        response = "Sweep initialized, sir."
+
+                elif skill == "vitals_check":
+                    action = params.get("action", "")
+                    if action == "check_vitals":
+                        self.tts.speak("Analyzing visual blood volume variations. Please look at the camera lens for a brief moment, sir.")
+                        time.sleep(1.5)  # Let OpenCV grab some frames
+                        res_dict = self.sensory_health.calculate_heart_rate()
+                        response = res_dict.get("msg", "Diagnostics failed.")
+                        face_rect = getattr(self.camera, "latest_face_rect", None)
+                        if face_rect:
+                            fx, fy, fw, fh = face_rect
+                            self.show_hud_target_highlighter(fx + fw//2, fy + fh//2, f"VITALS: {res_dict.get('bpm', 72)} BPM")
+
+                elif skill == "hologram_control":
+                    action = params.get("action", "")
+                    if action == "design":
+                        obj = params.get("object", "vibranium core")
+                        vertices, connections, name, labels = self.cad_gen.generate_mesh(obj)
+                        self.hologram_widget.set_hologram_object(vertices, connections, name, labels)
+                        self.hologram_widget.show()
+                        response = f"Designed 3D wireframe for {obj.upper()}. Projecting to holographic viewport now, sir."
+                    elif action == "explode":
+                        enable = params.get("enable", True)
+                        self.hologram_widget.animate_explode(enable)
+                        state = "exploded" if enable else "assembled"
+                        response = f"Holographic model successfully {state}, sir."
+
+                elif skill == "agent_lab":
+                    action = params.get("action", "")
+                    task = params.get("task", "")
+                    if action == "open_lab":
+                        self.agent_lab.show()
+                        response = "Opening cognitive agent laboratory, sir."
+                    elif action == "close_lab":
+                        self.agent_lab.hide()
+                        response = "Closing agent lab, sir."
+                    elif action == "collaborate":
+                        self.agent_lab.show()
+                        self.agent_lab.clear_chat()
+                        self.tts.speak(f"Initializing swarm collaboration for: {task}, sir.")
+                    
+                        def run_lab():
+                            self.agent_lab.add_message("System", f"Swarm initialized for task: {task}")
                         
-                    # Auto-convert research to presentation if requested in original command
-                    cmd_lower = text.lower()
-                    if "presentation" in cmd_lower or "ppt" in cmd_lower or "slides" in cmd_lower:
+                            # 1. Architect turns
+                            self.agent_lab.set_agent_status("Architect", "thinking")
+                            import time
+                            time.sleep(2)
+                            arch_prompt = f"Design the system structure and UX flow for this task: {task}"
+                            try:
+                                arch_reply = get_agent_response("UX Architect", arch_prompt)
+                            except Exception as e:
+                                arch_reply = f"Error generating plan: {e}"
+                            self.agent_lab.set_agent_status("Architect", "idle")
+                            self.agent_lab.add_message("Architect", arch_reply)
+                            self.tts.speak("Architect has finished the blueprint. Auditor is checking.")
+                        
+                            # 2. Auditor turns
+                            self.agent_lab.set_agent_status("Auditor", "thinking")
+                            time.sleep(2)
+                            aud_prompt = f"Audit this design for security vulnerabilities and local data storage privacy:\n{arch_reply}"
+                            try:
+                                aud_reply = get_agent_response("Security Auditor", aud_prompt)
+                            except Exception as e:
+                                aud_reply = f"Error auditing design: {e}"
+                            self.agent_lab.set_agent_status("Auditor", "idle")
+                            self.agent_lab.add_message("Auditor", aud_reply)
+                            self.tts.speak("Auditor has signed off. QA is now validating.")
+                        
+                            # 3. QA turns
+                            self.agent_lab.set_agent_status("QA", "thinking")
+                            time.sleep(2)
+                            qa_prompt = f"Provide a QA test suite and validation checklist for the proposed system and security guidelines:\nDesign: {arch_reply}\nSecurity: {aud_reply}"
+                            try:
+                                qa_reply = get_agent_response("QA Engineer", qa_prompt)
+                            except Exception as e:
+                                qa_reply = f"Error generating tests: {e}"
+                            self.agent_lab.set_agent_status("QA", "idle")
+                            self.agent_lab.add_message("QA", qa_reply)
+                            self.agent_lab.add_message("System", "Collaborate loop complete. Solution ready for review, sir.")
+                            self.tts.speak("Swarm review complete, sir. All checks passed.")
+
+                        def get_agent_response(role, prompt):
+                            system_prompt = f"You are JARVIS's expert {role}. Speak in a concise, technical manner (max 3 sentences). Keep your tone professional and helpful."
+                            res = ollama.chat(
+                                model=self.models["main_brain"],
+                                messages=[
+                                    {"role": "system", "content": system_prompt},
+                                    {"role": "user", "content": prompt}
+                                ],
+                                options={"temperature": 0.4}
+                            )
+                            return res["message"]["content"].strip()
+                        threading.Thread(target=run_lab, daemon=True).start()
+                        response = "Swarm collaboration initialized. Loading agent profiles, sir."
+
+                elif skill == "sensory_health":
+                    action = params.get("action", "")
+                    if action == "check":
+                        analysis = self.sensory_health.analyze_environment()
+                        response = analysis.get("message", "Environment check nominal, sir.")
+                    elif action == "recalibrate":
+                        response = self.sensory_health.recalibrate_posture()
+
+                elif skill == "p2p_link":
+                    action = params.get("action", "")
+                    peer_ip = params.get("peer_ip", "")
+                    if action == "list_peers":
+                        response = self.p2p_link.list_peers()
+                    elif action == "send_clipboard":
+                        response = self.p2p_link.send_clipboard(peer_ip)
+                    elif action == "send_speech":
+                        message = params.get("message", "Ping")
+                        response = self.p2p_link.send_speech(peer_ip, message)
+
+                elif skill == "air_typist":
+                    action = params.get("action", "")
+                    if action == "start":
+                        response = self.air_typist.start()
+                    elif action == "stop":
+                        response = self.air_typist.stop()
+
+                elif skill == "hologram_control":
+                    action = params.get("action", "")
+                    if action == "explode":
+                        enable = params.get("enable", True)
+                        self.hologram_widget.animate_explode(enable)
+                        response = "Expanding holographic structure coordinates, sir." if enable else "Collapsing coordinates to baseline state, sir."
+                    elif action == "set_rotation":
+                        speed = params.get("speed", "slow")
+                        self.hologram_widget.set_rotation_speed(speed)
+                        response = f"Adjusting rotation parameters to {speed}, sir."
+                    elif action == "toggle_heatmap":
+                        enable = params.get("enable", True)
+                        self.hologram_widget.toggle_heatmap(enable)
+                        response = "Visualizing simulated load heatmap layer, sir." if enable else "Hiding heatmap layer, sir."
+
+                elif skill == "git_sentinel":
+                    action = params.get("action", "")
+                    if action == "check":
+                        self.tts.speak("Initializing git sentinel diagnostic sweep, sir. Checking changed files.")
+                        check_res = self.git_sentinel.check_workspace()
+                    
+                        if check_res["status"] == "clean":
+                            response = "Workspace diagnostic checks are clean, sir. No compilation breaks found."
+                        else:
+                            broken_file = check_res["file_path"]
+                            short_name = os.path.basename(broken_file)
+                            self.tts.speak(f"Compile break detected in {short_name}. Querying Ollama self-healing patch, sir.")
+                        
+                            # Generate self-healing patch
+                            patch_content = self.git_sentinel.generate_healing_patch(
+                                broken_file,
+                                check_res["error"],
+                                check_res["diff"],
+                                self.models["main_brain"],
+                                ollama
+                            )
+                        
+                            if patch_content:
+                                # Save in active context for user verification before applying
+                                self.active_context = {
+                                    "type": "confirm_file_patch",
+                                    "file_path": broken_file,
+                                    "patched_content": patch_content
+                                }
+                                response = f"I've drafted a self-healing patch to restore compiles in {short_name}. Shall I write it to disk, sir?"
+                            else:
+                                response = f"Compile break detected in {short_name}, but I was unable to construct a corrective patch automatically."
+
+                elif skill == "sentry_firewall":
+                    action = params.get("action", "")
+                    ip = params.get("ip", "")
+                    if action == "quarantine":
+                        response = self.sentry_firewall.quarantine_ip(ip)
+                    elif action == "remove_quarantine":
+                        response = self.sentry_firewall.remove_quarantine(ip)
+                    elif action == "list_blocks":
+                        response = self.sentry_firewall.list_blocks()
+
+                elif skill == "focus_tracker":
+                    action = params.get("action", "")
+                    if action == "open_dashboard":
+                        self.vitals_dashboard.show()
+                        response = "Displaying vitals and cognitive focus monitor on the HUD overlay, sir."
+                    elif action == "close_dashboard":
+                        self.vitals_dashboard.hide()
+                        response = "Closing vitals monitor, sir."
+
+                elif skill == "web_research":
+                    action = params.get("action", "")
+                    query = params.get("query", text)
+                    url = params.get("url", "")
+                    if action == "download":
+                        response = self.web.download_file(url)
+                    elif action == "daily_news":
+                        response = self.web.get_daily_news_summary()
+                    elif action == "track_competitor":
+                        response = self.web.track_competitor_website(url)
+                    elif action == "extract_tables":
+                        response = self.web.extract_tables_from_webpage(url)
+                    elif action == "monitor_rss":
+                        response = self.web.monitor_rss_feed(url)
+                    elif action == "search_papers":
+                        response = self.web.search_academic_papers(params.get("query", ""))
+                    elif action == "fact_check":
+                        response = self.web.fact_check(params.get("statement", ""))
+                    elif action == "whatsapp_message":
+                        response = self.web.whatsapp_message(params.get("phone", ""), params.get("message", ""))
+                    elif action == "search_food":
+                        response = self.web.search_food(params.get("query", ""))
+                    elif action == "track_package":
+                        response = self.web.track_package(params.get("carrier", ""), params.get("tracking_number", ""))
+                    else:
+                        if "mode" in params and params["mode"] == "visual":
+                            response = self.web.visual_search_and_summarize(query)
+                        else:
+                            response = self.web.headless_search_and_summarize(query)
+                        
+                        # Auto-convert research to presentation if requested in original command
+                        cmd_lower = text.lower()
+                        if "presentation" in cmd_lower or "ppt" in cmd_lower or "slides" in cmd_lower:
+                            import json
+                            title = query.title()
+                            prompt = (
+                                f"Create a high-end slide outline for a 3-slide presentation on '{title}' using the following research notes:\n\n"
+                                f"{response}\n\n"
+                                "Select and recommend one of these dynamic layout themes based on the topic: "
+                                "'stark_tech', 'midnight_cyberpunk', 'light_professional', or 'forest_minimalist'. "
+                                "Output ONLY a raw, valid JSON object containing: "
+                                '{"theme": "...", "title": "...", "subtitle": "...", "slides": [{"title": "...", "bullets": ["...", "..."]}]}. '
+                                "Do not include any markdown wrappers or backticks."
+                            )
+                            try:
+                                raw = self.query_llm([{"role": "user", "content": prompt}], provider="mistral", model="mistral-large-2512")
+                                raw = raw.strip().replace("```json", "").replace("```", "").strip()
+                                data = json.loads(raw)
+                                theme = data.get("theme", "stark_tech")
+                                slides_content = data.get("slides", [])
+                                pres_title = data.get("title", title)
+                                pres_subtitle = f"Generated by {self.config.get('jarvis', {}).get('name', 'JARVIS')}"
+                            
+                                # Generate presentation file
+                                self.productivity.pptx_helper(pres_title, pres_subtitle, theme, slides_content)
+                                response = f"I have conducted the research on {title} and created a beautiful {theme} presentation for you at config/presentation.pptx, sir."
+                            except Exception as e:
+                                logger.error(f"Failed to generate presentation from research: {e}")
+                                response = f"I did the research on {title}, sir, but encountered an error creating the slide deck: {e}"
+
+                elif skill == "media_summarize":
+                    url = params.get("url", "")
+                    if url:
+                        response = self.media.summarize_youtube(url)
+                    else:
+                        response = "Please provide a URL or file path to summarize, sir."
+
+                elif skill == "code":
+                    response = self._generate_response(text, "development")
+
+                elif skill == "system_monitor":
+                    try:
+                        import psutil
+                        cpu = psutil.cpu_percent()
+                        ram = psutil.virtual_memory().percent
+                        response = f"System resources are nominal. CPU is at {cpu} percent and RAM is at {ram} percent, sir."
+                    except ImportError:
+                        response = "psutil is not installed. Run `pip install psutil` to monitor the system."
+                
+                elif skill == "app_control":
+                    action = params.get("action", "")
+                    app_name = params.get("app", "")
+                    if action == "map":
+                        response = self.app_map.map_app_ui(app_name)
+                    elif action == "click":
+                        response = self.app_map.click_element(app_name, params.get("element", ""))
+                    elif action == "fill":
+                        response = self.app_map.fill_form_field(app_name, params.get("field", ""), params.get("text", ""))
+                    elif action in ["run_code", "toggle_terminal", "new_tab", "close_tab", "next_tab", "prev_tab", "reopen_tab", "save_file"]:
+                        ctx = self.sentinel.get_active_context()
+                        active_process = ctx.get("process", "unknown")
+                        response = self.app_ctrl.execute_action(action, active_process)
+                    else:
+                        response = self._generate_response(text, domain)
+
+                elif skill == "obsidian":
+                    action = params.get("action", "")
+                    title = params.get("title", "")
+                    content = params.get("content", "")
+                    query = params.get("query", "")
+                    folder = params.get("folder", "")
+                    if action == "create_note":
+                        response = self.obsidian_ctrl.create_note(title, content, folder)
+                    elif action == "read_note":
+                        response = self.obsidian_ctrl.read_note(title)
+                    elif action == "search_notes":
+                        response = self.obsidian_ctrl.search_notes(query)
+                    elif action == "append_to_daily_note":
+                        response = self.obsidian_ctrl.append_to_daily_note(content)
+                    elif action == "list_notes":
+                        response = self.obsidian_ctrl.list_notes(folder)
+                    else:
+                        response = self._generate_response(text, domain)
+
+                elif skill == "market_analyzer":
+                    action = params.get("action", "")
+                    query = params.get("query", "")
+                    if action == "analyze":
+                        response = self.market_analyzer.analyze_asset(query)
+                    else:
+                        response = self._generate_response(text, domain)
+
+                elif skill == "spotify":
+                    action = params.get("action", "")
+                    query = params.get("query", "")
+                    use_spotify = "spotify" in text.lower() or self.spotify_ctrl.use_api
+                    if not use_spotify:
+                        if action == "play":
+                            response = self.youtube_music.play_song(query)
+                            self.is_spotify_playing = True
+                            if not is_chained:
+                                self.is_asleep = True
+                                self.orb.set_state("idle")
+                        elif action in ["pause", "resume", "next", "previous", "volume_up", "volume_down"]:
+                            if action == "pause":
+                                self.is_spotify_playing = False
+                                if "stop" in text.lower():
+                                    response = self.youtube_music.control_media("stop")
+                                else:
+                                    response = self.youtube_music.control_media("pause")
+                            elif action == "resume":
+                                self.is_spotify_playing = True
+                                response = self.youtube_music.control_media("resume")
+                            elif action in ["volume_up", "volume_down", "next", "previous"]:
+                                response = self.youtube_music.control_media(action)
+                            else:
+                                response = self.spotify_ctrl.control_media(action)
+                        else:
+                            response = self._generate_response(text, domain)
+                    else:
+                        if action == "play":
+                            for attempt in range(1, 4):
+                                logger.info(f"Visual validation check for Spotify playback attempt {attempt}/3...")
+                                response = self.spotify_ctrl.play_song(query)
+                                self.is_spotify_playing = True
+                                
+                                # Visual verification using VLM
+                                time.sleep(2.5)  # Allow Spotify interface to load and update state
+                                vlm_prompt = (
+                                    "Analyze the screenshot. Is Spotify open and active on the screen, and is a song currently playing? "
+                                    "Reply with exactly 'yes' or 'no'."
+                                )
+                                try:
+                                    vlm_result = self.vision.analyze(vlm_prompt).strip().lower()
+                                    if "yes" in vlm_result:
+                                        logger.success("VLM verified Spotify track playback successfully started!")
+                                        response += " Aur maine visually verify kiya hai, play ho raha hai."
+                                        break
+                                    else:
+                                        logger.warning(f"VLM reported Spotify not playing on attempt {attempt}/3. Pressing Spacebar fallback and retrying...")
+                                        import pyautogui
+                                        pyautogui.press('space')
+                                        time.sleep(1.0)
+                                        if attempt == 3:
+                                            response += " Aur verification ke baad playback start nahi ho saka, sir."
+                                except Exception as vision_err:
+                                    logger.error(f"VLM play confirmation failed: {vision_err}")
+                                    break
+                                
+                            if not is_chained:
+                                self.is_asleep = True
+                                self.orb.set_state("idle")
+                        elif action in ["pause", "resume", "next", "previous", "volume_up", "volume_down"]:
+                            if action == "pause":
+                                self.is_spotify_playing = False
+                            elif action == "resume":
+                                self.is_spotify_playing = True
+                            response = self.spotify_ctrl.control_media(action)
+                        else:
+                            response = self._generate_response(text, domain)
+
+                elif skill == "memory_ops":
+                    action = params.get("action", "")
+                    query = params.get("query", "")
+                    if action == "store":
+                        self.brain.store_fact(query)
+                        response = "I have noted that down and committed it to memory, sir."
+                    else:
+                        response = self._generate_response(text, domain)
+
+                elif skill == "workspace_context":
+                    action = params.get("action", "")
+                    if action == "explain_workspace":
+                        context_summary = self.workspace_context.get_editor_context_summary()
+                        query = f"Explain my current workspace context and files:\n{context_summary}"
+                        response = self._generate_response(query, domain)
+                    elif action == "read_clipboard":
+                        clip_text = self.workspace_context.read_clipboard()
+                        response = f"Your clipboard currently contains the following, sir:\n{clip_text}"
+                    else:
+                        response = self._generate_response(text, domain)
+
+                elif skill == "self_healing":
+                    action = params.get("action", "")
+                    element_name = params.get("element_name", "")
+                    if action == "click_element":
+                        self.tts.speak(f"Locating and clicking the {element_name}, sir.")
+                        success = self.self_healing.click_element_visually(element_name)
+                        if success:
+                            response = f"Successfully clicked the {element_name}, sir."
+                        else:
+                            response = f"I was unable to visually locate the {element_name} on your screen, sir."
+                    else:
+                        response = self._generate_response(text, domain)
+
+
+                elif skill == "file_manager":
+                    action = params.get("action", "")
+                    path = params.get("path", "")
+                    if action == "create_file":
+                        response = self.file_manager.create_file(path, params.get("content", ""))
+                    elif action == "rename_file":
+                        response = self.file_manager.rename_file(params.get("old_path", ""), params.get("new_path", ""))
+                    elif action == "move_file":
+                        response = self.file_manager.move_file(params.get("src", ""), params.get("dst", ""))
+                    elif action == "delete_file":
+                        response = self.file_manager.delete_file(path, params.get("shred", False))
+                    elif action == "create_directory":
+                        response = self.file_manager.create_directory(path)
+                    elif action == "delete_directory":
+                        response = self.file_manager.delete_directory(path)
+                    elif action == "toggle_show_hidden_files":
+                        response = self.file_manager.toggle_show_hidden_files(params.get("show", True))
+                    elif action == "set_file_hidden":
+                        response = self.file_manager.set_file_hidden(path, params.get("hide", True))
+                    elif action == "get_folder_size":
+                        response = self.file_manager.get_folder_size(path)
+                    elif action == "sync_folders":
+                        response = self.file_manager.sync_folders(params.get("src", ""), params.get("dst", ""))
+                    elif action == "backup_to_local_cloud":
+                        response = self.file_manager.backup_to_local_cloud(path, params.get("cloud_provider", "onedrive"))
+                    else:
+                        response = "File action not supported, sir."
+
+                elif skill == "data_analyzer":
+                    action = params.get("action", "")
+                    filepath = params.get("filepath", "")
+                    if action == "read_document":
+                        response = self.data_analyzer.read_document_text(filepath)
+                    elif action == "calculate_statistics":
+                        response = self.data_analyzer.calculate_statistics(filepath, params.get("column_name", ""))
+                    elif action == "log_kpi":
+                        response = self.data_analyzer.log_kpi(params.get("name", ""), params.get("value", 0.0))
+                    elif action == "kpi_history":
+                        response = self.data_analyzer.get_kpi_history(params.get("name", ""))
+                    else:
+                        response = "Data analysis action not supported, sir."
+
+                elif skill == "productivity":
+                    action = params.get("action", "")
+                    if action == "add_todo":
+                        response = self.productivity.add_todo(params.get("task", ""))
+                    elif action == "list_todos":
+                        response = self.productivity.list_todos()
+                    elif action == "complete_todo":
+                        response = self.productivity.complete_todo(params.get("todo_id", 0))
+                    elif action == "check_inbox":
+                        response = self.productivity.check_inbox()
+                    elif action == "record_meeting":
+                        response = self.productivity.record_meeting_notes(params.get("duration", 60))
+                    elif action == "edit_pdf":
+                        response = self.productivity.edit_pdf(
+                            params.get("pdf_action", "merge"),
+                            params.get("files_list", []),
+                            params.get("output_path", ""),
+                            params.get("page_num", 0),
+                            params.get("angle", 90)
+                        )
+                    elif action == "create_presentation":
                         import json
-                        title = query.title()
+                        title = params.get("title", "Topic")
                         prompt = (
-                            f"Create a high-end slide outline for a 3-slide presentation on '{title}' using the following research notes:\n\n"
-                            f"{response}\n\n"
+                            f"Create a high-end slide outline for a 3-slide presentation on '{title}'. "
                             "Select and recommend one of these dynamic layout themes based on the topic: "
-                            "'stark_tech', 'midnight_cyberpunk', 'light_professional', or 'forest_minimalist'. "
+                            "'stark_tech' (cyber/tech/dark), 'midnight_cyberpunk' (neon/creative/dark), "
+                            "'light_professional' (corporate/clean/light), or 'forest_minimalist' (organic/nature/light). "
                             "Output ONLY a raw, valid JSON object containing: "
                             '{"theme": "...", "title": "...", "subtitle": "...", "slides": [{"title": "...", "bullets": ["...", "..."]}]}. '
-                            "Do not include any markdown wrappers or backticks."
+                            "Do not include any markdown code wrappers, quotes, or backticks."
                         )
                         try:
                             raw = self.query_llm([{"role": "user", "content": prompt}], provider="mistral", model="mistral-large-2512")
@@ -2156,472 +2526,242 @@ class JARVIS:
                             theme = data.get("theme", "stark_tech")
                             slides_content = data.get("slides", [])
                             pres_title = data.get("title", title)
+                            pres_subtitle = data.get("subtitle", f"Generated by {self.config.get('jarvis', {}).get('name', 'JARVIS')}")
+                        except Exception:
+                            theme = "stark_tech"
+                            slides_content = [
+                                {"title": "Introduction to " + title, "bullets": ["Overview of the topic", "Key components", "Initial analysis"]},
+                                {"title": "Deep Dive", "bullets": ["Detailed explanations", "Current trends and developments", "Practical examples"]},
+                                {"title": "Summary", "bullets": ["Conclusion of key points", "Next steps"]}
+                            ]
+                            pres_title = title
                             pres_subtitle = f"Generated by {self.config.get('jarvis', {}).get('name', 'JARVIS')}"
-                            
-                            # Generate presentation file
-                            self.productivity.pptx_helper(pres_title, pres_subtitle, theme, slides_content)
-                            response = f"I have conducted the research on {title} and created a beautiful {theme} presentation for you at config/presentation.pptx, sir."
-                        except Exception as e:
-                            logger.error(f"Failed to generate presentation from research: {e}")
-                            response = f"I did the research on {title}, sir, but encountered an error creating the slide deck: {e}"
-
-            elif skill == "media_summarize":
-                url = params.get("url", "")
-                if url:
-                    response = self.media.summarize_youtube(url)
-                else:
-                    response = "Please provide a URL or file path to summarize, sir."
-
-            elif skill == "code":
-                response = self._generate_response(text, "development")
-
-            elif skill == "system_monitor":
-                try:
-                    import psutil
-                    cpu = psutil.cpu_percent()
-                    ram = psutil.virtual_memory().percent
-                    response = f"System resources are nominal. CPU is at {cpu} percent and RAM is at {ram} percent, sir."
-                except ImportError:
-                    response = "psutil is not installed. Run `pip install psutil` to monitor the system."
-                
-            elif skill == "app_control":
-                action = params.get("action", "")
-                app_name = params.get("app", "")
-                if action == "map":
-                    response = self.app_map.map_app_ui(app_name)
-                elif action == "click":
-                    response = self.app_map.click_element(app_name, params.get("element", ""))
-                elif action == "fill":
-                    response = self.app_map.fill_form_field(app_name, params.get("field", ""), params.get("text", ""))
-                elif action in ["run_code", "toggle_terminal", "new_tab", "close_tab", "next_tab", "prev_tab", "reopen_tab", "save_file"]:
-                    ctx = self.sentinel.get_active_context()
-                    active_process = ctx.get("process", "unknown")
-                    response = self.app_ctrl.execute_action(action, active_process)
-                else:
-                    response = self._generate_response(text, domain)
-
-            elif skill == "obsidian":
-                action = params.get("action", "")
-                title = params.get("title", "")
-                content = params.get("content", "")
-                query = params.get("query", "")
-                folder = params.get("folder", "")
-                if action == "create_note":
-                    response = self.obsidian_ctrl.create_note(title, content, folder)
-                elif action == "read_note":
-                    response = self.obsidian_ctrl.read_note(title)
-                elif action == "search_notes":
-                    response = self.obsidian_ctrl.search_notes(query)
-                elif action == "append_to_daily_note":
-                    response = self.obsidian_ctrl.append_to_daily_note(content)
-                elif action == "list_notes":
-                    response = self.obsidian_ctrl.list_notes(folder)
-                else:
-                    response = self._generate_response(text, domain)
-
-            elif skill == "market_analyzer":
-                action = params.get("action", "")
-                query = params.get("query", "")
-                if action == "analyze":
-                    response = self.market_analyzer.analyze_asset(query)
-                else:
-                    response = self._generate_response(text, domain)
-
-            elif skill == "spotify":
-                action = params.get("action", "")
-                query = params.get("query", "")
-                use_spotify = "spotify" in text.lower() or self.spotify_ctrl.use_api
-                if not use_spotify:
-                    if action == "play":
-                        response = self.youtube_music.play_song(query)
-                        self.is_spotify_playing = True
-                        if not is_chained:
-                            self.is_asleep = True
-                            self.orb.set_state("idle")
-                    elif action in ["pause", "resume", "next", "previous", "volume_up", "volume_down"]:
-                        if action == "pause":
-                            self.is_spotify_playing = False
-                            if "stop" in text.lower():
-                                response = self.youtube_music.control_media("stop")
-                            else:
-                                response = self.youtube_music.control_media("pause")
-                        elif action == "resume":
-                            self.is_spotify_playing = True
-                            response = self.youtube_music.control_media("resume")
-                        elif action in ["volume_up", "volume_down", "next", "previous"]:
-                            response = self.youtube_music.control_media(action)
-                        else:
-                            response = self.spotify_ctrl.control_media(action)
+                        response = self.productivity.pptx_helper(pres_title, pres_subtitle, theme, slides_content)
+                    elif action == "open_presentation":
+                        response = self.productivity.open_presentation()
+                    elif action == "create_mind_map":
+                        import json
+                        central_idea = params.get("central_idea", "Idea")
+                        prompt = f"Generate 5 sub-topics linked to the central idea '{central_idea}'. Output raw JSON list of strings. Do not include markdown code block formatting."
+                        try:
+                            res = ollama.chat(model=self.models["main_brain"], messages=[{"role": "user", "content": prompt}])
+                            raw = res["message"]["content"].strip().replace("```json", "").replace("```", "").strip()
+                            nodes = json.loads(raw)
+                        except Exception:
+                            nodes = ["Overview", "Details", "Challenges", "Solutions", "Future"]
+                        response = self.productivity.create_mind_map(central_idea, nodes)
+                    elif action == "block_distractions":
+                        response = self.productivity.block_distractions(params.get("domains_list", []), params.get("block", True))
+                    elif action == "sign_document":
+                        response = self.productivity.sign_document(
+                            params.get("doc_path", ""),
+                            params.get("sig_img_path", ""),
+                            params.get("output_path", ""),
+                            params.get("coords", (100, 100))
+                        )
                     else:
-                        response = self._generate_response(text, domain)
-                else:
-                    if action == "play":
-                        response = self.spotify_ctrl.play_song(query)
-                        self.is_spotify_playing = True
-                        
-                        # Visual verification using VLM
-                        time.sleep(2.5)  # Allow Spotify interface to load and update state
-                        logger.info("Visual validation: Checking Spotify play state.")
-                        vlm_prompt = (
-                            "Verify if the Spotify window is active on the screen. Is the track currently playing? "
-                            "Reply in one brief, natural Hinglish sentence confirming that the playback has started."
+                        response = "Productivity action not supported, sir."
+
+                elif skill == "security_auditor":
+                    action = params.get("action", "")
+                    if action == "scan_ports":
+                        response = self.security_auditor.scan_ports(params.get("host", "127.0.0.1"))
+                    elif action == "scan_network":
+                        response = self.security_auditor.scan_network_devices()
+                    elif action == "audit_traffic":
+                        response = self.security_auditor.list_active_outbound_connections()
+                    elif action == "audit_password":
+                        response = self.security_auditor.audit_password_strength(params.get("password", ""))
+                    elif action == "audit_cve":
+                        response = self.security_auditor.audit_installed_packages_for_cves()
+                    elif action == "audit_logs":
+                        response = self.security_auditor.analyze_workspace_logs()
+                    elif action in ["scan_threats", "malware_scan", "security_scan", "run_scan", "audit"] or "scan" in action or "malware" in action:
+                        response = self.security_auditor.run_system_security_scan()
+                    else:
+                        response = self.security_auditor.run_system_security_scan()
+
+                elif skill == "vision_tracker":
+                    action = params.get("action", "")
+                    if action == "detect_objects":
+                        response = self.vision_tracker.detect_objects_in_room()
+                    elif action == "analyze_fatigue":
+                        response = self.vision_tracker.analyze_user_fatigue_and_stress()
+                    elif action == "analyze_appearance":
+                        response = self.vision_tracker.analyze_user_appearance()
+                    else:
+                        response = "Vision tracking action not supported, sir."
+
+                elif skill == "code_runner":
+                    action = params.get("action", "")
+                    if action == "run_code":
+                        response = self.code_runner.run_code(params.get("language", "python"), params.get("code_text", ""))
+                    elif action == "git_command":
+                        response = self.code_runner.git_command(params.get("git_action", "status"), params.get("args", ""))
+                    elif action == "docker_command":
+                        response = self.code_runner.docker_command(params.get("docker_action", "list"), params.get("args", ""))
+                    elif action == "mobile_view_emulation":
+                        response = self.code_runner.mobile_view_emulation(params.get("url", ""))
+                    elif action == "deploy_app":
+                        response = self.code_runner.deploy_app(params.get("project_path", ""), params.get("port", 3000))
+                    else:
+                        response = "Code runner action not supported, sir."
+
+                elif skill == "product_comparison":
+                    response = self.product_comparator.search_and_compare(
+                        params.get("query", ""),
+                        params.get("budget", None)
+                    )
+
+                elif skill == "food_ordering":
+                    response = self.food_comparator.find_food(
+                        params.get("query", ""),
+                        params.get("budget", None)
+                    )
+
+                elif skill == "macro_recorder":
+                    action = params.get("action", "")
+                    name = params.get("name", "default_macro")
+                    if action == "start":
+                        response = self.macro_recorder.start_recording(name)
+                    elif action == "stop":
+                        response = self.macro_recorder.stop_recording(name)
+                    elif action == "play":
+                        response = self.macro_recorder.play_macro(name)
+                    else:
+                        response = "Unsupported macro recorder operation, sir."
+
+                elif skill == "customizer":
+                    action = params.get("action", "")
+                    if action == "enter":
+                        response = "Customization protocol active, sir. What parameters shall I adjust?"
+                    elif action == "set_threshold":
+                        val = params.get("value", 0.78)
+                        if hasattr(self, "wake") and self.wake and self.wake.voice_profile:
+                            self.wake.voice_profile["threshold"] = val
+                            with open(self.wake.voice_profile_path, "w") as f:
+                                import json
+                                json.dump(self.wake.voice_profile, f, indent=2)
+                            self.wake._load_voice_profile()
+                            response = f"Voice print similarity threshold adjusted to {val}, sir."
+                        else:
+                            response = "No active voice profile calibrated, sir."
+                    elif action == "set_speed":
+                        val = params.get("value", 1.25)
+                        self.tts.default_speed = val
+                        response = f"Speech rate set to {val}, sir."
+                    elif action == "toggle_hud":
+                        visible = self.hud_overlay.isVisible()
+                        self.hud_overlay.setVisible(not visible)
+                        response = f"HUD screen overlay is now {'disabled' if visible else 'enabled'}, sir."
+                    else:
+                        response = "Unsupported voice customizer action, sir."
+
+                elif skill == "coding_sandbox":
+                    action = params.get("action", "")
+                    if action == "execute_task":
+                        self.tts.speak("Initializing isolated coding sandbox, sir. Please wait while I construct and run the solution.")
+                        response = self.coding_sandbox.execute_task(params.get("task", ""))
+                    elif action == "compiler_repair":
+                        self.tts.speak("Initiating compiler repair loop, sir. I will build the project and fix any errors automatically.")
+                        response = self.compiler_repair.compile_and_repair(params.get("command", ""))
+                    elif action == "compile_canvas":
+                        self.tts.speak("Capturing air canvas drawing for visual analysis, sir.")
+                        image_path = self.canvas.grab_canvas_image()
+                        self.tts.speak("Analyzing strokes and parsing coordinates, sir.")
+                        visual_query = (
+                            "Analyze this drawing. Identify what coordinates, shapes, text, equations, or layout structure "
+                            "are present. Describe them clearly so an AI coder can write a Python PyQt6 application replicating this drawing."
+                        )
+                        drawing_description = self.vision.analyze_image(image_path, visual_query)
+                        logger.info(f"Air canvas visual analysis: {drawing_description}")
+                    
+                        self.tts.speak("Generating application code and compiling program inside sandbox, sir.")
+                        response = self.coding_sandbox.execute_task(
+                            f"Construct a PyQt6 GUI application based on this drawing description: {drawing_description}"
                         )
                         try:
-                            vlm_confirm = self.vision.analyze(vlm_prompt)
-                            response += f" Aur maine visually verify kiya hai, {vlm_confirm}"
-                        except Exception as vision_err:
-                            logger.error(f"VLM play confirmation failed: {vision_err}")
-                            
-                        if not is_chained:
-                            self.is_asleep = True
-                            self.orb.set_state("idle")
-                    elif action in ["pause", "resume", "next", "previous", "volume_up", "volume_down"]:
-                        if action == "pause":
-                            self.is_spotify_playing = False
-                        elif action == "resume":
-                            self.is_spotify_playing = True
-                        response = self.spotify_ctrl.control_media(action)
+                            import os
+                            os.unlink(image_path)
+                        except Exception:
+                            pass
                     else:
-                        response = self._generate_response(text, domain)
+                        response = "Unsupported coding sandbox action, sir."
 
-            elif skill == "memory_ops":
-                action = params.get("action", "")
-                query = params.get("query", "")
-                if action == "store":
-                    self.brain.store_fact(query)
-                    response = "I have noted that down and committed it to memory, sir."
+                elif skill == "polyglot_engineer":
+                    action = params.get("action", "")
+                    if action == "design_architecture":
+                        self.tts.speak("Designing system architecture and generating blueprints, sir.")
+                        response = self.polyglot_engineer.design_architecture(params.get("task", ""))
+                    elif action == "write_solution":
+                        lang = params.get("language", "python")
+                        self.tts.speak(f"Writing optimized {lang} solution, sir.")
+                        response = self.polyglot_engineer.write_polyglot_solution(lang, params.get("task", ""))
+                    elif action == "review_code":
+                        lang = params.get("language", "python")
+                        self.tts.speak(f"Reviewing {lang} code structure, sir.")
+                        code = ""
+                        try:
+                            import pyperclip
+                            code = pyperclip.paste().strip()
+                        except Exception:
+                            pass
+                        if not code:
+                            for root, dirs, files in os.walk("."):
+                                dirs[:] = [d for d in dirs if d not in {".git", "__pycache__", "jarvis_env", ".agents", ".gemini"}]
+                                for f in files:
+                                    if f.endswith((".py", ".go", ".rs", ".cpp", ".zig")):
+                                        try:
+                                            with open(os.path.join(root, f), "r", encoding="utf-8") as file:
+                                                code = file.read()
+                                                break
+                                        except Exception:
+                                            pass
+                                if code:
+                                    break
+                        if code:
+                            response = self.polyglot_engineer.review_code(lang, code)
+                        else:
+                            response = f"Sir, I could not find any code in your clipboard or active workspace files to review."
+                    else:
+                        response = "Unsupported polyglot engineering action, sir."
+
+                elif skill == "research_prodigy":
+                    action = params.get("action", "")
+                    if action == "deep_research":
+                        topic = params.get("topic", "")
+                        self.tts.speak("Initiating multi-stage deep research crawl, sir. Gathering facts and academic publications.")
+                        response = self.research_prodigy.execute_deep_research(topic)
+                    else:
+                        response = "Unsupported research prodigy action, sir."
+
                 else:
+                    # Default: conversation with domain knowledge
                     response = self._generate_response(text, domain)
-
-            elif skill == "workspace_context":
-                action = params.get("action", "")
-                if action == "explain_workspace":
-                    context_summary = self.workspace_context.get_editor_context_summary()
-                    query = f"Explain my current workspace context and files:\n{context_summary}"
-                    response = self._generate_response(query, domain)
-                elif action == "read_clipboard":
-                    clip_text = self.workspace_context.read_clipboard()
-                    response = f"Your clipboard currently contains the following, sir:\n{clip_text}"
-                else:
-                    response = self._generate_response(text, domain)
-
-            elif skill == "self_healing":
-                action = params.get("action", "")
-                element_name = params.get("element_name", "")
-                if action == "click_element":
-                    self.tts.speak(f"Locating and clicking the {element_name}, sir.")
-                    success = self.self_healing.click_element_visually(element_name)
-                    if success:
-                        response = f"Successfully clicked the {element_name}, sir."
-                    else:
-                        response = f"I was unable to visually locate the {element_name} on your screen, sir."
-                else:
-                    response = self._generate_response(text, domain)
-
-
-            elif skill == "file_manager":
-                action = params.get("action", "")
-                path = params.get("path", "")
-                if action == "create_file":
-                    response = self.file_manager.create_file(path, params.get("content", ""))
-                elif action == "rename_file":
-                    response = self.file_manager.rename_file(params.get("old_path", ""), params.get("new_path", ""))
-                elif action == "move_file":
-                    response = self.file_manager.move_file(params.get("src", ""), params.get("dst", ""))
-                elif action == "delete_file":
-                    response = self.file_manager.delete_file(path, params.get("shred", False))
-                elif action == "create_directory":
-                    response = self.file_manager.create_directory(path)
-                elif action == "delete_directory":
-                    response = self.file_manager.delete_directory(path)
-                elif action == "toggle_show_hidden_files":
-                    response = self.file_manager.toggle_show_hidden_files(params.get("show", True))
-                elif action == "set_file_hidden":
-                    response = self.file_manager.set_file_hidden(path, params.get("hide", True))
-                elif action == "get_folder_size":
-                    response = self.file_manager.get_folder_size(path)
-                elif action == "sync_folders":
-                    response = self.file_manager.sync_folders(params.get("src", ""), params.get("dst", ""))
-                elif action == "backup_to_local_cloud":
-                    response = self.file_manager.backup_to_local_cloud(path, params.get("cloud_provider", "onedrive"))
-                else:
-                    response = "File action not supported, sir."
-
-            elif skill == "data_analyzer":
-                action = params.get("action", "")
-                filepath = params.get("filepath", "")
-                if action == "read_document":
-                    response = self.data_analyzer.read_document_text(filepath)
-                elif action == "calculate_statistics":
-                    response = self.data_analyzer.calculate_statistics(filepath, params.get("column_name", ""))
-                elif action == "log_kpi":
-                    response = self.data_analyzer.log_kpi(params.get("name", ""), params.get("value", 0.0))
-                elif action == "kpi_history":
-                    response = self.data_analyzer.get_kpi_history(params.get("name", ""))
-                else:
-                    response = "Data analysis action not supported, sir."
-
-            elif skill == "productivity":
-                action = params.get("action", "")
-                if action == "add_todo":
-                    response = self.productivity.add_todo(params.get("task", ""))
-                elif action == "list_todos":
-                    response = self.productivity.list_todos()
-                elif action == "complete_todo":
-                    response = self.productivity.complete_todo(params.get("todo_id", 0))
-                elif action == "check_inbox":
-                    response = self.productivity.check_inbox()
-                elif action == "record_meeting":
-                    response = self.productivity.record_meeting_notes(params.get("duration", 60))
-                elif action == "edit_pdf":
-                    response = self.productivity.edit_pdf(
-                        params.get("pdf_action", "merge"),
-                        params.get("files_list", []),
-                        params.get("output_path", ""),
-                        params.get("page_num", 0),
-                        params.get("angle", 90)
-                    )
-                elif action == "create_presentation":
-                    import json
-                    title = params.get("title", "Topic")
-                    prompt = (
-                        f"Create a high-end slide outline for a 3-slide presentation on '{title}'. "
-                        "Select and recommend one of these dynamic layout themes based on the topic: "
-                        "'stark_tech' (cyber/tech/dark), 'midnight_cyberpunk' (neon/creative/dark), "
-                        "'light_professional' (corporate/clean/light), or 'forest_minimalist' (organic/nature/light). "
-                        "Output ONLY a raw, valid JSON object containing: "
-                        '{"theme": "...", "title": "...", "subtitle": "...", "slides": [{"title": "...", "bullets": ["...", "..."]}]}. '
-                        "Do not include any markdown code wrappers, quotes, or backticks."
-                    )
-                    try:
-                        raw = self.query_llm([{"role": "user", "content": prompt}], provider="mistral", model="mistral-large-2512")
-                        raw = raw.strip().replace("```json", "").replace("```", "").strip()
-                        data = json.loads(raw)
-                        theme = data.get("theme", "stark_tech")
-                        slides_content = data.get("slides", [])
-                        pres_title = data.get("title", title)
-                        pres_subtitle = data.get("subtitle", f"Generated by {self.config.get('jarvis', {}).get('name', 'JARVIS')}")
-                    except Exception:
-                        theme = "stark_tech"
-                        slides_content = [
-                            {"title": "Introduction to " + title, "bullets": ["Overview of the topic", "Key components", "Initial analysis"]},
-                            {"title": "Deep Dive", "bullets": ["Detailed explanations", "Current trends and developments", "Practical examples"]},
-                            {"title": "Summary", "bullets": ["Conclusion of key points", "Next steps"]}
-                        ]
-                        pres_title = title
-                        pres_subtitle = f"Generated by {self.config.get('jarvis', {}).get('name', 'JARVIS')}"
-                    response = self.productivity.pptx_helper(pres_title, pres_subtitle, theme, slides_content)
-                elif action == "open_presentation":
-                    response = self.productivity.open_presentation()
-                elif action == "create_mind_map":
-                    import json
-                    central_idea = params.get("central_idea", "Idea")
-                    prompt = f"Generate 5 sub-topics linked to the central idea '{central_idea}'. Output raw JSON list of strings. Do not include markdown code block formatting."
-                    try:
-                        res = ollama.chat(model=self.models["main_brain"], messages=[{"role": "user", "content": prompt}])
-                        raw = res["message"]["content"].strip().replace("```json", "").replace("```", "").strip()
-                        nodes = json.loads(raw)
-                    except Exception:
-                        nodes = ["Overview", "Details", "Challenges", "Solutions", "Future"]
-                    response = self.productivity.create_mind_map(central_idea, nodes)
-                elif action == "block_distractions":
-                    response = self.productivity.block_distractions(params.get("domains_list", []), params.get("block", True))
-                elif action == "sign_document":
-                    response = self.productivity.sign_document(
-                        params.get("doc_path", ""),
-                        params.get("sig_img_path", ""),
-                        params.get("output_path", ""),
-                        params.get("coords", (100, 100))
-                    )
-                else:
-                    response = "Productivity action not supported, sir."
-
-            elif skill == "security_auditor":
-                action = params.get("action", "")
-                if action == "scan_ports":
-                    response = self.security_auditor.scan_ports(params.get("host", "127.0.0.1"))
-                elif action == "scan_network":
-                    response = self.security_auditor.scan_network_devices()
-                elif action == "audit_traffic":
-                    response = self.security_auditor.list_active_outbound_connections()
-                elif action == "audit_password":
-                    response = self.security_auditor.audit_password_strength(params.get("password", ""))
-                elif action == "audit_cve":
-                    response = self.security_auditor.audit_installed_packages_for_cves()
-                elif action == "audit_logs":
-                    response = self.security_auditor.analyze_workspace_logs()
-                elif action in ["scan_threats", "malware_scan", "security_scan", "run_scan", "audit"] or "scan" in action or "malware" in action:
-                    response = self.security_auditor.run_system_security_scan()
-                else:
-                    response = self.security_auditor.run_system_security_scan()
-
-            elif skill == "vision_tracker":
-                action = params.get("action", "")
-                if action == "detect_objects":
-                    response = self.vision_tracker.detect_objects_in_room()
-                elif action == "analyze_fatigue":
-                    response = self.vision_tracker.analyze_user_fatigue_and_stress()
-                elif action == "analyze_appearance":
-                    response = self.vision_tracker.analyze_user_appearance()
-                else:
-                    response = "Vision tracking action not supported, sir."
-
-            elif skill == "code_runner":
-                action = params.get("action", "")
-                if action == "run_code":
-                    response = self.code_runner.run_code(params.get("language", "python"), params.get("code_text", ""))
-                elif action == "git_command":
-                    response = self.code_runner.git_command(params.get("git_action", "status"), params.get("args", ""))
-                elif action == "docker_command":
-                    response = self.code_runner.docker_command(params.get("docker_action", "list"), params.get("args", ""))
-                elif action == "mobile_view_emulation":
-                    response = self.code_runner.mobile_view_emulation(params.get("url", ""))
-                elif action == "deploy_app":
-                    response = self.code_runner.deploy_app(params.get("project_path", ""), params.get("port", 3000))
-                else:
-                    response = "Code runner action not supported, sir."
-
-            elif skill == "product_comparison":
-                response = self.product_comparator.search_and_compare(
-                    params.get("query", ""),
-                    params.get("budget", None)
-                )
-
-            elif skill == "food_ordering":
-                response = self.food_comparator.find_food(
-                    params.get("query", ""),
-                    params.get("budget", None)
-                )
-
-            elif skill == "macro_recorder":
-                action = params.get("action", "")
-                name = params.get("name", "default_macro")
-                if action == "start":
-                    response = self.macro_recorder.start_recording(name)
-                elif action == "stop":
-                    response = self.macro_recorder.stop_recording(name)
-                elif action == "play":
-                    response = self.macro_recorder.play_macro(name)
-                else:
-                    response = "Unsupported macro recorder operation, sir."
-
-            elif skill == "customizer":
-                action = params.get("action", "")
-                if action == "enter":
-                    response = "Customization protocol active, sir. What parameters shall I adjust?"
-                elif action == "set_threshold":
-                    val = params.get("value", 0.78)
-                    if hasattr(self, "wake") and self.wake and self.wake.voice_profile:
-                        self.wake.voice_profile["threshold"] = val
-                        with open(self.wake.voice_profile_path, "w") as f:
-                            import json
-                            json.dump(self.wake.voice_profile, f, indent=2)
-                        self.wake._load_voice_profile()
-                        response = f"Voice print similarity threshold adjusted to {val}, sir."
-                    else:
-                        response = "No active voice profile calibrated, sir."
-                elif action == "set_speed":
-                    val = params.get("value", 1.25)
-                    self.tts.default_speed = val
-                    response = f"Speech rate set to {val}, sir."
-                elif action == "toggle_hud":
-                    visible = self.hud_overlay.isVisible()
-                    self.hud_overlay.setVisible(not visible)
-                    response = f"HUD screen overlay is now {'disabled' if visible else 'enabled'}, sir."
-                else:
-                    response = "Unsupported voice customizer action, sir."
-
-            elif skill == "coding_sandbox":
-                action = params.get("action", "")
-                if action == "execute_task":
-                    self.tts.speak("Initializing isolated coding sandbox, sir. Please wait while I construct and run the solution.")
-                    response = self.coding_sandbox.execute_task(params.get("task", ""))
-                elif action == "compiler_repair":
-                    self.tts.speak("Initiating compiler repair loop, sir. I will build the project and fix any errors automatically.")
-                    response = self.compiler_repair.compile_and_repair(params.get("command", ""))
-                elif action == "compile_canvas":
-                    self.tts.speak("Capturing air canvas drawing for visual analysis, sir.")
-                    image_path = self.canvas.grab_canvas_image()
-                    self.tts.speak("Analyzing strokes and parsing coordinates, sir.")
-                    visual_query = (
-                        "Analyze this drawing. Identify what coordinates, shapes, text, equations, or layout structure "
-                        "are present. Describe them clearly so an AI coder can write a Python PyQt6 application replicating this drawing."
-                    )
-                    drawing_description = self.vision.analyze_image(image_path, visual_query)
-                    logger.info(f"Air canvas visual analysis: {drawing_description}")
-                    
-                    self.tts.speak("Generating application code and compiling program inside sandbox, sir.")
-                    response = self.coding_sandbox.execute_task(
-                        f"Construct a PyQt6 GUI application based on this drawing description: {drawing_description}"
-                    )
-                    try:
-                        import os
-                        os.unlink(image_path)
-                    except Exception:
-                        pass
-                else:
-                    response = "Unsupported coding sandbox action, sir."
-
-            elif skill == "polyglot_engineer":
-                action = params.get("action", "")
-                if action == "design_architecture":
-                    self.tts.speak("Designing system architecture and generating blueprints, sir.")
-                    response = self.polyglot_engineer.design_architecture(params.get("task", ""))
-                elif action == "write_solution":
-                    lang = params.get("language", "python")
-                    self.tts.speak(f"Writing optimized {lang} solution, sir.")
-                    response = self.polyglot_engineer.write_polyglot_solution(lang, params.get("task", ""))
-                elif action == "review_code":
-                    lang = params.get("language", "python")
-                    self.tts.speak(f"Reviewing {lang} code structure, sir.")
-                    code = ""
-                    try:
-                        import pyperclip
-                        code = pyperclip.paste().strip()
-                    except Exception:
-                        pass
-                    if not code:
-                        for root, dirs, files in os.walk("."):
-                            dirs[:] = [d for d in dirs if d not in {".git", "__pycache__", "jarvis_env", ".agents", ".gemini"}]
-                            for f in files:
-                                if f.endswith((".py", ".go", ".rs", ".cpp", ".zig")):
-                                    try:
-                                        with open(os.path.join(root, f), "r", encoding="utf-8") as file:
-                                            code = file.read()
-                                            break
-                                    except Exception:
-                                        pass
-                            if code:
-                                break
-                    if code:
-                        response = self.polyglot_engineer.review_code(lang, code)
-                    else:
-                        response = f"Sir, I could not find any code in your clipboard or active workspace files to review."
-                else:
-                    response = "Unsupported polyglot engineering action, sir."
-
-            elif skill == "research_prodigy":
-                action = params.get("action", "")
-                if action == "deep_research":
-                    topic = params.get("topic", "")
-                    self.tts.speak("Initiating multi-stage deep research crawl, sir. Gathering facts and academic publications.")
-                    response = self.research_prodigy.execute_deep_research(topic)
-                else:
-                    response = "Unsupported research prodigy action, sir."
-
-            else:
-                # Default: conversation with domain knowledge
-                response = self._generate_response(text, domain)
                 
-        except Exception as e:
-            logger.error(f"Skill execution failed: {e}")
-            import traceback
-            tb_str = traceback.format_exc()
-            success, heal_msg = self.healer.heal_error(tb_str)
-            if success:
-                response = heal_msg
-            else:
-                response = f"I encountered a minor fault while executing that command, sir. Specifically: {e}."
+                # If execution succeeded, break out of max_attempts retry loop
+                break
+            except Exception as e:
+                logger.error(f"Skill execution failed on attempt {attempt}/{max_attempts}: {e}")
+                import traceback
+                tb_str = traceback.format_exc()
+                if attempt < max_attempts:
+                    logger.info("Entering Self-Healing & Hot-Reloading loop...")
+                    success, heal_msg = self.healer.heal_error(tb_str)
+                    if success:
+                        target_info = self.healer._extract_project_file_from_traceback(tb_str)
+                        if target_info:
+                            filepath, _ = target_info
+                            reloaded = self._reload_skill_instance(filepath)
+                            if reloaded:
+                                logger.success(f"Self-Healing: successfully reloaded {filepath}. Retrying execution...")
+                                continue
+                success, heal_msg = self.healer.heal_error(tb_str)
+                if success:
+                    response = heal_msg
+                else:
+                    response = f"I encountered a minor fault while executing that command, sir. Specifically: {e}."
+                break
 
         # Safety check
         if not self._safety_check(response):
