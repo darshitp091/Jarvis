@@ -17,8 +17,9 @@ models:
 
 audio:
   sample_rate: 16000
-  silence_threshold: 0.8     # seconds of silence to stop listening
+  silence_threshold: 2.2     # seconds of silence to stop listening (natural breathing room)
   wake_word_sensitivity: 0.5
+  engine: local              # Options: groq, local, sarvam
 
 tts:
   engine: edge                    # Edge TTS (online)
@@ -28,7 +29,8 @@ tts:
       ref_speaker: en-IN-NeerjaNeural
     hinglish:
       ref_speaker: hi-IN-SwaraNeural
-  speaking_rate: 1.15             # 15% speed boost for natural human flow
+  speaking_rate: 1.30             # 30% speed boost for natural human flow
+  speaking_pitch: -12             # Lower base pitch (-12Hz) for a mature, warm, natural female voice
   dsp:
     reverb_room_size: 0.15
     reverb_wet_level: 0.05
@@ -88,4 +90,3 @@ cloudflare:
   account_id: "YOUR_CLOUDFLARE_ACCOUNT_ID"
   api_token: "YOUR_CLOUDFLARE_API_TOKEN"
   model: "@cf/meta/llama-3.1-8b-instruct"
-

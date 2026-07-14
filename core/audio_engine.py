@@ -148,6 +148,95 @@ class AudioEngine:
         except Exception:
             return False
 
+    def _transliterate_devanagari_to_roman(self, text: str) -> str:
+        """Transliterates Devanagari characters to Roman equivalents so the intent router
+        always receives Romanized Hinglish text regardless of what script Whisper outputs."""
+        # Map common Devanagari words to their Roman Hinglish equivalents
+        devanagari_map = {
+            # Actions
+            "करो": "karo",
+            "करें": "karo",
+            "करना": "karna",
+            "खोलो": "kholo",
+            "खोलें": "kholo",
+            "बंद": "band",
+            "बजाओ": "bajao",
+            "बजाए": "bajao",
+            "चलाओ": "chalao",
+            "चलाए": "chalao",
+            "लगाओ": "lagao",
+            "रोको": "roko",
+            "बताओ": "batao",
+            "दिखाओ": "dikhao",
+            "डिलीट": "delete",
+            "डिलीट करो": "delete karo",
+            "हटाओ": "hatao",
+            "साफ": "saaf",
+            "स्कैन": "scan",
+            "सर्च": "search",
+            # Apps
+            "स्पॉटिफाई": "spotify",
+            "यूट्यूब": "youtube",
+            "क्रोम": "chrome",
+            "नोटपैड": "notepad",
+            "व्हाट्सएप": "whatsapp",
+            "गूगल": "google",
+            # Music
+            "गाना": "gaana",
+            "गाने": "gaane",
+            "संगीत": "music",
+            "अगला": "next",
+            "पिछला": "previous",
+            # System
+            "रीसायकल": "recycle",
+            "बिन": "bin",
+            "टेम्पररी": "temporary",
+            "कैशे": "cache",
+            "वॉल्यूम": "volume",
+            "बढ़ाओ": "badhao",
+            "घटाओ": "ghatao",
+            # Conversation
+            "हाँ": "haan",
+            "नहीं": "nahi",
+            "ठीक": "theek",
+            "क्या": "kya",
+            "कैसे": "kaise",
+            "मेरा": "mera",
+            "मुझे": "mujhe",
+            "आप": "aap",
+            "तुम": "tum",
+            "यह": "yeh",
+            "वह": "woh",
+            "सुनो": "suno",
+            "एक": "ek",
+            "कोई": "koi",
+            # Postpositions (very common in Hinglish)
+            "में": "mein",
+            "का": "ka",
+            "की": "ki",
+            "के": "ke",
+            "से": "se",
+            "पर": "par",
+            "को": "ko",
+            "ने": "ne",
+            "के लिए": "ke liye",
+            "के पास": "ke paas",
+        }
+        # Check if any Devanagari characters are present
+        if not any('\u0900' <= c <= '\u097F' for c in text):
+            return text
+        # Replace known Devanagari phrases/words with Roman equivalents
+        result = text
+        for devanagari, roman in devanagari_map.items():
+            result = result.replace(devanagari, roman)
+        # For any remaining Devanagari characters, remove them and log a warning
+        remaining_devanagari = ''.join(c for c in result if '\u0900' <= c <= '\u097F')
+        if remaining_devanagari:
+            logger.warning(f"Untransliterated Devanagari characters found: {remaining_devanagari!r}")
+            # Strip unmapped Devanagari characters cleanly
+            result = ''.join(c if not ('\u0900' <= c <= '\u097F') else ' ' for c in result)
+        return ' '.join(result.split())  # normalize whitespace
+
     def listen(self, timeout_sec: float = 4.0) -> str | None:
         """Record until silence, return transcribed text"""
         logger.info("JARVIS: Listening...")
@@ -303,10 +392,30 @@ class AudioEngine:
                 logger.error(f"Groq Whisper STT failed: {groq_err}. Falling back to local Whisper...")
 
         try:
-            # Set initial prompt to guide Whisper towards correct English and Hinglish song names in Roman script
-            initial_prompt = "Hey JARVIS, play some songs, gaana bajao, lagao, Arijit Singh, Shreya Ghoshal, Kaise Hua, Tum Hi Ho, Apna Bana Le, play music, play bollywood songs"
-            segments, info = self.whisper.transcribe(tmp_path, initial_prompt=initial_prompt)
+            # Comprehensive Hinglish steering prompt: guides Whisper to produce Romanized Hinglish
+            # (WhatsApp-style) instead of Devanagari. Covers common commands and Bollywood phrases.
+            initial_prompt = (
+                "Hey JARVIS, yaar sun, ek kaam karo, spotify mein gaana bajao, band karo, "
+                "agle gaane pe jao, volume badhao, volume kam karo, recycle bin saaf karo, "
+                "temporary files delete karo, chrome kholo, notepad kholo, whatsapp kholo, "
+                "kya haal hai, kaise ho, mujhe batao, Arijit Singh ka gaana bajao, "
+                "Shreya Ghoshal, Tum Hi Ho, Kaise Hua, Apna Bana Le, Kesariya, Raataan Lambiyan, "
+                "open settings, close window, take screenshot, disk cleanup karo, "
+                "scan for virus, lock screen, unlock screen, theek hai, haan, nahi, shukriya"
+            )
+            # beam_size=1 enables fast greedy decoding (5x faster than default beam_size=5)
+            segments, info = self.whisper.transcribe(
+                tmp_path,
+                initial_prompt=initial_prompt,
+                beam_size=1,
+                best_of=1,
+                temperature=0.0,
+                language="hi",  # force Hindi/Hinglish bilingual mode instead of auto-detect
+                without_timestamps=True,
+            )
             local_text = " ".join(s.text for s in segments).strip()
+            # Transliterate any Devanagari output back to Romanized Hinglish
+            local_text = self._transliterate_devanagari_to_roman(local_text)
 
             # Post-processing filter for common Whisper hallucinations on low-energy signals
             hallucinations = {"thank you very much.", "thank you.", "and listen to today.", "you.", "and listen to today", "please.", "please"}
