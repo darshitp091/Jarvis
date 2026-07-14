@@ -162,7 +162,13 @@ class OSControl:
     def type_text(self, text: str) -> str:
         # Failsafe protects against rogue mouse/keyboard loops
         pyautogui.FAILSAFE = True
-        pyautogui.write(text, interval=0.05)
+        try:
+            import pyperclip
+            pyperclip.copy(text)
+            time.sleep(0.05)
+            pyautogui.hotkey('ctrl', 'v')
+        except Exception:
+            pyautogui.write(text, interval=0.01)
         return "Typed the text, sir."
 
     def press_key(self, key: str) -> str:

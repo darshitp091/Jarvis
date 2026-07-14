@@ -277,10 +277,13 @@ class SpotifyControl:
         try:
             # Open Quick Search
             pyautogui.hotkey('ctrl', 'k')
-            time.sleep(0.5)
+            time.sleep(0.8)  # Give Quick Search overlay slightly more time to mount
             
-            # Type song name
-            pyautogui.write(query)
+            # Type song name via copy/paste to support all characters and avoid latency
+            import pyperclip
+            pyperclip.copy(query)
+            time.sleep(0.05)
+            pyautogui.hotkey('ctrl', 'v')
             time.sleep(1.2) # Wait for search results to load
             
             # Press down arrow to highlight first track

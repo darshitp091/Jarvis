@@ -386,9 +386,16 @@ class IntentRouter:
         if any(p in cmd for p in ["turn off battery saver", "disable battery saver", "deactivate battery saver"]):
             return {"skill": "os_control", "params": {"action": "toggle_battery_saver", "enable": False}, "domain": "general"}
 
-        if re.search(r"\b(?:clean|clear|delete|remove)\s+(?:all\s+)?(?:the\s+)?(?:temporary|temp|junk|cache)\b", cmd):
+        # Disk cleaning: any clean verb AND any temp noun in command
+        clean_verbs = ["clean", "clear", "delete", "remove", "rimo", "rimove", "clean up"]
+        temp_nouns = ["temporary", "temp", "temathareree", "junk", "cache", "kesh"]
+        if any(v in cmd for v in clean_verbs) and any(n in cmd for n in temp_nouns):
             return {"skill": "os_control", "params": {"action": "clean_disk"}, "domain": "general"}
-        if re.search(r"\b(?:empty|clean|clear|remove)\s+(?:all\s+)?(?:the\s+)?(?:trash|trash\s+files|recycle\s+bin|recycle)\b", cmd):
+            
+        # Empty recycle bin: any empty verb AND any recycle noun in command
+        recycle_verbs = ["empty", "clean", "clear", "remove", "delete", "delet", "dilet", "empty_recycle_bin"]
+        recycle_nouns = ["trash", "recycle", "bin", "vine"]
+        if (any(v in cmd for v in recycle_verbs) and any(n in cmd for n in recycle_nouns)) or "recycle bin" in cmd:
             return {"skill": "os_control", "params": {"action": "empty_recycle_bin"}, "domain": "general"}
 
         wifi_conn_match = re.search(r"connect to wifi (?:profile\s+)?(.+)", cmd)

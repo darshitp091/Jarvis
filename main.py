@@ -1194,80 +1194,118 @@ class JARVIS:
         commands = [c.strip() for c in splits if c.strip()]
         return commands
 
-    def _get_friendly_task_desc(self, text: str) -> str:
+    def _get_friendly_task_desc(self, text: str, is_hinglish: bool = False) -> str:
         """Returns a human-like description of a command's intent."""
         import re
         intent = self.router.route(text)
         skill = intent.get("skill", "conversation")
         params = intent.get("params", {})
         
-        if skill == "os_control":
-            action = params.get("action", "")
-            if action == "clean_disk":
-                return "clear the system temporary files"
-            elif action == "empty_recycle_bin":
-                return "empty the recycle bin"
-            elif action == "secure":
-                return "lock the screen"
-            elif action == "unlock":
-                return "unlock the screen"
-            elif action == "launch":
-                return f"launch the {params.get('app', 'requested application')}"
-            elif action == "close":
-                return f"close {params.get('app', 'the application')}"
-            elif action == "set_brightness":
-                return f"adjust system brightness to {params.get('percent', 50)} percent"
-            
-        elif skill == "sentry_firewall":
-            action = params.get("action", "")
-            if action == "quarantine":
-                return f"quarantine and block remote endpoint {params.get('ip', 'IP')}"
-            elif action == "remove_quarantine":
-                return f"remove firewall block for {params.get('ip', 'IP')}"
-            elif action == "list_blocks":
-                return "list active firewall quarantine blocks"
+        if is_hinglish:
+            if skill == "os_control":
+                action = params.get("action", "")
+                if action == "clean_disk":
+                    return "system ki temporary files clear karungi"
+                elif action == "empty_recycle_bin":
+                    return "recycle bin ki trash files empty karungi"
+                elif action == "secure":
+                    return "laptop screen lock karungi"
+                elif action == "unlock":
+                    return "system unlock karungi"
+                elif action == "launch":
+                    return f"{params.get('app', 'app')} open karungi"
+                elif action == "close":
+                    return f"{params.get('app', 'app')} close karungi"
+                elif action == "set_brightness":
+                    return f"brightness adjusted {params.get('percent', 50)} percent karungi"
+            elif skill == "spotify" or skill == "youtube_music":
+                action = params.get("action", "")
+                if action == "play":
+                    return f"Spotify par {params.get('query', 'gaana')} play karungi"
+                elif action == "pause":
+                    return "music pause karungi"
+            elif skill == "system_monitor":
+                return "system resource check karungi"
+            # Conversational fallbacks in Hinglish
+            text_lower = text.lower()
+            if "whatsapp" in text_lower:
+                return "WhatsApp par message send karungi"
+            elif any(w in text_lower for w in ["presentation", "ppt", "slide"]):
+                return "presentation generate karungi"
+            elif any(w in text_lower for w in ["search", "google", "research"]):
+                return "web search karungi"
+            return f"'{text}' command run karungi"
+        else:
+            if skill == "os_control":
+                action = params.get("action", "")
+                if action == "clean_disk":
+                    return "clear the system temporary files"
+                elif action == "empty_recycle_bin":
+                    return "empty the recycle bin"
+                elif action == "secure":
+                    return "lock the screen"
+                elif action == "unlock":
+                    return "unlock the screen"
+                elif action == "launch":
+                    return f"launch the {params.get('app', 'requested application')}"
+                elif action == "close":
+                    return f"close {params.get('app', 'the application')}"
+                elif action == "set_brightness":
+                    return f"adjust system brightness to {params.get('percent', 50)} percent"
                 
-        elif skill == "hologram_control":
-            action = params.get("action", "")
-            if action == "explode":
-                enable = params.get("enable", True)
-                return "explode the hologram assembly" if enable else "collapse the hologram assembly"
-            elif action == "toggle_heatmap":
-                enable = params.get("enable", True)
-                return "show the load heatmap" if enable else "hide the load heatmap"
-            elif action == "set_rotation":
-                return f"set hologram rotation speed to {params.get('speed', 'slow')}"
+            elif skill == "sentry_firewall":
+                action = params.get("action", "")
+                if action == "quarantine":
+                    return f"quarantine and block remote endpoint {params.get('ip', 'IP')}"
+                elif action == "remove_quarantine":
+                    return f"remove firewall block for {params.get('ip', 'IP')}"
+                elif action == "list_blocks":
+                    return "list active firewall quarantine blocks"
+                    
+            elif skill == "hologram_control":
+                action = params.get("action", "")
+                if action == "explode":
+                    enable = params.get("enable", True)
+                    return "explode the hologram assembly" if enable else "collapse the hologram assembly"
+                elif action == "toggle_heatmap":
+                    enable = params.get("enable", True)
+                    return "show the load heatmap" if enable else "hide the load heatmap"
+                elif action == "set_rotation":
+                    return f"set hologram rotation speed to {params.get('speed', 'slow')}"
+                    
+            elif skill == "system_monitor":
+                return "check system resources"
                 
-        elif skill == "system_monitor":
-            return "check system resources"
-            
-        elif skill == "spotify" or skill == "youtube_music":
-            action = params.get("action", "")
-            if action == "play":
-                return f"play {params.get('query', 'music')}"
-            elif action == "pause":
-                return "pause the music player"
+            elif skill == "spotify" or skill == "youtube_music":
+                action = params.get("action", "")
+                if action == "play":
+                    return f"play {params.get('query', 'music')}"
+                elif action == "pause":
+                    return "pause the music player"
+                    
+            text_lower = text.lower()
+            if "whatsapp" in text_lower:
+                return "open WhatsApp and draft a message"
+            elif any(w in text_lower for w in ["spotify", "music", "song", "gaana", "gaane"]):
+                return "play the requested song"
+            elif any(w in text_lower for w in ["presentation", "ppt", "slide", "slides"]):
+                return "create the requested presentation"
+            elif any(w in text_lower for w in ["search", "google", "find", "research"]):
+                return "conduct a web search"
                 
-        # Smart descriptors for conversational/unrouted commands in chains
-        text_lower = text.lower()
-        if "whatsapp" in text_lower:
-            return "open WhatsApp and draft a message"
-        elif any(w in text_lower for w in ["spotify", "music", "song", "gaana", "gaane"]):
-            return "play the requested song"
-        elif any(w in text_lower for w in ["presentation", "ppt", "slide", "slides"]):
-            return "create the requested presentation"
-        elif any(w in text_lower for w in ["search", "google", "find", "research"]):
-            return "conduct a web search"
-            
-        # Default description if it's general conversation/command
-        words = text.split()
-        if len(words) > 5:
-            return " ".join(words[:5]) + "..."
-        return text
+            words = text.split()
+            if len(words) > 5:
+                return " ".join(words[:5]) + "..."
+            return text
 
     def process_command(self, text: str):
         """Processes a single command, or splits and executes a chain of sequential commands with human-like transitions."""
         import re
+        
+        has_devanagari = any('\u0900' <= c <= '\u097F' for c in text)
+        hindi_cues = ["karo", "karna", "dikhao", "de", "kar", "bhej", "kholo", "chalao", "batao", "sunao", "hai", "hoon", "tha", "thi", "yaar", "sir", "kaise", "kya", "tum", "main", "aap", "pehle", "kuch", "bhajao", "bajado", "gaana", "gana", "song", "play", "so", "sojao", "so jao", "so jaao"]
+        is_hinglish = has_devanagari or any(w in text.lower() for w in hindi_cues)
+
         commands = self.split_chained_commands(text)
         cleaned_cmds = []
         for cmd in commands:
@@ -1279,13 +1317,21 @@ class JARVIS:
             logger.info(f"Chained commands detected: {cleaned_cmds}")
             
             # Generate the human-like plan announcement
-            descs = [self._get_friendly_task_desc(c) for c in cleaned_cmds]
-            if len(cleaned_cmds) == 2:
-                plan_intro = f"Right away, sir. First, I will {descs[0]}, and then I will {descs[1]}."
-            elif len(cleaned_cmds) == 3:
-                plan_intro = f"Right away, sir. First, I will {descs[0]}, next, I will {descs[1]}, and finally, I will {descs[2]}."
+            descs = [self._get_friendly_task_desc(c, is_hinglish) for c in cleaned_cmds]
+            if is_hinglish:
+                if len(cleaned_cmds) == 2:
+                    plan_intro = f"Ji sir, pehle main {descs[0]}, aur phir {descs[1]}."
+                elif len(cleaned_cmds) == 3:
+                    plan_intro = f"Abhi karti hu, sir. Pehle main {descs[0]}, uske baad {descs[1]}, aur finally {descs[2]}."
+                else:
+                    plan_intro = f"Bilkul sir, mere paas {len(cleaned_cmds)} tasks ki list hai: pehle main {descs[0]} aur phir baki sab karti hu."
             else:
-                plan_intro = f"Right away, sir. I have a chain of {len(cleaned_cmds)} tasks to execute: first, I will {descs[0]}, and then proceed with the rest."
+                if len(cleaned_cmds) == 2:
+                    plan_intro = f"Right away, sir. First, I will {descs[0]}, and then I will {descs[1]}."
+                elif len(cleaned_cmds) == 3:
+                    plan_intro = f"Right away, sir. First, I will {descs[0]}, next, I will {descs[1]}, and finally, I will {descs[2]}."
+                else:
+                    plan_intro = f"Right away, sir. I have a chain of {len(cleaned_cmds)} tasks to execute: first, I will {descs[0]}, and then proceed with the rest."
                 
             self.orb.set_state("speaking")
             self.tts.speak(plan_intro)
@@ -1297,7 +1343,10 @@ class JARVIS:
                 # Speak transitional phrase between tasks only for non-immediate actions
                 is_immediate_action = any(phrase in cmd_clean.lower() for phrase in ["play", "volume", "music", "song", "mute", "unmute", "lock", "sentry", "secure"])
                 if idx > 0 and not is_immediate_action:
-                    transition = f"Now, I am going to {descs[idx]}, sir."
+                    if is_hinglish:
+                        transition = f"Chaliye sir, ab main {descs[idx]}."
+                    else:
+                        transition = f"Now, I am going to {descs[idx]}, sir."
                     self.orb.set_state("speaking")
                     self.tts.speak(transition)
                     self.orb.set_state("idle")
@@ -1503,7 +1552,20 @@ class JARVIS:
             elif skill == "os_control":
                 action = params.get("action", "")
                 if action == "launch":
-                    response = self.os_ctrl.launch_app(params.get("app", ""))
+                    app_to_launch = params.get("app", "")
+                    response = self.os_ctrl.launch_app(app_to_launch)
+                    if "Launched" in response:
+                        time.sleep(2.0)  # Allow application window to render
+                        logger.info(f"Visual validation: Checking if {app_to_launch} is visible on desktop.")
+                        vlm_prompt = (
+                            f"Analyze the screenshot. Is the application window for '{app_to_launch}' open and visible on the desktop screen? "
+                            "Reply in one brief, natural Hinglish sentence confirming its visibility status."
+                        )
+                        try:
+                            vlm_confirm = self.vision.analyze(vlm_prompt)
+                            response += f" Aur maine visually verify kiya hai, {vlm_confirm}"
+                        except Exception as vision_err:
+                            logger.error(f"VLM launch confirmation failed: {vision_err}")
                 elif action == "secure":
                     self.is_asleep = True
                     self.is_authenticated = False
@@ -2196,6 +2258,20 @@ class JARVIS:
                     if action == "play":
                         response = self.spotify_ctrl.play_song(query)
                         self.is_spotify_playing = True
+                        
+                        # Visual verification using VLM
+                        time.sleep(2.5)  # Allow Spotify interface to load and update state
+                        logger.info("Visual validation: Checking Spotify play state.")
+                        vlm_prompt = (
+                            "Verify if the Spotify window is active on the screen. Is the track currently playing? "
+                            "Reply in one brief, natural Hinglish sentence confirming that the playback has started."
+                        )
+                        try:
+                            vlm_confirm = self.vision.analyze(vlm_prompt)
+                            response += f" Aur maine visually verify kiya hai, {vlm_confirm}"
+                        except Exception as vision_err:
+                            logger.error(f"VLM play confirmation failed: {vision_err}")
+                            
                         if not is_chained:
                             self.is_asleep = True
                             self.orb.set_state("idle")
@@ -2374,8 +2450,10 @@ class JARVIS:
                     response = self.security_auditor.audit_installed_packages_for_cves()
                 elif action == "audit_logs":
                     response = self.security_auditor.analyze_workspace_logs()
+                elif action in ["scan_threats", "malware_scan", "security_scan", "run_scan", "audit"] or "scan" in action or "malware" in action:
+                    response = self.security_auditor.run_system_security_scan()
                 else:
-                    response = "Security audit action not supported, sir."
+                    response = self.security_auditor.run_system_security_scan()
 
             elif skill == "vision_tracker":
                 action = params.get("action", "")
@@ -3207,10 +3285,13 @@ class JARVIS:
                 cmd_lower = text.lower()
                 
                 # Explicit sleep command overrides presence
-                if any(phrase in cmd_lower for phrase in ["go to sleep", "sleep away", "stop listening", "shut up jarvis", "jarvis sleep"]):
+                if any(phrase in cmd_lower for phrase in ["go to sleep", "sleep away", "stop listening", "shut up jarvis", "jarvis sleep", "so jao", "so jaao", "standby", "sleep mode"]):
                     self.is_asleep = True
                     self.orb.set_state("speaking")
-                    self.tts.speak("Going to sleep, sir. Wake me if you need me.")
+                    reply = "Going to sleep, sir. Wake me if you need me."
+                    if any(w in cmd_lower for w in ["so jao", "so jaao", "standby", "mode"]):
+                        reply = "[sigh] Thik hai, sir, main standby mode mein ja rahi hu. Jab bhi zarurat ho, bas 'Hey JARVIS' bol dena."
+                    self.tts.speak(reply)
                     continue
 
                 # Dedicated PC system sleep command
