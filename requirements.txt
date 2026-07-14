@@ -25,3 +25,4 @@ onnxruntime-gpu==1.19.2
 nvidia-cuda-runtime-cu12
 nvidia-cublas-cu12
 nvidia-cudnn-cu12
+protobuf==4.25.8

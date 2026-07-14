@@ -178,6 +178,31 @@ class IntentRouter:
         if wa_video_match:
             return {"skill": "phone", "params": {"action": "whatsapp_call", "name": wa_video_match.group(1).strip(), "video": True}, "domain": "general"}
 
+        # Hinglish WhatsApp Messaging
+        if "whatsapp" in cmd:
+            contact = None
+            msg = "hi"
+            ko_match = re.search(r"\b([a-zA-Z0-9]+)\s+ko\b", cmd)
+            if not ko_match:
+                ko_match = re.search(r"\b(?:whatsapp|wa)\s+(?:message\s+|msg\s+)?(?:to\s+|pe\s+|par\s+)?([a-zA-Z0-9]+)\b", cmd)
+            if ko_match:
+                extracted = ko_match.group(1).strip()
+                if extracted not in ["khal", "khol", "open", "send", "kar", "bhej", "pe", "par", "high", "hi", "karo", "karna"]:
+                    contact = extracted
+            if contact:
+                msg_clean = cmd
+                split_parts = re.split(r"\b" + re.escape(contact) + r"\b\s+ko\b|\b" + re.escape(contact) + r"\b", msg_clean, flags=re.IGNORECASE)
+                if len(split_parts) > 1:
+                    msg_clean = " ".join(split_parts[1:])
+                else:
+                    msg_clean = split_parts[0]
+                msg_clean = re.sub(r"\b(?:whatsapp|wa|message|msg|send|karo|khal|khol|open|pe|par|ko|kar\s+de|bhej\s+de|bhejdo|send\s+kar\s+de|khol\s+ke)\b", "", msg_clean)
+                msg_clean = re.sub(r"\b(?:high)\b", "hi", msg_clean).strip()
+                msg_clean = msg_clean.strip(",.!? ")
+                if msg_clean:
+                    msg = msg_clean
+                return {"skill": "phone", "params": {"action": "whatsapp_message", "contact": contact, "message": msg}, "domain": "general"}
+
         # Maps & Navigation
         nav_match = re.search(r"navigate\s+to\s+(.+?)\s+(?:on\s+phone|on\s+mobile)", cmd)
         if nav_match:
@@ -648,22 +673,35 @@ class IntentRouter:
             if query_clean not in ["music", "song", "some music", "any song", "something", "songs", "tracks"]:
                 return {"skill": "spotify", "params": {"action": "play", "query": query_clean}, "domain": "general"}
 
-        # Hindi / Hinglish / Devanagari / Phonetic play song commands
-        if any(p in cmd for p in [
-            "gane", "gaane", "bajao", "bajado", "bhajadu", "bhajado", "gana", "gaana",
-            "गाने", "गाना", "बजाओ", "बजादो", "बजा दो", "प्ले करो"
-        ]):
-            song_query = "bollywood hits"
-            play_hindi_match = re.search(r"(?:play|bajao|bajado|bhajadu|bhajado|बजाओ|बजादो|बजा\s+दो|प्ले\s+करो)\s+(.+)", cmd)
-            if play_hindi_match:
-                q = play_hindi_match.group(1).strip()
-                q = re.sub(
-                    r"\b(gane|gaane|gana|gaana|bajao|bajado|bhajadu|bhajado|on spotify|spotify|kuch|kuchh|bane|kut|dharyas|गाने|गाना|बजाओ|बजादो|बजा\s+दो|प्ले\s+करो)\b", 
-                    "", 
-                    q
-                ).strip()
-                if q:
-                    song_query = q
+        # Hindi / Hinglish / Devanagari / Phonetic play song commands (Robust parsing)
+        cmd_lower = cmd.lower().strip()
+        verbs = ["bajao", "bajado", "bhajadu", "bhajado", "baja de", "baja do", "baja", "chalao", "chalado", "chala de", "chala do", "chala", "play", "run", "बजाओ", "बजादो", "बजा", "बजा दो", "प्ले करो"]
+        nouns = ["gane", "gaane", "gana", "gaana", "song", "songs", "music", "track", "tracks", "playlist", "audio", "गाने", "गाना"]
+        
+        if any(v in cmd_lower for v in verbs) or any(n in cmd_lower for n in nouns):
+            q = cmd_lower
+            # Remove command prefixes
+            q = re.sub(
+                r"\b(?:please|plz|pehle|ek|kaam|karo|so|ae|tum|bas|yaar|spotify\s+mein|spotify\s+pe|on\s+spotify|in\s+spotify|play\s+on\s+spotify|play\s+in\s+spotify|youtube\s+mein|youtube\s+pe|on\s+youtube|in\s+youtube)\b", 
+                "", 
+                q
+            )
+            # Remove verbs
+            q = re.sub(
+                r"\b(?:bajao|bajado|bhajadu|bhajado|baja\s+de|baja\s+do|baja|chalao|chalado|chala\s+de|chala\s+do|chala|play|run|बजाओ|बजादो|बजा\s+दो|बजा|प्ले\s+करो)\b", 
+                "", 
+                q
+            )
+            # Remove nouns
+            q = re.sub(
+                r"\b(?:gane|gaane|gana|gaana|song|songs|music|track|tracks|playlist|audio|गाने|गाना)\b", 
+                "", 
+                q
+            )
+            song_query = q.strip()
+            # If the user only said "play music" or "gaana bajao", play default or generic music
+            if not song_query:
+                song_query = "music"
             return {"skill": "spotify", "params": {"action": "play", "query": song_query}, "domain": "general"}
 
         # 6. Face ID Calibration

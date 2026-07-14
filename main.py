@@ -215,6 +215,7 @@ class JARVIS:
         self.last_owner_seen_time = time.time()
         _p("INIT: PhoneController"); self.phone = PhoneController()
         self.awaiting_number_for = None
+        self.is_spotify_playing = False
         
         # New offline skills initializations
         _p("INIT: FileManager"); self.file_manager = FileManager()
@@ -1205,10 +1206,21 @@ class JARVIS:
             elif action == "pause":
                 return "pause the music player"
                 
+        # Smart descriptors for conversational/unrouted commands in chains
+        text_lower = text.lower()
+        if "whatsapp" in text_lower:
+            return "open WhatsApp and draft a message"
+        elif any(w in text_lower for w in ["spotify", "music", "song", "gaana", "gaane"]):
+            return "play the requested song"
+        elif any(w in text_lower for w in ["presentation", "ppt", "slide", "slides"]):
+            return "create the requested presentation"
+        elif any(w in text_lower for w in ["search", "google", "find", "research"]):
+            return "conduct a web search"
+            
         # Default description if it's general conversation/command
         words = text.split()
-        if len(words) > 4:
-            return " ".join(words[:4]) + "..."
+        if len(words) > 5:
+            return " ".join(words[:5]) + "..."
         return text
 
     def process_command(self, text: str):
@@ -2039,15 +2051,19 @@ class JARVIS:
                 if not use_spotify:
                     if action == "play":
                         response = self.youtube_music.play_song(query)
-                        self.is_asleep = True
-                        self.orb.set_state("idle")
+                        self.is_spotify_playing = True
+                        if not is_chained:
+                            self.is_asleep = True
+                            self.orb.set_state("idle")
                     elif action in ["pause", "resume", "next", "previous", "volume_up", "volume_down"]:
                         if action == "pause":
+                            self.is_spotify_playing = False
                             if "stop" in text.lower():
                                 response = self.youtube_music.control_media("stop")
                             else:
                                 response = self.youtube_music.control_media("pause")
                         elif action == "resume":
+                            self.is_spotify_playing = True
                             response = self.youtube_music.control_media("resume")
                         elif action in ["volume_up", "volume_down", "next", "previous"]:
                             response = self.youtube_music.control_media(action)
@@ -2058,9 +2074,15 @@ class JARVIS:
                 else:
                     if action == "play":
                         response = self.spotify_ctrl.play_song(query)
-                        self.is_asleep = True
-                        self.orb.set_state("idle")
+                        self.is_spotify_playing = True
+                        if not is_chained:
+                            self.is_asleep = True
+                            self.orb.set_state("idle")
                     elif action in ["pause", "resume", "next", "previous", "volume_up", "volume_down"]:
+                        if action == "pause":
+                            self.is_spotify_playing = False
+                        elif action == "resume":
+                            self.is_spotify_playing = True
                         response = self.spotify_ctrl.control_media(action)
                     else:
                         response = self._generate_response(text, domain)
@@ -2799,7 +2821,11 @@ class JARVIS:
                     self._auto_resume_music()
 
                     # Return to standby if music is active to prevent feedback loop
-                    if self.youtube_music.process is not None and not self.youtube_music.is_paused:
+                    is_music_active = (
+                        (self.youtube_music.process is not None and not self.youtube_music.is_paused) or
+                        getattr(self, "is_spotify_playing", False)
+                    )
+                    if is_music_active:
                         logger.info("Music is active. Forcing sleep state on silence to avoid feedback.")
                         self.is_asleep = True
                         self.orb.set_state("idle")
@@ -3103,7 +3129,11 @@ class JARVIS:
                 self._auto_resume_music(text)
 
                 # Return to standby if music is active to prevent feedback loop
-                if self.youtube_music.process is not None and not self.youtube_music.is_paused:
+                is_music_active = (
+                    (self.youtube_music.process is not None and not self.youtube_music.is_paused) or
+                    getattr(self, "is_spotify_playing", False)
+                )
+                if is_music_active:
                     logger.info("Music is active. Returning to standby (asleep) state to prevent feedback loop.")
                     self.is_asleep = True
                     self.orb.set_state("idle")
