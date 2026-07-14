@@ -197,6 +197,19 @@ class JARVIS:
         _p("INIT: AppMapper"); self.app_map = AppMapper()
         _p("INIT: AppControl"); self.app_ctrl = AppControl()
         _p("INIT: SpotifyControl"); self.spotify_ctrl = SpotifyControl()
+        # One-time Spotify OAuth setup: if credentials are present but no cached token exists,
+        # run the browser auth flow now so future runs are fully automatic
+        if getattr(self.spotify_ctrl, "use_api", False) is False and \
+           getattr(self.spotify_ctrl, "client_id", None) and \
+           getattr(self.spotify_ctrl, "client_secret", None):
+            cache_path = getattr(self.spotify_ctrl, "CACHE_PATH", ".cache-jarvis-spotify")
+            if not os.path.exists(cache_path):
+                logger.info("No Spotify token cache found. Starting one-time browser auth setup...")
+                auth_ok = self.spotify_ctrl.run_one_time_auth()
+                if auth_ok:
+                    logger.success("Spotify one-time auth complete. API mode is now active.")
+                else:
+                    logger.warning("Spotify one-time auth was skipped or failed. Continuing in GUI fallback mode.")
         _p("INIT: YouTubeMusicPlayer"); self.youtube_music = YouTubeMusicPlayer()
         _p("INIT: ObsidianControl"); self.obsidian_ctrl = ObsidianControl()
         self.youtube_music.on_song_change = lambda title, msg: self.orb.notification_signal.emit(title, msg)
@@ -2398,33 +2411,56 @@ class JARVIS:
                                 response = "Sir, aapko kis tarah ke gaane sunne hain? Aap mujhe koi specific song, artist ya genre bata sakte hain, main use play kar dungi."
                             else:
                                 for attempt in range(1, 4):
-                                    logger.info(f"Visual validation check for Spotify playback attempt {attempt}/3...")
+                                    logger.info(f"Spotify playback attempt {attempt}/3...")
                                     response = self.spotify_ctrl.play_song(query)
                                     self.is_spotify_playing = True
-                                    
-                                    # Visual verification using VLM
-                                    time.sleep(2.5)  # Allow Spotify interface to load and update state
-                                    vlm_prompt = (
-                                        "Analyze the screenshot. Is Spotify open and active on the screen, and is a song currently playing? "
-                                        "Reply with exactly 'yes' or 'no'."
-                                    )
-                                    try:
-                                        vlm_result = self.vision.analyze(vlm_prompt).strip().lower()
-                                        if "yes" in vlm_result:
-                                            logger.success("VLM verified Spotify track playback successfully started!")
-                                            response += " Aur maine visually verify kiya hai, play ho raha hai."
+
+                                    # Wait for Spotify to start audio output
+                                    time.sleep(2.5)
+
+                                    # PRIMARY: Use Spotify Web API to accurately verify playback
+                                    api_verified = False
+                                    if getattr(self.spotify_ctrl, "use_api", False):
+                                        try:
+                                            api_verified = self.spotify_ctrl.is_actually_playing()
+                                            if api_verified:
+                                                logger.success("Spotify API confirmed: track is actively playing.")
+                                                break
+                                            else:
+                                                logger.warning(f"Spotify API: not playing on attempt {attempt}/3. Retrying...")
+                                                if attempt < 3:
+                                                    import pyautogui as _pag
+                                                    _pag.press('space')
+                                                    time.sleep(1.0)
+                                                else:
+                                                    response += " Lekin main confirm nahi kar paayi ki gaana actually chal raha hai, sir."
+                                        except Exception as api_verify_err:
+                                            logger.error(f"API playback check failed: {api_verify_err}")
                                             break
-                                        else:
-                                            logger.warning(f"VLM reported Spotify not playing on attempt {attempt}/3. Pressing Spacebar fallback and retrying...")
-                                            import pyautogui
-                                            pyautogui.press('space')
-                                            time.sleep(1.0)
-                                            if attempt == 3:
-                                                response += " Aur verification ke baad playback start nahi ho saka, sir."
-                                    except Exception as vision_err:
-                                        logger.error(f"VLM play confirmation failed: {vision_err}")
-                                        break
-                                    
+                                    else:
+                                        # SECONDARY: VLM fallback only when no API available
+                                        # Use precise prompt checking progress bar, not just window presence
+                                        vlm_prompt = (
+                                            "Look at the bottom player bar of Spotify carefully. "
+                                            "Is there a song title shown AND is the playback time counter showing more than 0:00 (i.e., has playback started)? "
+                                            "Reply with ONLY 'yes' or 'no'."
+                                        )
+                                        try:
+                                            vlm_result = self.vision.analyze(vlm_prompt).strip().lower()
+                                            if "yes" in vlm_result:
+                                                logger.success("VLM verified Spotify playback active via progress bar check.")
+                                                break
+                                            else:
+                                                logger.warning(f"VLM: Spotify not playing on attempt {attempt}/3.")
+                                                import pyautogui as _pag
+                                                _pag.press('space')
+                                                time.sleep(1.0)
+                                                if attempt == 3:
+                                                    response += " Aur verification ke baad playback confirm nahi hua, sir."
+                                        except Exception as vision_err:
+                                            logger.error(f"VLM play confirmation failed: {vision_err}")
+                                            break
+
                                 if not is_chained:
                                     self.is_asleep = True
                                     self.orb.set_state("idle")
