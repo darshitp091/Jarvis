@@ -36,6 +36,42 @@ class IntentRouter:
         cmd = text.lower().strip()
         cmd = re.sub(r"[,\?\!\.\"\']", "", cmd).strip()
 
+        # Smart Browser Opening & Web Searching in Real Browser
+        is_browser_cmd = any(w in cmd for w in ["browser", "chrome", "edge", "safari", "braavjer", "brovzer", "brauzar", "ब्रूवजर", "ब्राउज़र", "क्रोम"])
+        is_open_action = any(w in cmd for w in [
+            "open", "show", "search", "display", "dikha", "dikhao", "chala", "chalao", "apn", "apan", "open karo", "open kar", "bhejo",
+            "खोल", "खोलना", "दिखाओ", "दिखा", "चलाओ", "चला", "अपन", "ओपन"
+        ])
+        if is_browser_cmd and is_open_action:
+            q = cmd
+            q = re.sub(
+                r"\b(?:open|show|search|display|dikha|dikhao|chala|chalao|apn|apan|open\s+karo|open\s+kar|bhejo|pages|page|pejeis|pages\s+ko|page\s+ko|links|link)\b", 
+                "", 
+                q
+            )
+            q = re.sub(
+                r"\b(?:browser|chrome|edge|safari|braavjer|brovzer|brauzar|in\s+browser|in\s+chrome|on\s+browser|on\s+chrome|browser\s+me|browser\s+mein|chrome\s+me|chrome\s+mein)\b", 
+                "", 
+                q
+            )
+            q = re.sub(
+                r"(?:ब्रूवजर|ब्राउज़र|क्रोम|में|मे|पे|पर|को|खोल|खोलना|दिखाओ|दिखा|चलाओ|चला|अपन|ओपन|के\s+पेज|के\s+पेjis|के\s+पेजिस|के\s+पेज\s+को|के\s+पेजिस\s+ko)", 
+                "", 
+                q
+            )
+            if any(w in cmd for w in ["laptop", "leptop", "leptob"]):
+                if "under" in cmd and "budget" in cmd:
+                    q = "under budget laptops"
+                else:
+                    q = re.sub(r"\b(?:ek|kaam|karo|please|plz|kya|tum|kar|sakte|ho|de|kar\s+de|mujhe)\b", "", q)
+            else:
+                q = re.sub(r"\b(?:ek|kaam|karo|please|plz|kya|tum|kar|sakte|ho|de|kar\s+de|mujhe)\b", "", q)
+                
+            q = q.strip(",.!? ")
+            if not q:
+                q = "under budget laptops"
+            return {"skill": "os_control", "params": {"action": "open_browser", "query": q}, "domain": "general"}
+
         # 0. Smart Note Creation & Retrieval (English / Hindi / Hinglish)
         # Handles triggers like: "remember this: ...", "yaad rakhna ki ...", "likh le ..."
         note_create_match = re.search(r"\b(?:note|remember|keep|store|yaad\s+rakhna|likh\s+le|save\s+kar\s+lo)\s+(?:this|that|down|info)?\s*(?::|-)?\s*(.+)", cmd)

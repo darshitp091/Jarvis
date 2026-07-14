@@ -901,6 +901,35 @@ class OSControl:
             return "Snipping selection overlay activated, sir. Click and drag to capture, or press ESC to cancel."
         return "HUD Orb indicator not linked, sir."
 
+    def open_browser(self, query: str = None, url: str = None) -> str:
+        """Opens default browser to a query (on Google) or directly to a URL."""
+        import webbrowser
+        import urllib.parse
+        if url:
+            if not (url.startswith("http://") or url.startswith("https://")):
+                url = "https://" + url
+            try:
+                webbrowser.open(url)
+                return f"Opening {url} in your browser, sir."
+            except Exception as e:
+                logger.error(f"Failed to open URL: {e}")
+                return f"Failed to open {url} in browser."
+        elif query:
+            try:
+                search_url = f"https://www.google.com/search?q={urllib.parse.quote(query)}"
+                webbrowser.open(search_url)
+                return f"Opening browser and showing results for '{query}', sir."
+            except Exception as e:
+                logger.error(f"Failed to open search: {e}")
+                return f"Failed to search for '{query}' in browser."
+        else:
+            try:
+                webbrowser.open("https://www.google.com")
+                return "Opening default web browser, sir."
+            except Exception as e:
+                logger.error(f"Failed to open browser homepage: {e}")
+                return "Failed to open web browser."
+
 
 if __name__ == "__main__":
     import time

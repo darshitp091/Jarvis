@@ -1035,8 +1035,12 @@ class JARVIS:
         try:
             self.chat_history.append({"role": "user", "content": text})
             
-            # Conversational/multilingual check to use free OfoxAI GLM-4.7-Flash
-            is_conversational = domain == "general" or any(w in text.lower() for w in ["hello", "hi ", "hey", "kaise", "kya", "tum", "main", "aap", "weather", "volume", "music", "song", "time"])
+            # Conversational/multilingual check to use free OfoxAI GLM-4.7-Flash (excellent Hinglish)
+            has_devanagari = any('\u0900' <= c <= '\u097F' for c in text)
+            hindi_cues = ["karo", "karna", "dikhao", "de", "kar", "bhej", "kholo", "chalao", "batao", "sunao", "hai", "hoon", "tha", "thi", "yaar", "sir", "kaise", "kya", "tum", "main", "aap", "pehle", "kuch", "bhajao", "bajado", "gaana", "gana", "song", "play"]
+            has_hindi_cues = has_devanagari or any(w in text.lower() for w in hindi_cues)
+            
+            is_conversational = domain == "general" or has_hindi_cues or any(w in text.lower() for w in ["hello", "hi ", "hey", "weather", "volume", "music", "time"])
             if is_conversational:
                 reply_text = self.query_llm(self.chat_history, system_prompt=system, provider="ofoxai", model="z-ai/glm-4.7-flash:free")
             else:
@@ -1267,6 +1271,80 @@ class JARVIS:
         else:
             self._process_single_command(text)
 
+    def transliterate_devanagari_to_roman(self, text: str) -> str:
+        """Transliterates Devanagari Hindi text to Roman script Hinglish phonetically."""
+        consonants = {
+            'क': 'k', 'ख': 'kh', 'ग': 'g', 'घ': 'gh', 'ङ': 'n',
+            'च': 'ch', 'छ': 'chh', 'ज': 'j', 'झ': 'jh', 'ञ': 'n',
+            'ट': 't', 'ठ': 'th', 'ड': 'd', 'ढ': 'dh', 'ण': 'n',
+            'त': 't', 'थ': 'th', 'द': 'd', 'ध': 'dh', 'न': 'n',
+            'प': 'p', 'फ': 'f', 'ब': 'b', 'भ': 'bh', 'म': 'm',
+            'य': 'y', 'र': 'r', 'ल': 'l', 'व': 'v', 'श': 'sh',
+            'ष': 'sh', 'स': 's', 'ह': 'h', 'क्ष': 'ksh', 'त्र': 'tr',
+            'ज्ञ': 'gy', 'ड़': 'd', 'ढ़': 'dh'
+        }
+        vowels = {
+            'अ': 'a', 'आ': 'aa', 'इ': 'i', 'ई': 'ee', 'उ': 'u', 'ऊ': 'oo',
+            'ऋ': 'ri', 'ए': 'e', 'ऐ': 'ai', 'ओ': 'o', 'औ': 'au',
+            'ा': 'a', 'ि': 'i', 'ी': 'ee', 'ु': 'u', 'ू': 'oo',
+            'े': 'e', 'ै': 'ai', 'ो': 'o', 'ौ': 'au',
+            'ं': 'n', 'ः': 'h', 'ँ': 'n', '्': ''
+        }
+        common_words = {
+            "एक": "ek", "काम": "kaam", "करो": "karo", "कर": "kar", "दे": "de", "दो": "do",
+            "दिखाओ": "dikhao", "दिखा": "dikha", "खोल": "khol", "खोलना": "kholo",
+            "बजाओ": "bajao", "बजा": "baja", "चलाओ": "chalao", "चला": "chala",
+            "मुझे": "mujhe", "मेरा": "mera", "मेरी": "meri", "तुम": "tum", "तुम्हारा": "tumhara",
+            "आप": "aap", "आपका": "aapka", "है": "hai", "हूँ": "hoon", "था": "tha",
+            "थी": "thi", "थे": "the", "रहना": "rahna", "रहा": "raha", "रही": "rahi",
+            "रहे": "rahe", "करते": "karte", "करती": "karti", "करता": "karta",
+            "कहाँ": "kahan", "कब": "kab", "क्यों": "kyun", "कैसे": "kaise", "क्या": "kya",
+            "कौन": "kaun", "कुछ": "kuch", "sab": "sab", "और": "aur", "भी": "bhi",
+            "तो": "toh", "ye": "yeh", "वह": "woh", "अंडर": "under", "बजेट": "budget",
+            "लेप्टोप": "laptop", "लैपटॉप": "laptop", "ब्राउज़र": "browser", "ब्रूवजर": "browser",
+            "क्रोम": "chrome", "स्पोटिफ़ाई": "spotify", "स्पॉटीफाई": "spotify",
+            "गाने": "gaane", "गाना": "gaana", "बजादो": "bajado", "प्ले": "play",
+            "को": "ko", "pe": "pe", "pehle": "pehle", "par": "par", "मम्मी": "mommy", "पापा": "papa"
+        }
+        words = text.split()
+        translated_words = []
+        for w in words:
+            clean_w = w.strip(",.!?\"'")
+            punctuation = w[len(clean_w):] if w.endswith(clean_w) else ""
+            lead_punctuation = w[:w.find(clean_w)] if clean_w in w else ""
+            if clean_w in common_words:
+                translated_words.append(lead_punctuation + common_words[clean_w] + punctuation)
+            elif any('\u0900' <= c <= '\u097F' for c in clean_w):
+                roman = ""
+                i = 0
+                while i < len(clean_w):
+                    char = clean_w[i]
+                    next_char = clean_w[i+1] if i + 1 < len(clean_w) else ""
+                    if next_char == '्':
+                        if char in consonants:
+                            roman += consonants[char]
+                        i += 2
+                        continue
+                    if char in consonants:
+                        roman += consonants[char]
+                        if next_char in vowels and next_char not in ['अ', 'आ', 'इ', 'ई', 'उ', 'ऊ', 'ऋ', 'ए', 'ऐ', 'ओ', 'औ']:
+                            roman += vowels[next_char]
+                            i += 2
+                        else:
+                            if next_char not in vowels and next_char != '':
+                                roman += 'a'
+                            i += 1
+                    elif char in vowels:
+                        roman += vowels[char]
+                        i += 1
+                    else:
+                        roman += char
+                        i += 1
+                translated_words.append(lead_punctuation + roman + punctuation)
+            else:
+                translated_words.append(w)
+        return " ".join(translated_words)
+
     def _process_single_command(self, text: str, speak_filler: bool = True, is_chained: bool = False):
         """Full pipeline: route → execute → respond → speak"""
         self.orb.set_state("thinking")
@@ -1404,6 +1482,11 @@ class JARVIS:
                         response = "System unlocked and authenticated, sir. Welcome back."
                     else:
                         response = f"Access denied, sir. {msg}"
+                elif action == "open_browser":
+                    response = self.os_ctrl.open_browser(
+                        query=params.get("query", None),
+                        url=params.get("url", None)
+                    )
                 elif action == "type":
                     response = self.os_ctrl.type_text(params.get("text", ""))
                 elif action == "hotkey":
@@ -2800,6 +2883,8 @@ class JARVIS:
                 
                 # 2. Record command (blocks until user stops speaking or 5-second silence timeout)
                 text = self.audio.listen(timeout_sec=5.0)
+                if text:
+                    text = self.transliterate_devanagari_to_roman(text)
                 
                 # Check owner presence via face recognition to refresh timer
                 if self.camera.has_face_model and self.camera.latest_frame is not None:
