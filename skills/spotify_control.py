@@ -311,54 +311,84 @@ class SpotifyControl:
             sp = self._get_sp()
             if sp:
                 try:
-                    # Search using the extracted clean query (not the raw sentence)
                     logger.info(f"Spotify API search: '{clean_search_query}'")
-                    results = sp.search(q=clean_search_query, limit=1, type="track")
-                    if results and results["tracks"]["items"]:
-                        track = results["tracks"]["items"][0]
-                        track_uri = track["uri"]
-                        track_name = track["name"]
-                        artist_name = track["artists"][0]["name"]
 
+                    # ── Detect if query is artist-only ──────────────────────────
+                    # If the extracted query matches a known artist name pattern,
+                    # search by artist and play their top tracks (better UX)
+                    KNOWN_ARTISTS = [
+                        "arijit singh", "shreya ghoshal", "sonu nigam", "lata mangeshkar",
+                        "a r rahman", "ar rahman", "kishore kumar", "kumar sanu", "udit narayan",
+                        "pritam", "vishal shekhar", "amit trivedi", "shankar ehsaan loy",
+                        "taylor swift", "ed sheeran", "the weeknd", "drake", "eminem",
+                        "coldplay", "imagine dragons", "linkin park", "one direction",
+                        "bts", "blackpink", "lofi", "lo-fi", "lo fi",
+                    ]
+                    is_artist_query = clean_search_query.lower() in KNOWN_ARTISTS
+
+                    device_id = None
+                    devices = sp.devices()
+                    if devices and devices.get("devices"):
+                        for d in devices["devices"]:
+                            if d["is_active"]:
+                                device_id = d["id"]
+                                break
+                        if not device_id:
+                            device_id = devices["devices"][0]["id"]
+
+                    if not device_id:
+                        logger.warning("No active Spotify device found. Opening Spotify app...")
+                        os.startfile("spotify:")
+                        time.sleep(4.0)
                         devices = sp.devices()
-                        device_id = None
                         if devices and devices.get("devices"):
-                            for d in devices["devices"]:
-                                if d["is_active"]:
-                                    device_id = d["id"]
-                                    break
-                            if not device_id:
-                                device_id = devices["devices"][0]["id"]
+                            device_id = devices["devices"][0]["id"]
 
-                        if device_id:
-                            try:
-                                artist_id = track["artists"][0]["id"]
-                                top_tracks = sp.artist_top_tracks(artist_id)
-                                related_uris = [t["uri"] for t in top_tracks["tracks"] if t["uri"] != track_uri]
-                                playback_uris = [track_uri] + related_uris[:10]
-                                logger.info(f"Populated playback queue with {len(playback_uris)} tracks from artist '{artist_name}'.")
-                            except Exception as queue_err:
-                                logger.warning(f"Failed to fetch artist top tracks: {queue_err}. Defaulting to single track.")
-                                playback_uris = [track_uri]
+                    if is_artist_query:
+                        # ── Artist mode: search artist → play top tracks ──────────
+                        artist_results = sp.search(q=clean_search_query, limit=1, type="artist")
+                        if artist_results and artist_results["artists"]["items"]:
+                            artist = artist_results["artists"]["items"][0]
+                            artist_id = artist["id"]
+                            artist_name = artist["name"]
+                            top_tracks = sp.artist_top_tracks(artist_id)
+                            playback_uris = [t["uri"] for t in top_tracks["tracks"][:15]]
+                            if playback_uris and device_id:
+                                sp.start_playback(device_id=device_id, uris=playback_uris)
+                                logger.success(f"Playing top tracks of artist '{artist_name}' via Spotify API.")
+                                return f"Playing top tracks of {artist_name} on Spotify, sir."
+                        # Fallback to track search if artist not found
+                        is_artist_query = False
 
-                            sp.start_playback(device_id=device_id, uris=playback_uris)
-                            logger.success(f"Started playing '{track_name}' via Spotify API.")
-                            clean_t = track_name.split("|")[0].split("-")[0].strip()
-                            if len(clean_t) > 35:
-                                return f"Playing '{artist_name}' on Spotify, sir."
-                            return f"Playing '{clean_t}' by {artist_name} on Spotify, sir."
+                    if not is_artist_query:
+                        # ── Track mode: search by track name ─────────────────────
+                        results = sp.search(q=clean_search_query, limit=1, type="track")
+                        if results and results["tracks"]["items"]:
+                            track = results["tracks"]["items"][0]
+                            track_uri = track["uri"]
+                            track_name = track["name"]
+                            artist_name = track["artists"][0]["name"]
+
+                            if device_id:
+                                try:
+                                    artist_id = track["artists"][0]["id"]
+                                    top_tracks = sp.artist_top_tracks(artist_id)
+                                    related_uris = [t["uri"] for t in top_tracks["tracks"] if t["uri"] != track_uri]
+                                    playback_uris = [track_uri] + related_uris[:10]
+                                    logger.info(f"Populated queue with {len(playback_uris)} tracks from '{artist_name}'.")
+                                except Exception as queue_err:
+                                    logger.warning(f"Could not fetch artist top tracks: {queue_err}.")
+                                    playback_uris = [track_uri]
+
+                                sp.start_playback(device_id=device_id, uris=playback_uris)
+                                logger.success(f"Started playing '{track_name}' via Spotify API.")
+                                clean_t = track_name.split("|")[0].split("-")[0].strip()
+                                if len(clean_t) > 35:
+                                    return f"Playing '{artist_name}' on Spotify, sir."
+                                return f"Playing '{clean_t}' by {artist_name} on Spotify, sir."
                         else:
-                            logger.warning("No active Spotify device found. Opening Spotify app...")
-                            os.startfile("spotify:")
-                            time.sleep(4.0)
-                            # Retry device lookup once
-                            devices = sp.devices()
-                            if devices and devices.get("devices"):
-                                device_id = devices["devices"][0]["id"]
-                                sp.start_playback(device_id=device_id, uris=[track_uri])
-                                return f"Playing '{track_name}' by {artist_name} on Spotify, sir."
-                    else:
-                        logger.warning(f"No tracks found matching '{clean_search_query}' via API. Trying GUI search...")
+                            logger.warning(f"No tracks found for '{clean_search_query}' via API. Trying GUI search...")
+
                 except Exception as api_err:
                     logger.error(f"Spotify API playback error: {api_err}. Falling back to keyboard controls.")
                     if "403" in str(api_err) or "PREMIUM" in str(api_err).upper():
