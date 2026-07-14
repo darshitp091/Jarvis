@@ -4,7 +4,23 @@ import numpy as np
 import tempfile
 import wave
 import os
-from faster_whisper import WhisperModel
+from contextlib import contextmanager
+
+@contextmanager
+def silence_stderr():
+    """Silences OS-level stderr completely (e.g. C/C++ library absl warnings)."""
+    new_target = open(os.devnull, 'w')
+    old_stderr_fd = os.dup(2)
+    os.dup2(new_target.fileno(), 2)
+    try:
+        yield
+    finally:
+        os.dup2(old_stderr_fd, 2)
+        os.close(old_stderr_fd)
+        new_target.close()
+
+with silence_stderr():
+    from faster_whisper import WhisperModel
 from loguru import logger
 
 
@@ -25,8 +41,9 @@ class AudioEngine:
         try:
             import torch
             torch.set_num_threads(1)  # Limit thread overhead
-            from silero_vad import load_silero_vad
-            self.vad_model = load_silero_vad()
+            with silence_stderr():
+                from silero_vad import load_silero_vad
+                self.vad_model = load_silero_vad()
             logger.info("Silero VAD model loaded successfully.")
         except Exception as e:
             logger.error(f"Failed to load Silero VAD: {e}")
@@ -35,7 +52,8 @@ class AudioEngine:
         logger.info("Loading Whisper model (small)...")
         try:
             # Try to load Whisper on GPU (CUDA)
-            self.whisper = WhisperModel("small", device="cuda", compute_type="int8_float16")
+            with silence_stderr():
+                self.whisper = WhisperModel("small", device="cuda", compute_type="int8_float16")
             
             # Force lazy-loaded CUDA DLL checks by transcribing a silent dummy buffer
             dummy_audio = np.zeros(16000, dtype=np.int16)

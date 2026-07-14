@@ -3,6 +3,21 @@ import threading
 import time
 import os
 import numpy as np
+from contextlib import contextmanager
+
+@contextmanager
+def silence_stderr():
+    """Silences OS-level stderr completely (e.g. C/C++ library absl warnings)."""
+    new_target = open(os.devnull, 'w')
+    old_stderr_fd = os.dup(2)
+    os.dup2(new_target.fileno(), 2)
+    try:
+        yield
+    finally:
+        os.dup2(old_stderr_fd, 2)
+        os.close(old_stderr_fd)
+        new_target.close()
+
 from loguru import logger
 
 class CameraEngine:
@@ -67,13 +82,14 @@ class CameraEngine:
 
         # Initialize MediaPipe Face Mesh inside the background thread
         try:
-            import mediapipe as mp
-            self.face_mesh = mp.solutions.face_mesh.FaceMesh(
-                max_num_faces=1,
-                refine_landmarks=True,
-                min_detection_confidence=0.5,
-                min_tracking_confidence=0.5
-            )
+            with silence_stderr():
+                import mediapipe as mp
+                self.face_mesh = mp.solutions.face_mesh.FaceMesh(
+                    max_num_faces=1,
+                    refine_landmarks=True,
+                    min_detection_confidence=0.5,
+                    min_tracking_confidence=0.5
+                )
             logger.info("MediaPipe Face Mesh initialized for gaze and confusion tracking.")
         except Exception as e:
             logger.error(f"Failed to initialize MediaPipe Face Mesh: {e}")

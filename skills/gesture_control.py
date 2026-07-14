@@ -7,6 +7,21 @@ import warnings
 import math
 import os
 warnings.filterwarnings("ignore")
+from contextlib import contextmanager
+
+@contextmanager
+def silence_stderr():
+    """Silences OS-level stderr completely (e.g. C/C++ library absl warnings)."""
+    new_target = open(os.devnull, 'w')
+    old_stderr_fd = os.dup(2)
+    os.dup2(new_target.fileno(), 2)
+    try:
+        yield
+    finally:
+        os.dup2(old_stderr_fd, 2)
+        os.close(old_stderr_fd)
+        new_target.close()
+
 from loguru import logger
 
 # Screen dimensions
@@ -93,13 +108,14 @@ class GestureController:
 
     def _gesture_loop(self):
         try:
-            import mediapipe as mp
-            mp_hands = mp.solutions.hands
-            hands = mp_hands.Hands(
-                max_num_hands=2,
-                min_detection_confidence=0.65,
-                min_tracking_confidence=0.65
-            )
+            with silence_stderr():
+                import mediapipe as mp
+                mp_hands = mp.solutions.hands
+                hands = mp_hands.Hands(
+                    max_num_hands=2,
+                    min_detection_confidence=0.65,
+                    min_tracking_confidence=0.65
+                )
             logger.info("MediaPipe Hands initialized successfully.")
         except Exception as e:
             logger.error(f"Failed to initialize MediaPipe Hands: {e}")

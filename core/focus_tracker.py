@@ -126,7 +126,12 @@ class FocusTracker:
                     posture_display = "GOOD" if self.posture in ["good", "nominal"] else self.posture.upper()
                     if self.posture == "absent":
                         posture_display = "ABSENT"
-                    self.dashboard.update_metrics(self.focus_score, self.cpm, self.blink_rate, posture_display)
+                    try:
+                        self.dashboard.update_metrics(self.focus_score, self.cpm, self.blink_rate, posture_display)
+                    except RuntimeError as re:
+                        if "deleted" in str(re):
+                            logger.info("Focus Tracker: GUI dashboard was deleted. Terminating loop.")
+                            break
                     
                 # 3. Check for Fatigue alert threshold (< 40%)
                 if self.focus_score < 40 and not self.alert_triggered:

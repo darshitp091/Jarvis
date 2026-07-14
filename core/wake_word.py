@@ -3,7 +3,23 @@ import numpy as np
 import os
 import yaml
 import time
-from openwakeword.model import Model
+from contextlib import contextmanager
+
+@contextmanager
+def silence_stderr():
+    """Silences OS-level stderr completely (e.g. C/C++ library absl warnings)."""
+    new_target = open(os.devnull, 'w')
+    old_stderr_fd = os.dup(2)
+    os.dup2(new_target.fileno(), 2)
+    try:
+        yield
+    finally:
+        os.dup2(old_stderr_fd, 2)
+        os.close(old_stderr_fd)
+        new_target.close()
+
+with silence_stderr():
+    from openwakeword.model import Model
 from loguru import logger
 from collections import deque
 import scipy.fftpack as fftpack
@@ -216,7 +232,8 @@ class WakeWordDetector:
                 return
 
         try:
-            self.oww_model = Model(wakeword_models=[self.wake_word], inference_framework="onnx")
+            with silence_stderr():
+                self.oww_model = Model(wakeword_models=[self.wake_word], inference_framework="onnx")
             logger.info("Wake word model loaded successfully.")
         except Exception as e:
             logger.error(f"Failed to load wake word model: {e}")

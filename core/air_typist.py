@@ -3,6 +3,22 @@ import numpy as np
 import pyautogui
 import time
 import threading
+import os
+from contextlib import contextmanager
+
+@contextmanager
+def silence_stderr():
+    """Silences OS-level stderr completely (e.g. C/C++ library absl warnings)."""
+    new_target = open(os.devnull, 'w')
+    old_stderr_fd = os.dup(2)
+    os.dup2(new_target.fileno(), 2)
+    try:
+        yield
+    finally:
+        os.dup2(old_stderr_fd, 2)
+        os.close(old_stderr_fd)
+        new_target.close()
+
 from loguru import logger
 
 class AirTypistTracker:
@@ -61,13 +77,14 @@ class AirTypistTracker:
     def _tracking_loop(self):
         # Local imports of mediapipe inside the thread to avoid startup delays
         try:
-            import mediapipe as mp
-            face_mesh = mp.solutions.face_mesh.FaceMesh(
-                max_num_faces=1,
-                refine_landmarks=True,
-                min_detection_confidence=0.5,
-                min_tracking_confidence=0.5
-            )
+            with silence_stderr():
+                import mediapipe as mp
+                face_mesh = mp.solutions.face_mesh.FaceMesh(
+                    max_num_faces=1,
+                    refine_landmarks=True,
+                    min_detection_confidence=0.5,
+                    min_tracking_confidence=0.5
+                )
         except ImportError:
             logger.error("Air Typist: MediaPipe is required for high-accuracy gaze tracking.")
             self.is_active = False

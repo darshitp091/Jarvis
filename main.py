@@ -1,7 +1,9 @@
 import sys
 import os
-os.environ["GLOG_minloglevel"] = "2"
-os.environ["ABSL_log_min_level"] = "2"
+os.environ["GLOG_minloglevel"] = "3"
+os.environ["ABSL_log_min_level"] = "3"
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+os.environ["CRAWL4AI_LOG_LEVEL"] = "ERROR"
 import threading
 import traceback
 import yaml
@@ -10,8 +12,29 @@ import warnings
 warnings.filterwarnings("ignore")
 
 def _p(msg):
-    sys.stdout.write(msg + "\n")
-    sys.stdout.flush()
+    try:
+        with open("jarvis.log", "a", encoding="utf-8") as f:
+            f.write(f"INIT_DBG: {msg}\n")
+    except Exception:
+        pass
+
+from contextlib import contextmanager
+import threading
+_stderr_lock = threading.Lock()
+
+@contextmanager
+def silence_stderr():
+    """Silences OS-level stderr completely (e.g. C/C++ library absl warnings)."""
+    with _stderr_lock:
+        new_target = open(os.devnull, 'w')
+        old_stderr_fd = os.dup(2)
+        os.dup2(new_target.fileno(), 2)
+        try:
+            yield
+        finally:
+            os.dup2(old_stderr_fd, 2)
+            os.close(old_stderr_fd)
+            new_target.close()
 
 _p("DBG: stdlib ok")
 
@@ -107,7 +130,8 @@ from skills.obsidian_control import ObsidianControl; _p("DBG: obsidian ok")
 class JARVIS:
     """The master JARVIS integration"""
 
-    def __init__(self):
+    def __init__(self, start_threads: bool = True):
+        self.start_threads = start_threads
         with open("./config/settings.yaml") as f:
             self.config = yaml.safe_load(f)
         with open("./config/prompts.yaml") as f:
@@ -128,18 +152,28 @@ class JARVIS:
         # UI must be initialized in main thread
         _p("INIT: QApplication"); self.app = QApplication(sys.argv)
         _p("INIT: JarvisOrb"); self.orb = JarvisOrb()
+        # Safely wrap self.orb.set_state to ignore C++ deleted errors during exit
+        self.orb_original_set_state = self.orb.set_state
+        def safe_set_state(state):
+            try:
+                self.orb_original_set_state(state)
+            except RuntimeError as re:
+                if "deleted" in str(re):
+                    pass
+        self.orb.set_state = safe_set_state
         _p("INIT: AirCanvas"); self.canvas = AirCanvas()
 
         # Auth
         _p("INIT: LocalAuth"); self.auth = LocalAuth()
 
         # Core
-        _p("INIT: AudioEngine"); self.audio = AudioEngine(silence_sec=self.config["audio"]["silence_threshold"])
-        _p("INIT: TTSEngine"); self.tts = TTSEngine(
-            default_voice=self.config["tts"].get("default_voice", "hinglish"),
-            default_speed=self.config["tts"].get("speaking_rate", 1.0)
-        )
-        _p("INIT: WakeWordDetector"); self.wake = WakeWordDetector()
+        with silence_stderr():
+            _p("INIT: AudioEngine"); self.audio = AudioEngine(silence_sec=self.config["audio"]["silence_threshold"])
+            _p("INIT: TTSEngine"); self.tts = TTSEngine(
+                default_voice=self.config["tts"].get("default_voice", "hinglish"),
+                default_speed=self.config["tts"].get("speaking_rate", 1.0)
+            )
+            _p("INIT: WakeWordDetector"); self.wake = WakeWordDetector()
         self.wake.is_music_playing_cb = self._is_music_playing
         self.wake.is_speaking_cb = lambda: self.tts.is_speaking
         self.audio.is_speaking_cb = lambda: self.tts.is_speaking
@@ -150,8 +184,10 @@ class JARVIS:
         self.last_voice_auth_time = 0.0
         _p("INIT: ContextSentinel"); self.sentinel = ContextSentinel()
         _p("INIT: ProfileManager"); self.profile_mgr = ProfileManager()
-        _p("INIT: CameraEngine"); self.camera = CameraEngine()
-        self.camera.start()
+        with silence_stderr():
+            _p("INIT: CameraEngine"); self.camera = CameraEngine()
+        if self.start_threads:
+            self.camera.start()
         
         # Skills
         _p("INIT: ScreenVision"); self.vision = ScreenVision(jarvis=self)
@@ -176,8 +212,10 @@ class JARVIS:
         _p("INIT: MacroRecorder"); self.macro_recorder = MacroRecorder(vision_engine=self.vision)
         
         _p("INIT: MarketAnalyzer"); self.market_analyzer = MarketAnalyzer()
-        _p("INIT: GestureController"); self.gesture_ctrl = GestureController(self.camera, canvas=self.canvas, youtube_music=self.youtube_music)
-        self.gesture_ctrl.start()
+        with silence_stderr():
+            _p("INIT: GestureController"); self.gesture_ctrl = GestureController(self.camera, canvas=self.canvas, youtube_music=self.youtube_music)
+        if self.start_threads:
+            self.gesture_ctrl.start()
 
         # Domains
         _p("INIT: Domains")
