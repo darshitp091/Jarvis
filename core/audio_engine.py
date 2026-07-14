@@ -27,9 +27,9 @@ from loguru import logger
 class AudioEngine:
     """Handles microphone recording with VAD and Whisper STT"""
 
-    def __init__(self, sample_rate: int = 16000, silence_sec: float = 1.5):
+    def __init__(self, sample_rate: int = 16000, silence_sec: float = None):
         self.sample_rate = sample_rate
-        self.silence_sec = silence_sec
+        self.silence_sec = silence_sec if silence_sec is not None else 1.5
         # We use a simple RMS energy threshold for Voice Activity Detection fallback
         self.energy_threshold = 100  
         self.last_avg_rms = 100.0
@@ -79,6 +79,8 @@ class AudioEngine:
             logger.info("Whisper loaded on CPU")
         self.is_speaking_cb = None
         self.sarvam_config = {}
+        self.engine = "groq"
+        self.groq_api_key = ""
         try:
             import yaml
             config_path = "config/settings.yaml"
@@ -88,6 +90,10 @@ class AudioEngine:
                 with open(config_path, "r") as f:
                     settings = yaml.safe_load(f) or {}
                     self.sarvam_config = settings.get("sarvam", {})
+                    self.engine = settings.get("audio", {}).get("engine", "groq")
+                    self.groq_api_key = settings.get("groq", {}).get("api_key", "")
+                    if silence_sec is None:
+                        self.silence_sec = float(settings.get("audio", {}).get("silence_threshold", 1.5))
         except Exception as config_err:
             logger.warning(f"AudioEngine: Failed to load settings.yaml: {config_err}")
 
@@ -218,6 +224,48 @@ class AudioEngine:
                 wav.setsampwidth(2)
                 wav.setframerate(self.sample_rate)
                 wav.writeframes(b"".join(audio_frames))
+
+        # Groq Cloud Whisper STT
+        if self.engine == "groq" and self.groq_api_key:
+            try:
+                import requests
+                logger.info("Transcribing using Groq Cloud whisper-large-v3...")
+                url = "https://api.groq.com/openai/v1/audio/transcriptions"
+                headers = {
+                    "Authorization": f"Bearer {self.groq_api_key}"
+                }
+                
+                with open(tmp_path, "rb") as f_in:
+                    files = {
+                        "file": (os.path.basename(tmp_path), f_in, "audio/wav")
+                    }
+                    data = {
+                        "model": "whisper-large-v3",
+                        "response_format": "json",
+                        "prompt": "Hey JARVIS, play some music, lagao, gane bajao, Arijit Singh, delete temporary files, recycle bin, clean disk, scan virus, open chrome, notepad, whatsapp send message"
+                    }
+                    r = requests.post(url, headers=headers, files=files, data=data, timeout=15)
+                    r.raise_for_status()
+                    groq_text = r.json().get("text", "").strip()
+                    
+                # Check for suspected hallucinations
+                hallucinations = {"thank you very much.", "thank you.", "and listen to today.", "you.", "and listen to today", "please.", "please"}
+                if groq_text.lower().strip(" .!,?") in hallucinations and avg_rms < min_speech_rms * 1.5:
+                    logger.debug(f"Discarding suspected Groq Whisper hallucination: '{groq_text}' (RMS: {avg_rms:.1f})")
+                    try:
+                        os.unlink(tmp_path)
+                    except Exception:
+                        pass
+                    return None
+                    
+                logger.info(f"Groq Whisper Transcribed: '{groq_text}'")
+                try:
+                    os.unlink(tmp_path)
+                except Exception:
+                    pass
+                return groq_text
+            except Exception as groq_err:
+                logger.error(f"Groq Whisper STT failed: {groq_err}. Falling back to local Whisper...")
 
         try:
             # Set initial prompt to guide Whisper towards correct English and Hinglish song names in Roman script
