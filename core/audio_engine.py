@@ -97,6 +97,36 @@ class AudioEngine:
         except Exception as config_err:
             logger.warning(f"AudioEngine: Failed to load settings.yaml: {config_err}")
 
+    def _normalize_audio(self, audio_bytes: bytes) -> bytes:
+        """Applies peak normalization to int16 audio data to boost soft/whispered voices."""
+        try:
+            audio_data = np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32)
+            max_peak = np.max(np.abs(audio_data))
+            if max_peak > 50.0:  # Only normalize if there's actual signal (not pure silence)
+                # Boost peak to 95% of maximum range (32767 * 0.95 = 31128)
+                target_peak = 32767.0 * 0.95
+                scaled = (audio_data / max_peak) * target_peak
+                return scaled.astype(np.int16).tobytes()
+        except Exception as e:
+            logger.error(f"AudioEngine: Normalization error: {e}")
+        return audio_bytes
+
+    def _apply_noise_gate(self, chunk: bytes) -> bytes:
+        """Applies a soft noise gate to filter out low-energy ambient/background static."""
+        try:
+            audio_data = np.frombuffer(chunk, dtype=np.int16)
+            rms = np.sqrt(np.mean(np.square(audio_data.astype(np.float32))))
+            # If the chunk RMS is below 1.25x the calibrated ambient noise threshold,
+            # we apply a strong attenuation (gate closed) to silence background hums.
+            gate_threshold = getattr(self, "energy_threshold", 30.0) * 1.25
+            if rms < gate_threshold:
+                # Soft gate: attenuate by 90% instead of hard gating to prevent robotic voice gating artifacts
+                attenuated = (audio_data.astype(np.float32) * 0.1).astype(np.int16)
+                return attenuated.tobytes()
+        except Exception as e:
+            logger.error(f"AudioEngine: Noise gate error: {e}")
+        return chunk
+
     def _is_speech(self, chunk: bytes) -> bool:
         if self.vad_model is not None:
             try:
@@ -185,7 +215,8 @@ class AudioEngine:
                     audio_frames.append(chunk)
                 elif speaking:
                     silence_count += 1
-                    audio_frames.append(chunk)
+                    # Filter pause chunks with noise gate to eliminate fan hums
+                    audio_frames.append(self._apply_noise_gate(chunk))
                     if silence_count >= silence_frames_needed:
                         break
                 else:
@@ -216,6 +247,10 @@ class AudioEngine:
             
         logger.debug(f"Transcribing audio with average RMS: {avg_rms:.1f}")
 
+        # Apply peak normalization to boost whispered/soft voice commands
+        raw_combined = b"".join(audio_frames)
+        normalized_combined = self._normalize_audio(raw_combined)
+
         # Save to temp wav and transcribe
         with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
             tmp_path = f.name
@@ -223,7 +258,7 @@ class AudioEngine:
                 wav.setnchannels(1)
                 wav.setsampwidth(2)
                 wav.setframerate(self.sample_rate)
-                wav.writeframes(b"".join(audio_frames))
+                wav.writeframes(normalized_combined)
 
         # Groq Cloud Whisper STT
         if self.engine == "groq" and self.groq_api_key:
