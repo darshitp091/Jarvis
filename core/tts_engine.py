@@ -46,9 +46,11 @@ class TTSEngine:
                     self.default_voice = tts_conf.get("default_voice", default_voice)
                     self.voices_config = tts_conf.get("voices", {})
                     self.default_speed = tts_conf.get("speaking_rate", default_speed)
+                    self.default_pitch = tts_conf.get("speaking_pitch", -12)
         except Exception as config_err:
             logger.warning(f"TTSEngine: Failed to load settings.yaml: {config_err}")
             self.voices_config = {}
+            self.default_pitch = -12
 
         logger.info("Edge TTS Engine initialized.")
 
@@ -167,7 +169,8 @@ class TTSEngine:
             # Base percentage offset from 1.0
             rate_percentage = int((base_speed - 1.0) * 100) + rate_off
             rate_str = f"{'+' if rate_percentage >= 0 else ''}{rate_percentage}%"
-            pitch_str = f"{'+' if pitch_off >= 0 else ''}{pitch_off}Hz"
+            pitch_val = getattr(self, "default_pitch", -12) + pitch_off
+            pitch_str = f"{'+' if pitch_val >= 0 else ''}{pitch_val}Hz"
             volume_str = "+0%"
 
             logger.info(f"Synthesizing Edge TTS ({ref_speaker}) | Emotion: {emotion or 'neutral'} | Text: '{clean_text[:60]}...'")
