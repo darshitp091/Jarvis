@@ -91,25 +91,25 @@ class TTSEngine:
             if not emotion:
                 emotion = "serious"
 
-        # Default voice offset adjustments
+        # Default voice offset adjustments (percentage-based)
         rate_offset = 0
         pitch_offset = 0
 
         if emotion in ["excited", "happy"]:
-            rate_offset = 8      # Speed up slightly
-            pitch_offset = 4     # Raise pitch
+            rate_offset = 15      # Speed up significantly
+            pitch_offset = 12     # Raise pitch (+12% for cheerfulness)
         elif emotion == "thoughtful":
-            rate_offset = -10    # Slow down
-            pitch_offset = -1
+            rate_offset = -12     # Slow down
+            pitch_offset = -4     # Lower pitch slightly
         elif emotion in ["sigh", "laziness"]:
-            rate_offset = -12
-            pitch_offset = -2
+            rate_offset = -18     # Slow down significantly
+            pitch_offset = -8     # Lower pitch (-8% for sigh/laziness)
         elif emotion in ["serious", "sad"]:
-            rate_offset = -8
-            pitch_offset = -3
+            rate_offset = -10     # Slow down
+            pitch_offset = -10    # Lower pitch (-10% for sadness)
         elif emotion == "energetic":
-            rate_offset = 12
-            pitch_offset = 5
+            rate_offset = 20      # Speed up
+            pitch_offset = 15     # Raise pitch (+15%)
 
         clean_text = re.sub(r'\[.*?\]', '', text).strip()
         return clean_text, emotion, rate_offset, pitch_offset
@@ -167,7 +167,7 @@ class TTSEngine:
             # Base percentage offset from 1.0
             rate_percentage = int((base_speed - 1.0) * 100) + rate_off
             rate_str = f"{'+' if rate_percentage >= 0 else ''}{rate_percentage}%"
-            pitch_str = f"{'+' if pitch_off >= 0 else ''}{pitch_off}Hz"
+            pitch_str = f"{'+' if pitch_off >= 0 else ''}{pitch_off}%"
             volume_str = "+0%"
 
             logger.info(f"Synthesizing Edge TTS ({ref_speaker}) | Emotion: {emotion or 'neutral'} | Text: '{clean_text[:60]}...'")
