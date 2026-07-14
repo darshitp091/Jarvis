@@ -197,19 +197,13 @@ class JARVIS:
         _p("INIT: AppMapper"); self.app_map = AppMapper()
         _p("INIT: AppControl"); self.app_ctrl = AppControl()
         _p("INIT: SpotifyControl"); self.spotify_ctrl = SpotifyControl()
-        # One-time Spotify OAuth setup: if credentials are present but no cached token exists,
-        # run the browser auth flow now so future runs are fully automatic
+        # If Spotify credentials exist but no cached token, remind user to run authorize_spotify.py
         if getattr(self.spotify_ctrl, "use_api", False) is False and \
            getattr(self.spotify_ctrl, "client_id", None) and \
            getattr(self.spotify_ctrl, "client_secret", None):
             cache_path = getattr(self.spotify_ctrl, "CACHE_PATH", ".cache-jarvis-spotify")
             if not os.path.exists(cache_path):
-                logger.info("No Spotify token cache found. Starting one-time browser auth setup...")
-                auth_ok = self.spotify_ctrl.run_one_time_auth()
-                if auth_ok:
-                    logger.success("Spotify one-time auth complete. API mode is now active.")
-                else:
-                    logger.warning("Spotify one-time auth was skipped or failed. Continuing in GUI fallback mode.")
+                logger.warning("Spotify not authorized. Run 'python authorize_spotify.py' once to enable full API mode.")
         _p("INIT: YouTubeMusicPlayer"); self.youtube_music = YouTubeMusicPlayer()
         _p("INIT: ObsidianControl"); self.obsidian_ctrl = ObsidianControl()
         self.youtube_music.on_song_change = lambda title, msg: self.orb.notification_signal.emit(title, msg)
