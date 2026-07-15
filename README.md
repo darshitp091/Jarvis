@@ -40,6 +40,82 @@ As a complete hands-free computer controller, JARVIS executes operating system a
 
 ---
 
+## 🧩 What Can JARVIS Do? (Quick Reference)
+
+> Speak naturally in **English or Hinglish** — JARVIS understands both.
+
+### 🗣️ Voice & Speech
+- 🎙️ Transcribe your speech in real-time (English, Hindi, Hinglish)
+- 🔊 Speak back in a natural Indian-accented voice (Edge-TTS / Kokoro)
+- 🚀 Execute **chained commands** — _"pehle yeh karo, phir woh karo"_
+- 🛑 Stop speaking immediately when you interrupt it
+- 🌐 Switch seamlessly between English and Hinglish mid-sentence
+
+### 💻 Windows OS Control
+- 🗂️ Open, close, move, resize, and switch between application windows
+- 📋 Copy, paste, type, and control the clipboard
+- 🔍 Search files and folders across your drive
+- 📸 Take screenshots and screen recordings
+- 🔒 Lock your PC, put it to sleep, or restart it
+- ⌨️ Run any terminal/PowerShell command via voice
+- 📐 Launch the screen ruler, snipper tool, and HUD overlays
+
+### 🖐️ Gesture & Vision Control
+- 🖱️ Control the mouse cursor with your index finger (webcam-only, no touch)
+- 👆 Left click, right click, double click, and drag via pinch gestures
+- 📜 Scroll pages up/down with multi-finger swipes
+- ✍️ Draw neon air-writing trails on the screen with a Rock-On gesture
+- 🪟 Swipe windows to move them; hold a fist to close an app instantly
+- 👁️ Auto-detect if you look confused for 30s and offer to analyze your screen
+
+### 📊 Presentations & Productivity
+- 📝 Create a professional PowerPoint presentation on **any topic via voice**
+- 🌐 Research the topic **online** before generating slides (real content, not hallucinated)
+- 🖼️ Automatically download and embed **relevant images** into each slide
+- 🎨 Apply premium design themes (Midnight Cyberpunk, Stark Tech, Forest Minimalist, etc.)
+- 👤 Add a branded **"Presented by [Your Name]"** cover slide
+- ✏️ Edit a specific slide by saying _"slide 3 ki image badlo"_ — no slide number needed, JARVIS detects it visually
+- ✅ Confirm completion with _"sahi hai"_ / _"done"_ — JARVIS remembers and clears the task
+
+### 🎵 Music & Media
+- 🎶 Play any song, artist, or playlist on **Spotify** via voice
+- ▶️ Stream free YouTube audio via **MPV** (no browser needed)
+- ⏸️ Pause, resume, skip, and control volume hands-free
+- 📻 Search and play any genre — _"lofi music laga do"_, _"EDM bajao"_
+
+### 🔍 Research & Web
+- 🌍 Search Google / DuckDuckGo / Bing for any topic
+- 📰 Summarize news, articles, and web pages in Hinglish
+- 💹 Get live stock/crypto prices and market trends
+- 🛒 Compare products and food items with pros/cons
+
+### 📔 Notes & Memory
+- 📝 Dictate raw notes — JARVIS structures and saves them in **Obsidian** automatically
+- 🧠 Remember your preferences, coding style, and past tasks across sessions
+- 🗓️ Track active tasks in memory and route follow-up commands intelligently
+- 🔁 Recall what it was doing after a restart using persistent state files
+
+### 📱 Android Phone Control (via USB/ADB)
+- 🔋 Check battery, toggle flashlight, adjust volume on your phone
+- 📷 Take a phone screenshot and describe what's on screen
+- 💬 Send SMS messages and launch WhatsApp calls via voice
+- 📂 Pull photos and files from your phone to your PC
+
+### 👁️ Proactive Screen Monitor
+- 🖥️ Watch your screen in the background every ~30 seconds (always-on)
+- 💡 Proactively suggest tips based on what app is open (VS Code, browser, etc.)
+- 🚨 Spot error messages on-screen and offer to fix them — without being asked
+- 🔐 Lock your PC if an unknown face is detected looking at your screen
+
+### 🛠️ Developer & Self-Healing Tools
+- 🧑‍💻 Ask JARVIS to write, run, or debug code in any language
+- 🔧 Auto-patch itself if a module crashes — catches the traceback and fixes the code live
+- 📦 Git commit, push, and manage repositories via voice
+- 🔎 Audit your codebase for security vulnerabilities
+- 📊 Generate charts and graphs from local data files
+
+---
+
 ## ⚡ Core Capabilities & Features
 
 ### 1. 🗣️ Multilingual Audio & Speech (Hinglish-First)
