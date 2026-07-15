@@ -172,18 +172,47 @@ training_args = Seq2SeqTrainingArguments(
 # ----------------------------------------------------
 # 8. Initialize Trainer & Start Training
 # ----------------------------------------------------
-trainer = Seq2SeqTrainer(
-    args=training_args,
-    model=model,
-    train_dataset=processed_dataset["train"],
-    eval_dataset=processed_dataset["validation"] if "validation" in processed_dataset else processed_dataset["test"],
-    data_collator=data_collator,
-    compute_metrics=compute_metrics,
-    tokenizer=processor.feature_extractor,
-)
+def get_trainer(args_obj, model_obj):
+    return Seq2SeqTrainer(
+        args=args_obj,
+        model=model_obj,
+        train_dataset=processed_dataset["train"],
+        eval_dataset=processed_dataset["validation"] if "validation" in processed_dataset else processed_dataset["test"],
+        data_collator=data_collator,
+        compute_metrics=compute_metrics,
+        tokenizer=processor.feature_extractor,
+    )
 
-print("Starting training loop (running 200 steps on GPU/CPU)...")
-trainer.train()
+trainer = get_trainer(training_args, model)
+
+print("Starting training loop (running 100 steps on GPU/CPU)...")
+try:
+    trainer.train()
+except Exception as e:
+    import traceback
+    err_str = str(e) + "\n" + traceback.format_exc()
+    if "OutOfMemory" in err_str or "out of memory" in err_str or "CUDA error" in err_str:
+        print("\n[WARNING] CUDA Out of Memory detected. Falling back to CPU training...")
+        
+        # Reset memory cache
+        torch.cuda.empty_cache()
+        
+        # Update training arguments for CPU
+        training_args.no_cuda = True
+        training_args.fp16 = False
+        training_args.max_steps = 10  # Reduced steps on CPU to keep it fast
+        training_args.eval_steps = 5
+        training_args.save_steps = 5
+        training_args.logging_steps = 1
+        
+        # Re-initialize model and trainer on CPU
+        model.to("cpu")
+        trainer = get_trainer(training_args, model)
+        
+        print("Retrying training loop on CPU (running 10 steps)...")
+        trainer.train()
+    else:
+        raise e
 
 print(f"Saving final fine-tuned model to: {OUTPUT_DIR}")
 trainer.save_model(OUTPUT_DIR)
