@@ -324,8 +324,58 @@ class ProductivityPlanner:
             logger.error(f"PDF editing failed: {e}")
             return f"Failed to edit PDF: {str(e)}"
 
+    def _search_images(self, query: str, max_results: int = 3) -> list:
+        """Queries Bing Images, decodes HTML entities, and extracts high-resolution image URLs."""
+        import requests
+        import re
+        import html
+        import urllib.parse
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+        }
+        search_url = f"https://www.bing.com/images/search?q={urllib.parse.quote(query)}"
+        try:
+            r = requests.get(search_url, headers=headers, timeout=10)
+            r.raise_for_status()
+            unescaped_html = html.unescape(r.text)
+            img_urls = []
+            matches = re.findall(r'"murl":"(http[^"]+)"', unescaped_html)
+            for m in matches:
+                if m not in img_urls:
+                    img_urls.append(m)
+                    if len(img_urls) >= max_results:
+                        break
+            return img_urls
+        except Exception as e:
+            logger.warning(f"Bing Image search failed for '{query}': {e}")
+            return []
+
+    def _download_image(self, url: str, save_path: str) -> bool:
+        """Downloads an image URL and validates its integrity using PIL."""
+        import requests
+        from PIL import Image
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+        }
+        try:
+            os.makedirs(os.path.dirname(save_path), exist_ok=True)
+            r = requests.get(url, headers=headers, timeout=10)
+            r.raise_for_status()
+            with open(save_path, "wb") as f:
+                f.write(r.content)
+            # Verify image is valid
+            with Image.open(save_path) as img:
+                img.verify()
+            return True
+        except Exception as e:
+            logger.warning(f"Failed to download or verify image {url} to {save_path}: {e}")
+            if os.path.exists(save_path):
+                try: os.remove(save_path)
+                except Exception: pass
+            return False
+
     def pptx_helper(self, title: str, subtitle: str, theme: str, slides_content: list, output_path: str = "config/presentation.pptx") -> str:
-        """Creates a PowerPoint presentation with dynamic theme layouts using python-pptx locally."""
+        """Creates a professional PowerPoint presentation with dynamic theme layouts and images using python-pptx locally."""
         try:
             from pptx import Presentation
             from pptx.util import Inches, Pt
@@ -334,7 +384,6 @@ class ProductivityPlanner:
             from pptx.enum.text import PP_ALIGN
             
             prs = Presentation()
-            # Set slide width and height to widescreen 16:9 format
             prs.slide_width = Inches(13.333)
             prs.slide_height = Inches(7.5)
 
@@ -417,6 +466,7 @@ class ProductivityPlanner:
             for slide_data in slides_content:
                 s_title = slide_data.get("title", "Topic")
                 s_bullets = slide_data.get("bullets", [])
+                image_path = slide_data.get("image_path", "")
 
                 slide = prs.slides.add_slide(blank_layout)
 
@@ -443,8 +493,23 @@ class ProductivityPlanner:
                 sep_line.fill.fore_color.rgb = style["accent"]
                 sep_line.line.fill.background()
 
-                # Content Bullet list textbox
-                tx_content = slide.shapes.add_textbox(Inches(0.8), Inches(1.8), Inches(11.7), Inches(5.0))
+                # Check if image is available and valid
+                has_image = image_path and os.path.exists(image_path)
+
+                # Content layout bounding box
+                if has_image:
+                    # Side-by-side layout: Text on left, Image on right
+                    tx_content = slide.shapes.add_textbox(Inches(0.8), Inches(1.8), Inches(5.8), Inches(5.0))
+                    try:
+                        slide.shapes.add_picture(image_path, Inches(7.0), Inches(1.8), width=Inches(5.5), height=Inches(4.8))
+                    except Exception as img_err:
+                        logger.warning(f"Error adding image to slide '{s_title}': {img_err}")
+                        # Fallback to full width if image fails to render
+                        tx_content.width = Inches(11.7)
+                else:
+                    # Full width layout
+                    tx_content = slide.shapes.add_textbox(Inches(0.8), Inches(1.8), Inches(11.7), Inches(5.0))
+
                 tf_content = tx_content.text_frame
                 tf_content.word_wrap = True
 
@@ -456,9 +521,9 @@ class ProductivityPlanner:
 
                     p_bullet.text = "•  " + bullet
                     p_bullet.font.name = style["font_body"]
-                    p_bullet.font.size = Pt(20)
+                    p_bullet.font.size = Pt(18 if has_image else 20)  # slightly smaller text if side-by-side
                     p_bullet.font.color.rgb = style["body_color"]
-                    p_bullet.space_after = Pt(14)
+                    p_bullet.space_after = Pt(12)
                     p_bullet.line_spacing = 1.2
 
             out_p = os.path.abspath(os.path.expanduser(output_path))
@@ -466,6 +531,11 @@ class ProductivityPlanner:
             prs.save(out_p)
             logger.success(f"PowerPoint generated successfully at {output_path} with theme '{theme}'.")
             return f"Successfully created PowerPoint presentation at {output_path} using theme '{theme}', sir."
+        except ImportError:
+            return "Please install python-pptx first (`pip install python-pptx`) to generate presentations, sir."
+        except Exception as e:
+            logger.error(f"Failed to generate presentation: {e}")
+            return f"Failed to generate presentation: {str(e)}"
         except ImportError:
             return "Please install python-pptx first (`pip install python-pptx`) to generate presentations, sir."
         except Exception as e:

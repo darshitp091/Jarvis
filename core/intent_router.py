@@ -1051,9 +1051,19 @@ class IntentRouter:
             return {"skill": "vision_tracker", "params": {"action": "analyze_appearance"}, "domain": "general"}
 
         # --- Productivity Presentations ---
+        slide_mod_match = re.search(r"\b(?:modify|change|edit|update|replace)\s+(?:the\s+)?slide\s+(\d+)\b", cmd)
+        if not slide_mod_match:
+            slide_mod_match = re.search(r"\bslide\s+(\d+)\s+(?:ka|ko)\s+(?:content|image|layout|text)?\s*(?:change|modify|update|edit|replace)\b", cmd)
+        if not slide_mod_match:
+            this_slide_match = re.search(r"\b(?:modify|change|edit|update|replace)\s+(?:this|active|current)\s+slide\b", cmd)
+            if this_slide_match:
+                return {"skill": "productivity", "params": {"action": "modify_presentation_slide", "slide_num": None, "query": cmd}, "domain": "general"}
+        if slide_mod_match:
+            return {"skill": "productivity", "params": {"action": "modify_presentation_slide", "slide_num": int(slide_mod_match.group(1)), "query": cmd}, "domain": "general"}
+
         pres_match = re.search(r"\b(?:make|create|build|generate|design)\s+(?:a\s+)?(?:presentation|ppt|slides?)\s+(?:on|about|for|of)?\s*(.+)", cmd)
         if not pres_match:
-            pres_match = re.search(r"\b(.+?)\s+(?:par|pe)\s+(?:presentation|ppt|slides?)\s+(?:banana|create|make|design)\b", cmd)
+            pres_match = re.search(r"\b(.+?)\s+(?:par|pe)\s+(?:presentation|ppt|slides?)\s+(?:banana|banao|banado|banaye|create|make|design)\b", cmd)
         if pres_match:
             topic = pres_match.group(1).strip()
             topic = re.sub(r"\b(?:hai|please|plz|for\s+the\s+business|business\s+ke\s+liye|so\s+let\s+me\s+make\s+it)\b", "", topic).strip()
