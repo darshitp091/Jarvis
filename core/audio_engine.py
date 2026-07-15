@@ -33,7 +33,7 @@ def silence_stderr():
                 pass
 
 with silence_stderr():
-    from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor, pipeline
+    from faster_whisper import WhisperModel
 from loguru import logger
 
 
@@ -62,69 +62,34 @@ class AudioEngine:
             logger.error(f"Failed to load Silero VAD with ONNX backend: {e}")
             self.vad_model = None
 
-        logger.info("Loading Oriserve/Whisper-Hindi2Hinglish-Swift...")
-        model_id = "Oriserve/Whisper-Hindi2Hinglish-Swift"
-        loaded = False
-
+        logger.info("Loading Whisper model (small)...")
         try:
-            import torch
-            if torch.cuda.is_available():
-                logger.info("Loading Hinglish STT on GPU (CUDA)...")
-                with silence_stderr():
-                    processor = AutoProcessor.from_pretrained(model_id)
-                    model = AutoModelForSpeechSeq2Seq.from_pretrained(
-                        model_id,
-                        torch_dtype=torch.float16,
-                        low_cpu_mem_usage=True,
-                        use_safetensors=True
-                    )
-                    model.to("cuda:0")
-                    self.whisper_pipe = pipeline(
-                        "automatic-speech-recognition",
-                        model=model,
-                        tokenizer=processor.tokenizer,
-                        feature_extractor=processor.feature_extractor,
-                        max_new_tokens=128,
-                        device=0
-                    )
-                    # Trigger lazy-loading
-                    dummy_audio = np.zeros(16000, dtype=np.float32)
-                    self.whisper_pipe(dummy_audio)
-                logger.info("Hinglish STT pipeline loaded on GPU (CUDA) successfully.")
-                loaded = True
-        except Exception as e:
-            import traceback
-            logger.warning(f"Failed to load Hinglish STT on GPU: {e}. Falling back to CPU...")
-            logger.warning(traceback.format_exc())
-
-        if not loaded:
+            # Try to load Whisper on GPU (CUDA)
+            with silence_stderr():
+                self.whisper = WhisperModel("small", device="cuda", compute_type="int8_float16")
+            
+            # Force lazy-loaded CUDA DLL checks by transcribing a silent dummy buffer
+            dummy_audio = np.zeros(16000, dtype=np.int16)
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+                tmp_path = f.name
+                with wave.open(tmp_path, "wb") as wav:
+                    wav.setnchannels(1)
+                    wav.setsampwidth(2)
+                    wav.setframerate(16000)
+                    wav.writeframes(dummy_audio.tobytes())
             try:
-                logger.info("Loading Hinglish STT on CPU...")
-                with silence_stderr():
-                    processor = AutoProcessor.from_pretrained(model_id)
-                    model = AutoModelForSpeechSeq2Seq.from_pretrained(
-                        model_id,
-                        torch_dtype=torch.float32,
-                        low_cpu_mem_usage=True,
-                        use_safetensors=True
-                    )
-                    self.whisper_pipe = pipeline(
-                        "automatic-speech-recognition",
-                        model=model,
-                        tokenizer=processor.tokenizer,
-                        feature_extractor=processor.feature_extractor,
-                        max_new_tokens=128,
-                        device=-1
-                    )
-                    # Trigger lazy-loading
-                    dummy_audio = np.zeros(16000, dtype=np.float32)
-                    self.whisper_pipe(dummy_audio)
-                logger.info("Hinglish STT pipeline loaded on CPU successfully.")
-            except Exception as cpu_err:
-                import traceback
-                logger.error(f"Failed to load Hinglish STT on CPU: {cpu_err}")
-                logger.error(traceback.format_exc())
-                self.whisper_pipe = None
+                # Evaluate generator to trigger library loading
+                list(self.whisper.transcribe(tmp_path)[0])
+                logger.info("Whisper loaded on GPU (CUDA) and verified successfully.")
+            finally:
+                try:
+                    os.unlink(tmp_path)
+                except Exception:
+                    pass
+        except Exception as e:
+            logger.warning(f"Failed to load/verify Whisper on GPU (CUDA): {e}. Falling back to CPU.")
+            self.whisper = WhisperModel("small", device="cpu", compute_type="int8")
+            logger.info("Whisper loaded on CPU")
         self.is_speaking_cb = None
         self.sarvam_config = {}
         self.engine = "groq"
@@ -440,14 +405,28 @@ class AudioEngine:
                 logger.error(f"Groq Whisper STT failed: {groq_err}. Falling back to local Whisper...")
 
         try:
-            logger.info("Transcribing using local Oriserve Whisper Hinglish pipeline...")
-            if self.whisper_pipe is not None:
-                result = self.whisper_pipe(tmp_path)
-                local_text = result.get("text", "").strip()
-            else:
-                logger.error("Hinglish STT pipeline is not initialized.")
-                local_text = ""
-            
+            # Comprehensive Hinglish steering prompt: guides Whisper to produce Romanized Hinglish
+            # (WhatsApp-style) instead of Devanagari. Covers common commands and Bollywood phrases.
+            initial_prompt = (
+                "Hey JARVIS, yaar sun, ek kaam karo, spotify mein gaana bajao, band karo, "
+                "agle gaane pe jao, volume badhao, volume kam karo, recycle bin saaf karo, "
+                "temporary files delete karo, chrome kholo, notepad kholo, whatsapp kholo, "
+                "kya haal hai, kaise ho, mujhe batao, Arijit Singh ka gaana bajao, "
+                "Shreya Ghoshal, Tum Hi Ho, Kaise Hua, Apna Bana Le, Kesariya, Raataan Lambiyan, "
+                "open settings, close window, take screenshot, disk cleanup karo, "
+                "scan for virus, lock screen, unlock screen, theek hai, haan, nahi, shukriya"
+            )
+            # beam_size=1 enables fast greedy decoding (5x faster than default beam_size=5)
+            segments, info = self.whisper.transcribe(
+                tmp_path,
+                initial_prompt=initial_prompt,
+                beam_size=1,
+                best_of=1,
+                temperature=0.0,
+                language="hi",  # force Hindi/Hinglish bilingual mode instead of auto-detect
+                without_timestamps=True,
+            )
+            local_text = " ".join(s.text for s in segments).strip()
             # Run the transliterater safety net in case it outputs any raw Devanagari characters
             local_text = self._transliterate_devanagari_to_roman(local_text)
 
