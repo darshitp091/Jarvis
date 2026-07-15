@@ -313,9 +313,12 @@ class SpotifyControl:
                 try:
                     logger.info(f"Spotify API search: '{clean_search_query}'")
 
-                    # ── Detect if query is artist-only ──────────────────────────
-                    # If the extracted query matches a known artist name pattern,
-                    # search by artist and play their top tracks (better UX)
+                    # Fetch user's market once to avoid 403 on top-tracks (deprecated country='US')
+                    try:
+                        user_market = sp.current_user().get("country", "IN")
+                    except Exception:
+                        user_market = "IN"
+
                     KNOWN_ARTISTS = [
                         "arijit singh", "shreya ghoshal", "sonu nigam", "lata mangeshkar",
                         "a r rahman", "ar rahman", "kishore kumar", "kumar sanu", "udit narayan",
@@ -326,6 +329,7 @@ class SpotifyControl:
                     ]
                     is_artist_query = clean_search_query.lower() in KNOWN_ARTISTS
 
+                    # Resolve active device
                     device_id = None
                     devices = sp.devices()
                     if devices and devices.get("devices"):
@@ -337,7 +341,7 @@ class SpotifyControl:
                             device_id = devices["devices"][0]["id"]
 
                     if not device_id:
-                        logger.warning("No active Spotify device found. Opening Spotify app...")
+                        logger.warning("No active Spotify device. Opening app and waiting...")
                         os.startfile("spotify:")
                         time.sleep(4.0)
                         devices = sp.devices()
@@ -345,24 +349,31 @@ class SpotifyControl:
                             device_id = devices["devices"][0]["id"]
 
                     if is_artist_query:
-                        # ── Artist mode: search artist → play top tracks ──────────
+                        # Artist mode — search artist then play their top tracks
                         artist_results = sp.search(q=clean_search_query, limit=1, type="artist")
                         if artist_results and artist_results["artists"]["items"]:
                             artist = artist_results["artists"]["items"][0]
                             artist_id = artist["id"]
                             artist_name = artist["name"]
-                            top_tracks = sp.artist_top_tracks(artist_id)
-                            playback_uris = [t["uri"] for t in top_tracks["tracks"][:15]]
+                            try:
+                                # Pass user's own market to avoid 403 (deprecated country param)
+                                top_data = sp.artist_top_tracks(artist_id, country=user_market)
+                                playback_uris = [t["uri"] for t in top_data["tracks"][:15]]
+                            except Exception as tt_err:
+                                logger.warning(f"artist_top_tracks failed ({tt_err}), using artist radio instead.")
+                                # Fallback: search top 5 tracks by artist name
+                                r = sp.search(q=f"artist:{clean_search_query}", limit=10, type="track", market=user_market)
+                                playback_uris = [t["uri"] for t in r["tracks"]["items"]] if r and r["tracks"]["items"] else []
+
                             if playback_uris and device_id:
                                 sp.start_playback(device_id=device_id, uris=playback_uris)
-                                logger.success(f"Playing top tracks of artist '{artist_name}' via Spotify API.")
+                                logger.success(f"Playing top tracks of '{artist_name}' via API.")
                                 return f"Playing top tracks of {artist_name} on Spotify, sir."
-                        # Fallback to track search if artist not found
-                        is_artist_query = False
+                        is_artist_query = False  # fall through to track mode
 
                     if not is_artist_query:
-                        # ── Track mode: search by track name ─────────────────────
-                        results = sp.search(q=clean_search_query, limit=1, type="track")
+                        # Track mode — search by song title
+                        results = sp.search(q=clean_search_query, limit=1, type="track", market=user_market)
                         if results and results["tracks"]["items"]:
                             track = results["tracks"]["items"][0]
                             track_uri = track["uri"]
@@ -370,29 +381,32 @@ class SpotifyControl:
                             artist_name = track["artists"][0]["name"]
 
                             if device_id:
+                                # Queue: play requested track first, then artist's other top tracks
                                 try:
                                     artist_id = track["artists"][0]["id"]
-                                    top_tracks = sp.artist_top_tracks(artist_id)
-                                    related_uris = [t["uri"] for t in top_tracks["tracks"] if t["uri"] != track_uri]
-                                    playback_uris = [track_uri] + related_uris[:10]
-                                    logger.info(f"Populated queue with {len(playback_uris)} tracks from '{artist_name}'.")
+                                    top_data = sp.artist_top_tracks(artist_id, country=user_market)
+                                    related = [t["uri"] for t in top_data["tracks"] if t["uri"] != track_uri]
+                                    playback_uris = [track_uri] + related[:10]
+                                    logger.info(f"Queue: {len(playback_uris)} tracks from '{artist_name}'.")
                                 except Exception as queue_err:
-                                    logger.warning(f"Could not fetch artist top tracks: {queue_err}.")
+                                    logger.warning(f"Top-tracks queue failed ({queue_err}). Single track only.")
                                     playback_uris = [track_uri]
 
                                 sp.start_playback(device_id=device_id, uris=playback_uris)
-                                logger.success(f"Started playing '{track_name}' via Spotify API.")
+                                logger.success(f"Playing '{track_name}' via Spotify API.")
                                 clean_t = track_name.split("|")[0].split("-")[0].strip()
                                 if len(clean_t) > 35:
                                     return f"Playing '{artist_name}' on Spotify, sir."
                                 return f"Playing '{clean_t}' by {artist_name} on Spotify, sir."
                         else:
-                            logger.warning(f"No tracks found for '{clean_search_query}' via API. Trying GUI search...")
+                            logger.warning(f"No tracks found for '{clean_search_query}'. Trying GUI fallback...")
 
                 except Exception as api_err:
-                    logger.error(f"Spotify API playback error: {api_err}. Falling back to keyboard controls.")
-                    if "403" in str(api_err) or "PREMIUM" in str(api_err).upper():
-                        logger.warning("Disabling Spotify API mode due to Premium/Free limitations.")
+                    logger.error(f"Spotify API error: {api_err}. Falling back to GUI.")
+                    # Only disable API mode for auth/plan errors, not temporary 5xx
+                    err_str = str(api_err)
+                    if "403" in err_str and "top-tracks" not in err_str:
+                        logger.warning("Disabling Spotify API mode (Premium/auth error).")
                         self.use_api = False
 
         # 3. Fallback GUI Keyboard/Mouse Automation
@@ -448,44 +462,115 @@ class SpotifyControl:
                 logger.error(f"Spacebar playback fallback failed: {e}")
                 return "I opened your Liked Songs, sir. Please press play to start."
 
-        # GUI fallback: Ctrl+K search using the CLEAN extracted query (not the raw sentence)
-        logger.info(f"GUI Ctrl+K fallback search using clean query: '{clean_search_query}'")
+        # 3. GUI Fallback — Spotify URI search + pyautogui double-click first result
+        # Strategy: open spotify:search:<query> URI (reliable, no Ctrl+K timing issues),
+        # wait for results to load, then double-click the first track card.
+        logger.info(f"GUI fallback: spotify:search URI for '{clean_search_query}'")
+        import pyperclip
+
         try:
-            pyautogui.hotkey('ctrl', 'k')
-            time.sleep(1.2)  # Wait for Quick Search overlay to mount
+            # Open Spotify search page directly via URI scheme
+            encoded_query = urllib.parse.quote(clean_search_query)
+            os.startfile(f"spotify:search:{encoded_query}")
+            time.sleep(3.0)  # Wait for Spotify to load search results
 
-            import pyperclip
-            pyperclip.copy(clean_search_query)  # Use extracted clean query
-            time.sleep(0.1)
-            pyautogui.hotkey('ctrl', 'v')
-            time.sleep(1.5)  # Wait for autocomplete results
+            # Re-fetch Spotify window after URI open
+            if not spotify_window:
+                try:
+                    import psutil as _ps
+                    d2 = Desktop(backend="win32")
+                    for w in d2.windows():
+                        if "chrome_widgetwin" in w.element_info.class_name.lower():
+                            proc = _ps.Process(w.process_id())
+                            if proc.name().lower() == "spotify.exe":
+                                spotify_window = w
+                                break
+                except Exception:
+                    pass
 
-            # Navigate to first result and play
-            pyautogui.press('down')
-            time.sleep(0.3)
-            pyautogui.press('enter')
-            time.sleep(2.0)  # Wait for playback to begin
+            if spotify_window:
+                # Bring Spotify to front
+                hwnd = spotify_window.handle
+                ctypes.windll.user32.ShowWindow(hwnd, 9)
+                ctypes.windll.user32.SetForegroundWindow(hwnd)
+                time.sleep(0.6)
 
-            # Verify playback via API if available
-            if self.use_api:
-                sp = self._get_sp()
-                if sp:
-                    playback = sp.current_playback()
-                    if playback and playback.get("is_playing"):
-                        now_playing = playback["item"]["name"]
-                        artist = playback["item"]["artists"][0]["name"]
-                        return f"Playing '{now_playing}' by {artist} on Spotify, sir."
+                rect = spotify_window.rectangle()
+                win_left = rect.left
+                win_top = rect.top
+                win_w = rect.width()
+                win_h = rect.height()
 
-            return f"Searching and playing '{clean_search_query}' on Spotify, sir."
-        except Exception as e:
-            logger.error(f"GUI Quick Search play failed: {e}")
-            try:
-                encoded_query = urllib.parse.quote(clean_search_query)
-                search_uri = f"spotify:search:{encoded_query}"
-                os.startfile(search_uri)
-                return f"I opened Spotify and searched for '{clean_search_query}', sir."
-            except Exception:
-                return "I couldn't open Spotify, sir."
+                # ── Strategy A: Tab through results and press Enter to play ──
+                # Spotify search results: first focusable track is reachable via Tab
+                # Press Tab several times to land on the first song row, then Enter
+                pyautogui.click(win_left + win_w // 2, win_top + win_h // 2)
+                time.sleep(0.2)
+
+                # Tab into the results grid (typically 3-5 tabs to reach first song)
+                for _ in range(6):
+                    pyautogui.press('tab')
+                    time.sleep(0.08)
+                pyautogui.press('enter')  # Play first result
+                time.sleep(2.5)
+
+                # ── Verify via API ──────────────────────────────────────────
+                if self.use_api:
+                    sp = self._get_sp()
+                    if sp:
+                        try:
+                            playback = sp.current_playback()
+                            if playback and playback.get("is_playing"):
+                                now = playback["item"]["name"]
+                                art = playback["item"]["artists"][0]["name"]
+                                logger.success(f"GUI fallback confirmed playing: {now} by {art}")
+                                return f"Playing '{now}' by {art} on Spotify, sir."
+                        except Exception:
+                            pass
+
+                # ── Strategy B: Scan window for first track row and double-click ──
+                # Sample a vertical strip at ~25% from left (track name column) and
+                # find the first non-background row below the search header
+                logger.info("Tab+Enter did not start playback. Trying coordinate double-click...")
+                screenshot = pyautogui.screenshot()
+                scan_x = win_left + int(win_w * 0.25)
+                # Start scanning from ~35% down the window (below search bar/header)
+                scan_y_start = win_top + int(win_h * 0.35)
+                scan_y_end   = win_top + int(win_h * 0.75)
+
+                clicked = False
+                prev_row_color = None
+                for y in range(scan_y_start, scan_y_end, 3):
+                    r, g, b = screenshot.getpixel((min(scan_x, screenshot.width - 1), min(y, screenshot.height - 1)))
+                    # Spotify track rows have a slightly lighter bg than the dark sidebar
+                    # Look for a row that's noticeably non-black (content area)
+                    brightness = (r + g + b) / 3
+                    if brightness > 30:  # found content area
+                        # Double-click the beginning of this track row to play it
+                        click_x = win_left + int(win_w * 0.25)
+                        pyautogui.doubleClick(click_x, y)
+                        logger.info(f"Double-clicked first track row at ({click_x}, {y})")
+                        clicked = True
+                        time.sleep(2.0)
+                        break
+
+                if clicked and self.use_api:
+                    sp = self._get_sp()
+                    if sp:
+                        try:
+                            playback = sp.current_playback()
+                            if playback and playback.get("is_playing"):
+                                now = playback["item"]["name"]
+                                art = playback["item"]["artists"][0]["name"]
+                                return f"Playing '{now}' by {art} on Spotify, sir."
+                        except Exception:
+                            pass
+
+            return f"Opened Spotify search for '{clean_search_query}', sir. Please double-click a track to play."
+
+        except Exception as gui_err:
+            logger.error(f"GUI fallback completely failed: {gui_err}")
+            return f"I couldn't play '{clean_search_query}' on Spotify, sir."
 
     def control_media(self, action: str) -> str:
         if self.use_api:
