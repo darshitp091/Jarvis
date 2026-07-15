@@ -214,9 +214,12 @@ except Exception as e:
     else:
         raise e
 
-print(f"Saving final fine-tuned model to: {OUTPUT_DIR}")
-trainer.save_model(OUTPUT_DIR)
-processor.save_pretrained(OUTPUT_DIR)
+print(f"Saving final fine-tuned model weights to: {OUTPUT_DIR}")
+try:
+    model.save_pretrained(OUTPUT_DIR)
+    processor.save_pretrained(OUTPUT_DIR)
+except Exception as save_err:
+    print(f"Error saving pretrained weights: {save_err}")
 
 print("\n--- Fine-tuning Complete! ---")
 print(f"Checkpoints and final model weights saved under: {OUTPUT_DIR}")
