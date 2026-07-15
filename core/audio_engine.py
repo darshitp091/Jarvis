@@ -56,10 +56,10 @@ class AudioEngine:
             torch.set_num_threads(1)  # Limit thread overhead
             with silence_stderr():
                 from silero_vad import load_silero_vad
-                self.vad_model = load_silero_vad()
-            logger.info("Silero VAD model loaded successfully.")
+                self.vad_model = load_silero_vad(onnx=True)
+            logger.info("Silero VAD model loaded successfully with ONNX backend.")
         except Exception as e:
-            logger.error(f"Failed to load Silero VAD: {e}")
+            logger.error(f"Failed to load Silero VAD with ONNX backend: {e}")
             self.vad_model = None
 
         logger.info("Loading Oriserve/Whisper-Hindi2Hinglish-Swift...")
@@ -93,7 +93,9 @@ class AudioEngine:
                 logger.info("Hinglish STT pipeline loaded on GPU (CUDA) successfully.")
                 loaded = True
         except Exception as e:
+            import traceback
             logger.warning(f"Failed to load Hinglish STT on GPU: {e}. Falling back to CPU...")
+            logger.warning(traceback.format_exc())
 
         if not loaded:
             try:
@@ -119,7 +121,9 @@ class AudioEngine:
                     self.whisper_pipe(dummy_audio)
                 logger.info("Hinglish STT pipeline loaded on CPU successfully.")
             except Exception as cpu_err:
+                import traceback
                 logger.error(f"Failed to load Hinglish STT on CPU: {cpu_err}")
+                logger.error(traceback.format_exc())
                 self.whisper_pipe = None
         self.is_speaking_cb = None
         self.sarvam_config = {}
