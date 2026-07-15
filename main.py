@@ -296,8 +296,19 @@ class JARVIS:
         threading.Thread(target=self._interruption_monitor, daemon=True).start()
 
         # Proactive alerting
-
         self.alert_queue = []
+
+        # Presentation state tracking
+        self.active_presentation_topic = None
+        self.active_presentation_status = "idle"  # idle, created
+
+        # Parallel Visual Assistant Loop
+        self.visual_assistant_enabled = True
+        self.last_active_title = ""
+        self.last_visual_suggestion_time = 0.0
+        self.is_busy = False # True when executing a command or speaking
+        if self.start_threads:
+            threading.Thread(target=self._visual_assistant_loop, daemon=True).start()
         self.alert_lock = threading.Lock()
         self.active_context = None
         self.pending_code_snippet = None
@@ -1043,7 +1054,7 @@ class JARVIS:
                 if images:
                     ollama_msg["images"] = images
                 ollama_messages.append(ollama_msg)
-
+                     
             response = ollama.chat(
                 model=model_name,
                 messages=ollama_messages
@@ -1053,25 +1064,90 @@ class JARVIS:
             logger.error(f"Local Ollama query failed: {e}")
             return "I am currently unable to process your request, sir."
 
-    def _create_professional_presentation(self, title: str, research_notes: str = None) -> str:
+    def _visual_assistant_loop(self):
+        """Continuously monitors what the user is doing on the screen and offers proactive suggestions."""
+        import time
+        import re
+        logger.info("Continuous Visual Assistant loop activated.")
+        while True:
+            try:
+                if not self.visual_assistant_enabled:
+                    time.sleep(5)
+                    continue
+
+                if self.is_busy or self.tts.is_speaking:
+                    time.sleep(5)
+                    continue
+
+                ctx = self.sentinel.get_active_context()
+                active_title = ctx.get("title", "")
+                active_process = ctx.get("process", "")
+
+                if not active_title or any(term in active_title.lower() for term in ["lock app", "task manager", "desktop"]):
+                    time.sleep(5)
+                    continue
+
+                now = time.time()
+                time_since_last_suggest = now - self.last_visual_suggestion_time
+                title_changed = active_title != self.last_active_title
+                is_target_process = any(p in active_process for p in ["powerpnt", "chrome", "edge", "code", "obsidian", "excel", "winword"])
+
+                if is_target_process and (title_changed or time_since_last_suggest > 90.0):
+                    if title_changed:
+                        time.sleep(4)
+                        ctx = self.sentinel.get_active_context()
+                        if ctx.get("title") != active_title:
+                            continue
+
+                    self.last_active_title = active_title
+                    self.last_visual_suggestion_time = now
+
+                    logger.info(f"Visual Assistant: analyzing screen activity for window '{active_title}'...")
+                    screenshot_prompt = (
+                        "Analyze this screen. Write a very brief, friendly, proactive suggestion or helpful tip in Hinglish "
+                        "(using Latin/WhatsApp text script, using feminine verb endings like 'soch rahi hu', 'karu') "
+                        "offering support or insights about the specific task they are doing (e.g. designing slides, searching topics, coding, writing notes). "
+                        "If no suggestion is needed or everything is already optimal, output ONLY the word 'NONE'. "
+                        "Keep the tip under 12 words."
+                    )
+                    
+                    suggestion = self.vision.analyze(screenshot_prompt).strip()
+                    suggestion = re.sub(r'["\']', '', suggestion).strip()
+                    
+                    if suggestion and suggestion.upper() != "NONE" and len(suggestion) > 5:
+                        logger.info(f"Visual Assistant suggestion: {suggestion}")
+                        self.is_busy = True
+                        self.orb.set_state("speaking")
+                        self.tts.speak(suggestion)
+                        self.orb.set_state("idle")
+                        self.is_busy = False
+            except Exception as loop_err:
+                logger.error(f"Error in visual assistant background loop: {loop_err}")
+                
+            time.sleep(8)
+
+    def _create_professional_presentation(self, title: str, research_notes: str = None, slide_count: int = None, presenter: str = None) -> str:
         """Helper to orchestrate online research, slide layout generation, image downloading, and PPTX compilation."""
         import json
         import re
         import os
-        logger.info(f"Generating professional presentation for '{title}'...")
+        logger.info(f"Generating professional presentation for '{title}' (Slide Count: {slide_count}, Presenter: {presenter})...")
         
         # 1. Online Content Research
         if not research_notes:
             research_notes = self.web.headless_search_and_summarize(title)
             
-        # 2. Structure outline using LLM (8 to 10 slides)
+        # Determine slide count
+        count = slide_count if (slide_count and 5 <= slide_count <= 20) else 8
+
+        # 2. Structure outline using LLM (dynamic slide count)
         prompt = (
-            f"Create a high-end, detailed slide outline for an 8 to 10 slide presentation on '{title}' based on the following research:\n\n"
+            f"Create a high-end, detailed slide outline for a {count} slide presentation on '{title}' based on the following research:\n\n"
             f"{research_notes}\n\n"
             "Select and recommend one of these dynamic layout themes based on the topic: "
             "'stark_tech' (cyber/tech/dark), 'midnight_cyberpunk' (neon/creative/dark), "
             "'light_professional' (corporate/clean/light), or 'forest_minimalist' (organic/nature/light). "
-            "For each slide, output a 'title', 'bullets' (3-4 concise professional bullet points with correct capitalization and proper technical depth), and a highly specific 'image_query' to search for matching diagrams or photos related to the slide's core concepts. "
+            f"You MUST generate exactly {count} slides in the outline. For each slide, output a 'title', 'bullets' (3-4 concise professional bullet points with correct capitalization and proper technical depth), and a highly specific 'image_query' to search for matching diagrams or photos related to the slide's core concepts. "
             "Output ONLY a raw, valid JSON object containing: "
             '{"theme": "...", "title": "...", "subtitle": "...", "slides": [{"title": "...", "bullets": ["...", "..."], "image_query": "..."}]}. '
             "Do not include any markdown code wrappers, quotes, or backticks."
@@ -1088,7 +1164,10 @@ class JARVIS:
             theme = data.get("theme", "stark_tech")
             slides_content = data.get("slides", [])
             pres_title = data.get("title", title)
-            pres_subtitle = data.get("subtitle", f"Generated by {self.config.get('jarvis', {}).get('name', 'JARVIS')}")
+            if presenter:
+                pres_subtitle = f"Presented by {presenter}"
+            else:
+                pres_subtitle = data.get("subtitle", f"Generated by {self.config.get('jarvis', {}).get('name', 'JARVIS')}")
         except Exception as e:
             logger.error(f"Failed to generate layout outline: {e}. Falling back to default layout.")
             theme = "stark_tech"
@@ -1098,7 +1177,7 @@ class JARVIS:
                 {"title": "Summary", "bullets": ["Conclusion of key points", "Next steps"], "image_query": f"{title} summary"}
             ]
             pres_title = title
-            pres_subtitle = f"Generated by {self.config.get('jarvis', {}).get('name', 'JARVIS')}"
+            pres_subtitle = presenter if presenter else f"Generated by {self.config.get('jarvis', {}).get('name', 'JARVIS')}"
         
         # 3. Image fetching loop
         topic_slug = re.sub(r'[^a-zA-Z0-9]', '_', title).lower()
@@ -1135,9 +1214,19 @@ class JARVIS:
         except Exception as state_err:
             logger.error(f"Failed to save last presentation state: {state_err}")
             
-        # 5. Compile PPTX
+        # 5. Save state in memory for conversation tracking
+        self.active_presentation_topic = title
+        self.active_presentation_status = "created"
+
+        # 6. Compile PPTX and Open
         self.productivity.pptx_helper(pres_title, pres_subtitle, theme, slides_content)
-        return self.productivity.open_presentation()
+        self.productivity.open_presentation()
+        
+        # 7. Ask user for review
+        self.orb.set_state("speaking")
+        self.tts.speak("Maine presentation open kar di hai, sir. Ek baar dekh lijiye aur bataiye ki kya ye sahi hai ya koi change karna hai?")
+        self.orb.set_state("idle")
+        return "Opening the presentation for you now, sir."
 
     def _generate_response(self, text: str, domain: str = "general") -> str:
         memories = self.brain.format_memories_for_prompt(text)
@@ -1294,7 +1383,7 @@ class JARVIS:
     def _get_friendly_task_desc(self, text: str, is_hinglish: bool = False) -> str:
         """Returns a human-like description of a command's intent."""
         import re
-        intent = self.router.route(text)
+        intent = self.router.route(text, self.active_presentation_topic)
         skill = intent.get("skill", "conversation")
         params = intent.get("params", {})
         
@@ -1302,7 +1391,7 @@ class JARVIS:
         if skill == "conversation":
             candidates = self._get_phonetic_candidates(text)
             for cand in candidates:
-                cand_intent = self.router.route(cand)
+                cand_intent = self.router.route(cand, self.active_presentation_topic)
                 cand_skill = cand_intent.get("skill", "conversation")
                 if cand_skill != "conversation":
                     intent = cand_intent
@@ -1644,6 +1733,20 @@ class JARVIS:
         # Store user input in memory
         self.brain.store(text, role="user")
 
+        # Check for presentation finalization response
+        if self.active_presentation_status == "created" and self.active_presentation_topic:
+            confirmations = ["sahi hai", "perfect", "done", "bahut badhiya", "yes", "correct", "good", "nice", "no changes", "ok", "aacha hai", "acha hai"]
+            text_lower = text.lower().strip()
+            if any(c in text_lower for c in confirmations) and not any(w in text_lower for w in ["change", "modify", "update", "image", "content", "not", "nahi", "no"]):
+                self.active_presentation_topic = None
+                self.active_presentation_status = "idle"
+                response = "Bahut badhiya! Maine ise done kar diya hai. Ab bataiye, aur kya kaam karna hai?"
+                self.orb.set_state("speaking")
+                self.tts.speak(response)
+                self.orb.set_state("idle")
+                self.brain.store(response, role="assistant")
+                return
+
         # Check if we have a pending code snippet and the user is responding to the confirmation
         if getattr(self, "pending_code_snippet", None):
             user_confirm = text.lower()
@@ -1697,7 +1800,7 @@ class JARVIS:
                 return
 
         # Route intent
-        intent = self.router.route(text)
+        intent = self.router.route(text, self.active_presentation_topic)
         skill = intent.get("skill", "conversation")
         params = intent.get("params", {})
         domain = intent.get("domain", "general")
@@ -2634,7 +2737,20 @@ class JARVIS:
                         )
                     elif action == "create_presentation":
                         title = params.get("title", "Topic")
-                        response = self._create_professional_presentation(title)
+                        # Normalize slides vs slide_count keys and ensure it's cast to int
+                        s_count_raw = params.get("slide_count") or params.get("slides")
+                        s_count = None
+                        if s_count_raw is not None:
+                            try:
+                                s_count = int(s_count_raw)
+                            except Exception:
+                                pass
+                        pres_name = params.get("presenter")
+                        response = self._create_professional_presentation(
+                            title, 
+                            slide_count=s_count, 
+                            presenter=pres_name
+                        )
                     elif action == "modify_presentation_slide":
                         import json
                         import re

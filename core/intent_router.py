@@ -30,11 +30,31 @@ class IntentRouter:
             self.filler_model = "gemma2:2b"
             self.prompts = {"system_prompts": {"intent_router": "Return JSON", "filler": "Respond with one short sentence."}}
 
-    def _regex_route(self, text: str) -> dict | None:
+    def _regex_route(self, text: str, active_presentation_topic: str = None) -> dict | None:
         """Fast regex pre-parser to bypass LLM latency/errors for critical commands"""
         import re
         cmd = text.lower().strip()
         cmd = re.sub(r"[,\?\!\.\"\']", "", cmd).strip()
+
+        # Stateful Presentation Follow-ups check
+        if active_presentation_topic:
+            is_slide_refinement = any(w in cmd for w in ["slide", "page", "prezentation", "presentation", "ppt", "slides", "images", "image", "content", "summarize", "modify", "change", "update", "edit", "entanglement", "physics", "presented by", "by"])
+            is_generic_demand = any(w in cmd for w in ["aaj ke aaj", "darshit", "banana", "create", "make", "chahiye", "search karo"]) and not any(w in cmd for w in ["science", "topic", "math", "history"])
+            if is_slide_refinement or is_generic_demand:
+                pages_match = re.search(r"(\d+)\s*(?:page|slide)", cmd)
+                slide_num = None
+                specific_slide = re.search(r"slide\s+(\d+)", cmd)
+                if specific_slide:
+                    slide_num = int(specific_slide.group(1))
+                return {
+                    "skill": "productivity",
+                    "params": {
+                        "action": "modify_presentation_slide",
+                        "slide_num": slide_num,
+                        "query": text
+                    },
+                    "domain": "general"
+                }
 
         # Smart Browser Opening & Web Searching in Real Browser
         is_browser_cmd = any(w in cmd for w in ["browser", "chrome", "edge", "safari", "braavjer", "brovzer", "brauzar", "ब्रूवजर", "ब्राउज़र", "क्रोम"])
@@ -1061,13 +1081,35 @@ class IntentRouter:
         if slide_mod_match:
             return {"skill": "productivity", "params": {"action": "modify_presentation_slide", "slide_num": int(slide_mod_match.group(1)), "query": cmd}, "domain": "general"}
 
-        pres_match = re.search(r"\b(?:make|create|build|generate|design)\s+(?:a\s+)?(?:presentation|ppt|slides?)\s+(?:on|about|for|of)?\s*(.+)", cmd)
+        pres_match = re.search(r"\b(?:make|create|build|generate|design)\s+(?:a\s+)?(?:presentation|ppt|slides?|prezentation)\s+(?:on|about|for|of)?\s*(.+)", cmd)
         if not pres_match:
-            pres_match = re.search(r"\b(.+?)\s+(?:par|pe)\s+(?:presentation|ppt|slides?)\s+(?:banana|banao|banado|banaye|create|make|design)\b", cmd)
+            pres_match = re.search(r"\b(.+?)\s+(?:par|pe)\s+(?:presentation|ppt|slides?|prezentation)\s+(?:banana|banao|banado|banaye|create|make|design)\b", cmd)
         if pres_match:
             topic = pres_match.group(1).strip()
             topic = re.sub(r"\b(?:hai|please|plz|for\s+the\s+business|business\s+ke\s+liye|so\s+let\s+me\s+make\s+it)\b", "", topic).strip()
-            return {"skill": "productivity", "params": {"action": "create_presentation", "title": topic}, "domain": "general"}
+            
+            # Extract slide count if specified
+            slide_count = None
+            count_match = re.search(r"(\d+)\s*(?:pages|slides|page|slide)", cmd)
+            if count_match:
+                slide_count = int(count_match.group(1))
+                
+            # Extract presenter name if specified
+            presenter_name = None
+            pres_name_match = re.search(r"(?:presented by|by)\s+([a-zA-Z]+)", cmd)
+            if pres_name_match:
+                presenter_name = pres_name_match.group(1).strip().capitalize()
+                
+            return {
+                "skill": "productivity",
+                "params": {
+                    "action": "create_presentation",
+                    "title": topic,
+                    "slide_count": slide_count,
+                    "presenter": presenter_name
+                },
+                "domain": "general"
+            }
 
         # --- Product Price Comparison ---
         # Match: "compare/find/buy [product] under [budget]" (with or without INR/rupees)
@@ -1100,7 +1142,7 @@ class IntentRouter:
         return None
 
 
-    def route(self, text: str) -> dict:
+    def route(self, text: str, active_presentation_topic: str = None) -> dict:
         """Return routing dict: {skill, params, domain}"""
         # Step 0: Check for ambiguous inputs
         cmd_lower = text.lower()
@@ -1123,7 +1165,7 @@ class IntentRouter:
             }
 
         # Step 1: Check fast regex routes
-        regex_result = self._regex_route(text)
+        regex_result = self._regex_route(text, active_presentation_topic)
         if regex_result:
             logger.info(f"Routed via regex: {regex_result}")
             return regex_result
