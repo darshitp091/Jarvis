@@ -6,7 +6,7 @@ preprocess it, load the pre-trained openai/whisper-small model, and run the trai
 using the Hugging Face Trainer.
 
 To run this script:
-1. Activate virtual env: .\jarvis_env\Scripts\activate
+1. Activate virtual env: .\\jarvis_env\\Scripts\\activate
 2. Install training dependencies: pip install transformers datasets soundfile librosa evaluate jinja2 accelerate
 3. Execute the script: python scratch/fine_tune_whisper_hinglish.py
 """
@@ -31,7 +31,8 @@ MODEL_NAME = "openai/whisper-small"
 LANGUAGE = "Hindi"
 TASK = "transcribe"
 DATASET_NAME = "agarwalayushi/hinglish"  # Hinglish Concatenated Audio Dataset
-OUTPUT_DIR = "./whisper-small-hinglish-finetuned"
+OUTPUT_DIR = os.path.abspath("./whisper-small-hinglish-finetuned")
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # Check GPU availability
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -146,20 +147,21 @@ model.config.use_cache = False
 # ----------------------------------------------------
 training_args = Seq2SeqTrainingArguments(
     output_dir=OUTPUT_DIR,
-    per_device_train_batch_size=8,
-    gradient_accumulation_steps=2,  # effective batch size = 16
+    per_device_train_batch_size=1,  # Reduced batch size to 1 to prevent CUDA OOM
+    gradient_accumulation_steps=16, # Kept effective batch size at 16
     learning_rate=1e-5,
-    warmup_steps=100,
-    max_steps=200,          # Configured for a fast fine-tuning run locally
+    warmup_steps=50,
+    max_steps=100,          # Running a short 100-step training session for verification
     gradient_checkpointing=True,
     fp16=torch.cuda.is_available(),
+    optim="adafactor",      # Use memory-efficient Adafactor optimizer to save ~1.5GB VRAM
     evaluation_strategy="steps",
-    per_device_eval_batch_size=4,
+    per_device_eval_batch_size=1,
     predict_with_generate=True,
     generation_max_length=225,
-    save_steps=100,
-    eval_steps=100,
-    logging_steps=10,
+    save_steps=50,
+    eval_steps=50,
+    logging_steps=5,
     report_to=["tensorboard"],
     load_best_model_at_end=True,
     metric_for_best_model="wer",
