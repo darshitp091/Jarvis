@@ -1218,15 +1218,19 @@ class JARVIS:
         self.active_presentation_topic = title
         self.active_presentation_status = "created"
 
-        # 6. Compile PPTX and Open
-        self.productivity.pptx_helper(pres_title, pres_subtitle, theme, slides_content)
-        self.productivity.open_presentation()
+        # 6. Compile PPTX with topic-based filename and Open
+        import re as _re
+        topic_filename = _re.sub(r'[^a-zA-Z0-9_]', '_', title).lower().strip('_')
+        pptx_path = f"config/{topic_filename}.pptx"
+        self._last_pptx_path = pptx_path  # store for open/modify usage
+        self.productivity.pptx_helper(pres_title, pres_subtitle, theme, slides_content, output_path=pptx_path)
+        self.productivity.open_presentation(filepath=pptx_path)
         
         # 7. Ask user for review
         self.orb.set_state("speaking")
-        self.tts.speak("Maine presentation open kar di hai, sir. Ek baar dekh lijiye aur bataiye ki kya ye sahi hai ya koi change karna hai?")
+        self.tts.speak("Maine presentation open kar di hai, sir. Ek baar dekh lijiye aur bataiye ki ye theek hai ya koi change karna hai?")
         self.orb.set_state("idle")
-        return "Opening the presentation for you now, sir."
+        return f"Presentation '{topic_filename}.pptx' khol di hai, sir."
 
     def _generate_response(self, text: str, domain: str = "general") -> str:
         memories = self.brain.format_memories_for_prompt(text)
@@ -2754,13 +2758,14 @@ class JARVIS:
                     elif action == "modify_presentation_slide":
                         import json
                         import re
+                        import os as _os
                         slide_num = params.get("slide_num")
                         query = params.get("query", text)
                         logger.info(f"Modifying presentation slide. Specified number: {slide_num}")
                         
                         state_path = "config/last_presentation.json"
-                        if not os.path.exists(state_path):
-                            response = "Sir, I could not find a previously generated presentation metadata to modify. Please create a presentation first."
+                        if not _os.path.exists(state_path):
+                            response = "Sir, koi purani presentation nahi mili. Pehle koi presentation banao, phir modify kar sakte hain."
                         else:
                             try:
                                 with open(state_path, "r", encoding="utf-8") as f:
@@ -2777,7 +2782,7 @@ class JARVIS:
                                     try:
                                         import pyautogui
                                         screenshot_path = "config/temp_slide_screen.png"
-                                        os.makedirs("config", exist_ok=True)
+                                        _os.makedirs("config", exist_ok=True)
                                         pyautogui.screenshot(screenshot_path)
                                         
                                         # Use Vision model to read title
@@ -2854,10 +2859,14 @@ class JARVIS:
                                     
                                     with open(state_path, "w", encoding="utf-8") as f:
                                         json.dump(state, f, indent=2, ensure_ascii=False)
-                                        
-                                    self.productivity.pptx_helper(pres_title, pres_subtitle, theme, slides)
-                                    self.productivity.open_presentation()
-                                    response = f"I have successfully updated Slide {slide_num} for you and refreshed the presentation, sir."
+                                    
+                                    # Use topic-named file if available, else fallback
+                                    import re as _re2
+                                    _slug = _re2.sub(r'[^a-zA-Z0-9_]', '_', pres_title).lower().strip('_')
+                                    _pptx_path = getattr(self, '_last_pptx_path', f'config/{_slug}.pptx')
+                                    self.productivity.pptx_helper(pres_title, pres_subtitle, theme, slides, output_path=_pptx_path)
+                                    self.productivity.open_presentation(filepath=_pptx_path)
+                                    response = f"Slide {slide_num} update kar di hai aur presentation refresh ho gayi, sir."
                             except Exception as e:
                                 logger.error(f"Failed to modify slide: {e}")
                                 response = f"Failed to modify slide: {e}"
@@ -3084,7 +3093,7 @@ class JARVIS:
                 if success:
                     response = heal_msg
                 else:
-                    response = f"I encountered a minor fault while executing that command, sir. Specifically: {e}."
+                    response = f"Sir, ek chhoti si problem aa gayi thi: {e}. Dobara try karein ya thoda alag bolo."
                 break
 
         # Safety check

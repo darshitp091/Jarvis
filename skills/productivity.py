@@ -532,15 +532,10 @@ class ProductivityPlanner:
             logger.success(f"PowerPoint generated successfully at {output_path} with theme '{theme}'.")
             return f"Successfully created PowerPoint presentation at {output_path} using theme '{theme}', sir."
         except ImportError:
-            return "Please install python-pptx first (`pip install python-pptx`) to generate presentations, sir."
+            return "Sir, python-pptx install nahi hai. `pip install python-pptx` run karein."
         except Exception as e:
             logger.error(f"Failed to generate presentation: {e}")
-            return f"Failed to generate presentation: {str(e)}"
-        except ImportError:
-            return "Please install python-pptx first (`pip install python-pptx`) to generate presentations, sir."
-        except Exception as e:
-            logger.error(f"Failed to generate presentation: {e}")
-            return f"Failed to generate presentation: {str(e)}"
+            return f"Presentation banate waqt kuch gadbad ho gayi: {str(e)}"
 
     def open_presentation(self, filepath: str = "config/presentation.pptx") -> str:
         """Opens the generated presentation locally on Windows."""
@@ -548,12 +543,12 @@ class ProductivityPlanner:
             out_p = os.path.abspath(os.path.expanduser(filepath))
             if os.path.exists(out_p):
                 os.startfile(out_p)
-                return f"Opening the presentation for you now, sir."
+                return f"Presentation khol di hai, sir."
             else:
-                return "Sir, I could not find the presentation file. Please create it first."
+                return "Sir, presentation file nahi mili. Pehle presentation bana lijiye."
         except Exception as e:
             logger.error(f"Failed to open presentation: {e}")
-            return f"Failed to open the presentation: {e}"
+            return f"Presentation kholne mein dikkat aayi: {e}"
 
     def create_mind_map(self, central_idea: str, nodes: list, save_path: str = "config/mindmap.png") -> str:
         """Generates a node-link mind map visualization image using matplotlib and networkx."""
