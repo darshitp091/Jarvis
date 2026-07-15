@@ -108,6 +108,7 @@ import ollama; _p("DBG: ollama ok")
 from skills.file_manager import FileManager; _p("DBG: file_manager ok")
 from skills.data_analyzer import DataAnalyzer; _p("DBG: data_analyzer ok")
 from skills.productivity import ProductivityPlanner; _p("DBG: productivity ok")
+from skills.image_editor import ImageEditor; _p("DBG: image_editor ok")
 from skills.security_auditor import SecurityAuditor; _p("DBG: security_auditor ok")
 from skills.vision_tracker import VisionTracker; _p("DBG: vision_tracker ok")
 from skills.market_analyzer import MarketAnalyzer; _p("DBG: market_analyzer ok")
@@ -266,6 +267,7 @@ class JARVIS:
         _p("INIT: FileManager"); self.file_manager = FileManager()
         _p("INIT: DataAnalyzer"); self.data_analyzer = DataAnalyzer()
         _p("INIT: ProductivityPlanner"); self.productivity = ProductivityPlanner()
+        _p("INIT: ImageEditor"); self.image_editor = ImageEditor()
         _p("INIT: SecurityAuditor"); self.security_auditor = SecurityAuditor()
         _p("INIT: VisionTracker"); self.vision_tracker = VisionTracker(camera_engine=self.camera)
         _p("INIT: CodeRunner"); self.code_runner = CodeRunner()
@@ -1218,12 +1220,12 @@ class JARVIS:
         self.active_presentation_topic = title
         self.active_presentation_status = "created"
 
-        # 6. Compile PPTX with topic-based filename and Open
+        # 6. Compile PPTX with topic-based filename via Marp (falls back to python-pptx)
         import re as _re
         topic_filename = _re.sub(r'[^a-zA-Z0-9_]', '_', title).lower().strip('_')
         pptx_path = f"config/{topic_filename}.pptx"
         self._last_pptx_path = pptx_path  # store for open/modify usage
-        self.productivity.pptx_helper(pres_title, pres_subtitle, theme, slides_content, output_path=pptx_path)
+        self.productivity.marp_pptx_helper(pres_title, pres_subtitle, theme, slides_content, output_path=pptx_path)
         self.productivity.open_presentation(filepath=pptx_path)
         
         # 7. Ask user for review
@@ -2895,7 +2897,55 @@ class JARVIS:
                     else:
                         response = "Productivity action not supported, sir."
 
+                elif skill == "image_editor":
+                    action = params.get("action", "")
+                    inp = params.get("input_path", params.get("file_path", params.get("image_path", "")))
+                    out = params.get("output_path", None)
+
+                    if action == "resize":
+                        w = int(params.get("width", 1920))
+                        h = int(params.get("height", 1080))
+                        response = self.image_editor.resize_image(inp, w, h, out)
+                    elif action == "convert_format":
+                        fmt = params.get("format", params.get("output_format", "png"))
+                        response = self.image_editor.convert_format(inp, fmt, out)
+                    elif action == "grayscale":
+                        response = self.image_editor.apply_grayscale(inp, out)
+                    elif action == "blur":
+                        radius = int(params.get("radius", 5))
+                        response = self.image_editor.apply_blur(inp, radius, out)
+                    elif action == "sharpen":
+                        response = self.image_editor.apply_sharpen(inp, out)
+                    elif action == "crop":
+                        x = int(params.get("x", 0))
+                        y = int(params.get("y", 0))
+                        w = int(params.get("width", 500))
+                        h = int(params.get("height", 500))
+                        response = self.image_editor.crop_image(inp, x, y, w, h, out)
+                    elif action == "watermark":
+                        text = params.get("watermark_text", params.get("text", "JARVIS"))
+                        response = self.image_editor.add_watermark(inp, text, out)
+                    elif action == "remove_background":
+                        response = self.image_editor.remove_background(inp, out)
+                    elif action == "rotate":
+                        degrees = int(params.get("degrees", params.get("angle", 90)))
+                        response = self.image_editor.rotate_image(inp, degrees, out)
+                    elif action == "image_info":
+                        response = self.image_editor.get_image_info(inp)
+                    elif action == "svg_to_png":
+                        dpi = int(params.get("dpi", 300))
+                        response = self.image_editor.svg_to_png(inp, dpi, out)
+                    elif action == "svg_to_pdf":
+                        response = self.image_editor.svg_to_pdf(inp, out)
+                    elif action == "png_to_svg":
+                        response = self.image_editor.png_to_svg(inp, out)
+                    elif action == "check_tools":
+                        response = self.image_editor.check_tools_status()
+                    else:
+                        response = f"Image editing action '{action}' support nahi hai, sir."
+
                 elif skill == "security_auditor":
+
                     action = params.get("action", "")
                     if action == "scan_ports":
                         response = self.security_auditor.scan_ports(params.get("host", "127.0.0.1"))

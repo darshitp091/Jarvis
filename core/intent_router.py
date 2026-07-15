@@ -1139,7 +1139,79 @@ class IntentRouter:
             if dish_match:
                 return {"skill": "food_ordering", "params": {"query": dish_match.group(1).strip()}, "domain": "general"}
 
+        # --- Image Editor (GIMP / Inkscape / Pillow) ---
+        # Background removal
+        if any(p in cmd for p in ["background remove", "remove background", "bg remove", "background hata", "bg hata do", "pichla hata"]):
+            img_match = re.search(r"(?:image|photo|pic|picture|file)\s+([^\s]+\.\w+)", cmd)
+            inp = img_match.group(1) if img_match else ""
+            return {"skill": "image_editor", "params": {"action": "remove_background", "input_path": inp}, "domain": "general"}
+
+        # Resize
+        resize_match = re.search(r"(?:resize|size\s+change|bada\s+karo|chota\s+karo)\s+(?:image|photo|pic)?.*?(\d+)\s*[xX×]\s*(\d+)", cmd)
+        if not resize_match:
+            resize_match = re.search(r"(?:image|photo|pic)\s+(?:ko\s+)?(\d+)\s*[xX×]\s*(\d+)\s+(?:mein|ka|resize)", cmd)
+        if resize_match:
+            return {"skill": "image_editor", "params": {"action": "resize", "width": int(resize_match.group(1)), "height": int(resize_match.group(2))}, "domain": "general"}
+
+        # Format conversion
+        fmt_match = re.search(r"(?:convert|badlo|change)\s+(?:image|photo|pic|file)?\s*(?:ko\s+)?(?:from\s+\w+\s+to\s+|to\s+|mein\s+)(png|jpg|jpeg|webp|bmp|tiff|gif)\b", cmd)
+        if fmt_match:
+            return {"skill": "image_editor", "params": {"action": "convert_format", "output_format": fmt_match.group(1)}, "domain": "general"}
+
+        # Grayscale / Black & White
+        if any(p in cmd for p in ["grayscale", "black and white", "black & white", "bw karo", "b&w", "black white", "kala safed"]):
+            return {"skill": "image_editor", "params": {"action": "grayscale"}, "domain": "general"}
+
+        # Blur
+        blur_match = re.search(r"(?:blur|dhundla)\s+(?:karo|kar|apply)?.*?(?:radius\s+)?(\d+)?", cmd)
+        if blur_match and any(p in cmd for p in ["blur", "dhundla"]):
+            radius = int(blur_match.group(1)) if blur_match.group(1) else 5
+            return {"skill": "image_editor", "params": {"action": "blur", "radius": radius}, "domain": "general"}
+
+        # Sharpen
+        if any(p in cmd for p in ["sharpen", "sharp karo", "tez karo"]):
+            return {"skill": "image_editor", "params": {"action": "sharpen"}, "domain": "general"}
+
+        # Rotate
+        rotate_match = re.search(r"(?:rotate|ghuma|palta)\s+(?:image|photo)?\s*(?:by\s+)?(\d+)\s*(?:degree|°)?", cmd)
+        if rotate_match:
+            return {"skill": "image_editor", "params": {"action": "rotate", "degrees": int(rotate_match.group(1))}, "domain": "general"}
+
+        # Watermark
+        wm_match = re.search(r"(?:watermark|paani\s+nishan|brand)\s+(?:add\s+karo|lagao|dalo)?\s*['\"]?([^'\"]+)['\"]?", cmd)
+        if wm_match and any(p in cmd for p in ["watermark", "brand lagao"]):
+            return {"skill": "image_editor", "params": {"action": "watermark", "watermark_text": wm_match.group(1).strip()}, "domain": "general"}
+
+        # Image info
+        if any(p in cmd for p in ["image info", "photo info", "image size", "resolution kya", "dimensions kya"]):
+            return {"skill": "image_editor", "params": {"action": "image_info"}, "domain": "general"}
+
+        # Tools status
+        if any(p in cmd for p in ["tools status", "check tools", "gimp hai", "inkscape hai", "creative tools"]):
+            return {"skill": "image_editor", "params": {"action": "check_tools"}, "domain": "general"}
+
+        # SVG → PNG
+        if re.search(r"svg\s+(?:ko\s+)?png\s+(?:mein\s+)?(?:export|convert|badlo)", cmd) or "svg to png" in cmd:
+            svg_match = re.search(r"([^\s]+\.svg)", cmd)
+            inp = svg_match.group(1) if svg_match else ""
+            dpi_match = re.search(r"(\d+)\s*(?:dpi|resolution)", cmd)
+            dpi = int(dpi_match.group(1)) if dpi_match else 300
+            return {"skill": "image_editor", "params": {"action": "svg_to_png", "input_path": inp, "dpi": dpi}, "domain": "general"}
+
+        # SVG → PDF
+        if re.search(r"svg\s+(?:ko\s+)?pdf\s+(?:mein\s+)?(?:export|convert|badlo)", cmd) or "svg to pdf" in cmd:
+            svg_match = re.search(r"([^\s]+\.svg)", cmd)
+            inp = svg_match.group(1) if svg_match else ""
+            return {"skill": "image_editor", "params": {"action": "svg_to_pdf", "input_path": inp}, "domain": "general"}
+
+        # PNG/image → SVG (trace)
+        if re.search(r"(?:png|image|photo)\s+(?:ko\s+)?svg\s+(?:mein\s+)?(?:trace|convert|badlo)", cmd) or "png to svg" in cmd or "image to vector" in cmd:
+            img_match = re.search(r"([^\s]+\.(?:png|jpg|jpeg))", cmd)
+            inp = img_match.group(1) if img_match else ""
+            return {"skill": "image_editor", "params": {"action": "png_to_svg", "input_path": inp}, "domain": "general"}
+
         return None
+
 
 
     def route(self, text: str, active_presentation_topic: str = None) -> dict:

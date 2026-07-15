@@ -374,8 +374,119 @@ class ProductivityPlanner:
                 except Exception: pass
             return False
 
+    def marp_pptx_helper(self, title: str, subtitle: str, theme: str, slides_content: list, output_path: str = None) -> str:
+        """
+        Generate a professional PPTX using Marp CLI (npx @marp-team/marp-cli).
+        Converts an LLM-generated Markdown outline into a beautifully themed slide deck.
+        Falls back to pptx_helper() if Node.js / Marp is unavailable.
+        """
+        import subprocess
+        import shutil
+        import re as _re
+
+        # Derive output path from title if not specified
+        if not output_path:
+            slug = _re.sub(r'[^a-zA-Z0-9_]', '_', title).lower().strip('_')
+            output_path = f"config/{slug}.pptx"
+
+        # Check if npx is available
+        npx = shutil.which("npx")
+        if not npx:
+            logger.warning("Marp: npx not found — falling back to python-pptx.")
+            return self.pptx_helper(title, subtitle, theme, slides_content, output_path)
+
+        # ── Map JARVIS themes to Marp themes ────────────────────────
+        theme_map = {
+            "stark_tech":        ("default",  "#111827", "#f97316", "#f3f4f6"),
+            "midnight_cyberpunk": ("gaia",    "#0f172a", "#38bdf8", "#ffffff"),
+            "light_professional": ("uncover", "#f8fafc", "#0f172a", "#475569"),
+            "forest_minimalist":  ("default", "#f4f4f5", "#064e3b", "#1f2937"),
+        }
+        marp_theme, bg_color, title_color, body_color = theme_map.get(
+            theme.lower(), ("default", "#111827", "#f97316", "#f3f4f6")
+        )
+
+        # ── Build Marp Markdown ──────────────────────────────────────
+        lines = [
+            "---",
+            f"marp: true",
+            f"theme: {marp_theme}",
+            f"paginate: true",
+            f'style: |',
+            f'  section {{',
+            f'    background-color: {bg_color};',
+            f'    color: {body_color};',
+            f'    font-family: "Segoe UI", Arial, sans-serif;',
+            f'  }}',
+            f'  h1 {{ color: {title_color}; font-size: 2.2em; }}',
+            f'  h2 {{ color: {title_color}; font-size: 1.5em; border-bottom: 3px solid {title_color}; padding-bottom: 6px; }}',
+            f'  ul {{ line-height: 1.8; font-size: 1.05em; }}',
+            f'  li {{ margin-bottom: 6px; }}',
+            "---",
+            "",
+            f"# {title}",
+            f"## {subtitle}",
+            "",
+        ]
+
+        for slide in slides_content:
+            s_title = slide.get("title", "Slide")
+            bullets = slide.get("bullets", [])
+            image_path = slide.get("image_path", "")
+
+            lines.append("---")
+            lines.append("")
+
+            # Side-by-side if image available
+            has_img = image_path and os.path.exists(image_path)
+            if has_img:
+                # Normalize path for Marp (forward slashes, absolute)
+                img_abs = os.path.abspath(image_path).replace("\\", "/")
+                lines.append(f"![bg right:40% fit]({img_abs})")
+                lines.append("")
+
+            lines.append(f"## {s_title}")
+            lines.append("")
+            for b in bullets:
+                lines.append(f"- {b}")
+            lines.append("")
+
+        md_content = "\n".join(lines)
+
+        # Write temp Markdown file
+        slug = _re.sub(r'[^a-zA-Z0-9_]', '_', title).lower().strip('_')
+        md_path = f"config/{slug}_marp.md"
+        abs_out = os.path.abspath(output_path)
+        os.makedirs("config", exist_ok=True)
+
+        with open(md_path, "w", encoding="utf-8") as f:
+            f.write(md_content)
+
+        logger.info(f"Marp: Compiling '{md_path}' → '{abs_out}'...")
+
+        try:
+            result = subprocess.run(
+                [npx, "--yes", "@marp-team/marp-cli@latest", md_path,
+                 "--pptx", "--output", abs_out, "--allow-local-files"],
+                capture_output=True, text=True, timeout=120
+            )
+            if result.returncode == 0 and os.path.exists(abs_out):
+                logger.success(f"Marp: PPTX generated successfully at {abs_out}")
+                return f"Marp se presentation bana li, sir — '{os.path.basename(abs_out)}'"
+            else:
+                logger.warning(f"Marp failed (exit {result.returncode}): {result.stderr[:300]}")
+                logger.info("Marp failed — falling back to python-pptx.")
+                return self.pptx_helper(title, subtitle, theme, slides_content, output_path)
+        except subprocess.TimeoutExpired:
+            logger.warning("Marp timed out — falling back to python-pptx.")
+            return self.pptx_helper(title, subtitle, theme, slides_content, output_path)
+        except Exception as e:
+            logger.error(f"Marp exception: {e} — falling back to python-pptx.")
+            return self.pptx_helper(title, subtitle, theme, slides_content, output_path)
+
     def pptx_helper(self, title: str, subtitle: str, theme: str, slides_content: list, output_path: str = "config/presentation.pptx") -> str:
         """Creates a professional PowerPoint presentation with dynamic theme layouts and images using python-pptx locally."""
+
         try:
             from pptx import Presentation
             from pptx.util import Inches, Pt
