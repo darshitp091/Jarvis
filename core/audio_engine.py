@@ -9,15 +9,28 @@ from contextlib import contextmanager
 @contextmanager
 def silence_stderr():
     """Silences OS-level stderr completely (e.g. C/C++ library absl warnings)."""
-    new_target = open(os.devnull, 'w')
-    old_stderr_fd = os.dup(2)
-    os.dup2(new_target.fileno(), 2)
+    has_redirected = False
+    try:
+        new_target = open(os.devnull, 'w')
+        old_stderr_fd = os.dup(2)
+        os.dup2(new_target.fileno(), 2)
+        has_redirected = True
+    except Exception:
+        pass
+
     try:
         yield
     finally:
-        os.dup2(old_stderr_fd, 2)
-        os.close(old_stderr_fd)
-        new_target.close()
+        if has_redirected:
+            try:
+                os.dup2(old_stderr_fd, 2)
+                os.close(old_stderr_fd)
+            except Exception:
+                pass
+            try:
+                new_target.close()
+            except Exception:
+                pass
 
 with silence_stderr():
     from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor, pipeline
