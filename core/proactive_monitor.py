@@ -251,8 +251,39 @@ class ProactiveMonitor:
                 n["triggered"] = True
                 triggered_any = True
                 
-                # Format Hinglish warning alert
+                # Use local LLM to summarize/convert to indirect Hinglish conversational brief
+                summary_prompt = (
+                    "You are JARVIS. Convert the following incoming chat message from direct to respectful, indirect Hinglish "
+                    "(using Latin/WhatsApp script, female verb endings). "
+                    "Example 1: Roshan: 'Kab tak aa rha hai tu?' -> 'Sir, roshan ne aapko whatsapp par message kiya hai ki aap kab tak aa rahe ho?' "
+                    "Example 2: Boss: 'Please send the project report by 5 PM.' -> 'Sir, boss ne email par project report shaam paanch baje tak maangi hai.' "
+                    "Output ONLY the converted Hinglish briefing, under 18 words, no extra details or quotes."
+                )
+                user_prompt = f"Sender: {sender}\nChannel: {channel}\nMessage: '{msg_body}'"
+                
                 warning_text = f"Sir, aapko {channel} par {sender} ka message aaya hai: '{msg_body}'."
+                try:
+                    import ollama
+                    model_name = "qwen2.5"
+                    if os.path.exists("config/settings.yaml"):
+                        with open("config/settings.yaml") as sf:
+                            import yaml
+                            sett = yaml.safe_load(sf)
+                            model_name = sett.get("models", {}).get("main_brain", "qwen2.5")
+                    
+                    response = ollama.chat(
+                        model=model_name,
+                        messages=[
+                            {"role": "system", "content": summary_prompt},
+                            {"role": "user", "content": user_prompt}
+                        ],
+                        options={"temperature": 0.3}
+                    )
+                    brief_text = response["message"]["content"].strip().strip('"').strip("'")
+                    if brief_text and len(brief_text) > 5:
+                        warning_text = brief_text
+                except Exception as llm_err:
+                    logger.error(f"Failed to generate indirect message warning via local LLM: {llm_err}")
                 
                 alert_payload = {
                     "type": "incoming_message",

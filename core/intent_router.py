@@ -680,8 +680,10 @@ class IntentRouter:
 
         # 2. System Monitor
         words = cmd.split()
+        if any(p in cmd for p in ["status check", "vitals check", "stark diagnostics", "system diagnostics", "diagnostic check"]):
+            return {"skill": "system_monitor", "params": {"action": "stark_diagnostics"}, "domain": "general"}
         if any(p in cmd for p in ["system monitor", "status of the system", "system resources"]) or "cpu" in words or "ram" in words:
-            return {"skill": "system_monitor", "params": {}, "domain": "general"}
+            return {"skill": "system_monitor", "params": {"action": "regular_diagnostics"}, "domain": "general"}
 
         # 3. Screen Vision
         if any(p in cmd for p in ["screen", "what's on my screen", "describe my screen", "what do you see", "what can you see"]):

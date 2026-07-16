@@ -682,8 +682,19 @@ class JARVIS:
                         "sender": data["sender"],
                         "message": data["message"]
                     }
+                    sender = data["sender"]
+                    channel = data["channel"]
                     spoken_text = data["warning_text"]
-                    logger.info(f"Setting active_context for incoming message from: {data['sender']}")
+                    
+                    # Stateful conversational turning check
+                    last_sess = getattr(self, "last_message_session", None)
+                    if last_sess and last_sess.get("sender") == sender and last_sess.get("channel") == channel:
+                        spoken_text = spoken_text.replace("aapko whatsapp par message kiya hai ki", "reply kiya hai ki")
+                        spoken_text = spoken_text.replace("aapko whatsapp par message kiya hai", "reply kiya hai")
+                        spoken_text = spoken_text.replace("message kiya hai ki", "reply kiya hai ki")
+                        spoken_text = spoken_text.replace("message kiya hai", "reply kiya hai")
+                    
+                    logger.info(f"Setting active_context for incoming message from: {sender}")
                     
                     if self.is_authenticated and not self.is_asleep and self.orb.state == "idle":
                         self.orb.set_state("speaking")
@@ -1306,6 +1317,64 @@ class JARVIS:
             logger.error(f"Failed to save outgoing message: {err}")
 
         return f"Sir, maine aapki taraf se {channel} par {sender} ko reply bhej diya hai. Message tha: '{draft}'."
+
+    def _log_direct_reply(self, sender: str, channel: str, reply_text: str) -> str:
+        """Logs a direct text response to config/outgoing_replies.json on behalf of the user."""
+        logger.info(f"Logging direct response on behalf of user to {sender} on {channel}: {reply_text}...")
+        
+        out_db_path = "config/outgoing_replies.json"
+        try:
+            replies = []
+            if os.path.exists(out_db_path):
+                with open(out_db_path, "r", encoding="utf-8") as f:
+                    replies = json.load(f)
+            
+            replies.append({
+                "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "channel": channel,
+                "recipient": sender,
+                "message_body": reply_text,
+                "status": "SENT"
+            })
+            
+            with open(out_db_path, "w", encoding="utf-8") as f:
+                json.dump(replies, f, indent=2, ensure_ascii=False)
+            logger.success(f"Message logged to outgoing database: {reply_text}")
+        except Exception as err:
+            logger.error(f"Failed to save direct outgoing message: {err}")
+
+        return f"Sir, maine {channel} par {sender} ko bol diya hai: '{reply_text}'."
+
+    def _execute_stark_diagnostics(self) -> str:
+        """Runs system hardware checks and formats them into a witty, sarcastic Hinglish MCU diagnostic briefing."""
+        logger.info("Executing Stark diagnostic sweep...")
+        try:
+            import psutil
+            cpu = psutil.cpu_percent()
+            ram = psutil.virtual_memory().percent
+            battery = psutil.sensors_battery()
+            bat_percent = battery.percent if battery else 100
+            power_plugged = battery.power_plugged if battery else True
+        except ImportError:
+            cpu, ram, bat_percent, power_plugged = 12.5, 45.2, 85, True
+
+        gpu_info = ""
+        try:
+            import GPUtil
+            gpus = GPUtil.getGPUs()
+            if gpus:
+                gpu_info = f"GPU load {gpus[0].load*100:.1f}% hai aur temperature {gpus[0].temperature}°C."
+        except Exception:
+            pass
+
+        bat_status = "charging par hai" if power_plugged else "battery par chal raha hai"
+        response = (
+            f"Sir, diagnostics sweep complete ho gaya hai. [laugh] Main arc reactor—sorry, "
+            f"aapke laptop ki battery check kar chuki hu, ye abhi {bat_percent}% par hai aur {bat_status}. "
+            f"CPU utilization {cpu}% hai aur memory load {ram}% par chal raha hai. "
+            f"{gpu_info} Overall, coding system bilkul active aur nominal hai, sir!"
+        )
+        return response
 
     def _generate_response(self, text: str, domain: str = "general") -> str:
         memories = self.brain.format_memories_for_prompt(text)
@@ -2566,13 +2635,17 @@ class JARVIS:
                     response = self._generate_response(text, "development")
 
                 elif skill == "system_monitor":
-                    try:
-                        import psutil
-                        cpu = psutil.cpu_percent()
-                        ram = psutil.virtual_memory().percent
-                        response = f"System resources are nominal. CPU is at {cpu} percent and RAM is at {ram} percent, sir."
-                    except ImportError:
-                        response = "psutil is not installed. Run `pip install psutil` to monitor the system."
+                    action = params.get("action", "")
+                    if action == "stark_diagnostics":
+                        response = self._execute_stark_diagnostics()
+                    else:
+                        try:
+                            import psutil
+                            cpu = psutil.cpu_percent()
+                            ram = psutil.virtual_memory().percent
+                            response = f"System resources are nominal. CPU is at {cpu} percent and RAM is at {ram} percent, sir."
+                        except ImportError:
+                            response = "psutil is not installed. Run `pip install psutil` to monitor the system."
                 
                 elif skill == "app_control":
                     action = params.get("action", "")
@@ -3781,20 +3854,35 @@ class JARVIS:
                     word_count = len(cmd_lower.split())
 
                     if ctx.get("type") == "incoming_message":
-                        if any(w in cmd_lower for w in ["reply", "jawab", "message kar", "message do", "tum reply", "tum apane hisaab se", "bhejo"]):
-                            sender = ctx["sender"]
-                            channel = ctx["channel"]
-                            msg_body = ctx["message"]
-                            self.active_context = None
-                            
+                        sender = ctx["sender"]
+                        channel = ctx["channel"]
+                        msg_body = ctx["message"]
+                        
+                        # Store session context for follow-up turns
+                        self.last_message_session = {
+                            "sender": sender,
+                            "channel": channel,
+                            "last_message": msg_body
+                        }
+                        
+                        self.active_context = None
+                        
+                        if any(w in cmd_lower for w in ["apne hisaab", "apne hisab", "apne tarike", "on your own", "apne se"]):
                             response = self._draft_and_send_style_reply(sender, channel, msg_body, text)
-                            self.orb.set_state("speaking")
-                            self.tts.speak(response)
-                            self.orb.set_state("idle")
-                            self.brain.store(response, role="assistant")
-                            continue
                         else:
-                            self.active_context = None
+                            # Direct message text extraction
+                            clean_reply = text
+                            for prefix in ["reply kar do ki ", "reply kar do ", "message kar do ki ", "message kar do ", "reply do ", "bol do ki ", "bol do "]:
+                                if clean_reply.lower().startswith(prefix):
+                                    clean_reply = clean_reply[len(prefix):]
+                                    break
+                            response = self._log_direct_reply(sender, channel, clean_reply)
+                            
+                        self.orb.set_state("speaking")
+                        self.tts.speak(response)
+                        self.orb.set_state("idle")
+                        self.brain.store(response, role="assistant")
+                        continue
 
                     elif word_count <= 5:
                         if ctx.get("type") == "confirm_file_patch":

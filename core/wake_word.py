@@ -402,6 +402,13 @@ class WakeWordDetector:
                 
                 # Define phonetic triggers to catch common transcription variants
                 phonetic_matches = [target_word]
+                # Add Hinglish wake word phrases
+                hinglish_phrases = [
+                    "chalo utho jarvis", "jarvis chalo utho", "jarvis kaise ho", 
+                    "kaise ho jarvis", "chalo utho", "kaise ho", "aaj bahut kaam hai", 
+                    "utho jarvis", "wake up jarvis", "wake up"
+                ]
+                phonetic_matches.extend(hinglish_phrases)
                 if "jarvis" in target_word:
                     phonetic_matches.extend([
                         "jarvis", "jarves", "jarv", "garvis", "java", "charvis", "service",
