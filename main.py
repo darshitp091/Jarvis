@@ -304,6 +304,10 @@ class JARVIS:
         self.active_presentation_topic = None
         self.active_presentation_status = "idle"  # idle, created
 
+        # Busy state tracking for follow-up and YouTube routing
+        self.busy_state = None
+        self.busy_suggested_query = None
+
         # Parallel Visual Assistant Loop
         self.visual_assistant_enabled = True
         self.last_active_title = ""
@@ -1946,6 +1950,90 @@ class JARVIS:
 
         # Store user input in memory
         self.brain.store(text, role="user")
+
+        # 1. State: awaiting_youtube_suggestion (User confirms or denies opening YouTube)
+        if self.busy_state == "awaiting_youtube_suggestion":
+            text_lower = text.lower().strip()
+            yes_cues = ["haan", "yes", "kholo", "chalao", "sure", "play", "okay", "ok", "kar do", "bhej do"]
+            no_cues = ["nahi", "no", "na", "mat karo", "rehne do", "disturb mat karo"]
+            
+            if any(c in text_lower for c in yes_cues) and not any(c in text_lower for c in no_cues):
+                query = self.busy_suggested_query or "lofi beats study"
+                self.busy_state = None
+                self.busy_suggested_query = None
+                response = f"Ji sir, YouTube par '{query}' search karke chala rahi hu. Enjoy kijiye!"
+                self.orb.set_state("speaking")
+                self.tts.speak(response)
+                self.orb.set_state("idle")
+                self.brain.store(response, role="assistant")
+                # Open the video in browser
+                self.web.open_youtube_video(query)
+                return
+            elif any(c in text_lower for c in no_cues):
+                self.busy_state = None
+                self.busy_suggested_query = None
+                response = "Thik hai sir, distrub nahi karungi. Aap apna kaam kijiye."
+                self.orb.set_state("speaking")
+                self.tts.speak(response)
+                self.orb.set_state("idle")
+                self.brain.store(response, role="assistant")
+                return
+
+        # 2. State: user_said_busy (User has just explained what they are busy with)
+        if self.busy_state == "user_said_busy":
+            # Call local LLM or Mistral to generate a sarcastic roast and recommend a YouTube search query based on what the user said
+            prompt = (
+                f"User said they are busy with this activity: '{text}'.\n"
+                "Write a short, highly sarcastic, funny, and teasing roast in Hinglish (Latin script, WhatsApp style) about the user and this activity.\n"
+                "After the roast, suggest to open a relevant video on YouTube to help them focus or distract them (e.g. lofi beats for studying, memes for slacking off, programming tutorials for coding).\n"
+                "Output ONLY a raw JSON object containing these two fields:\n"
+                '{"roast": "...", "youtube_query": "..."}\n'
+                "Do not include any markdown code wrappers, quotes, or backticks. Output raw JSON only."
+            )
+            
+            try:
+                try:
+                    raw = self.query_llm([{"role": "user", "content": prompt}], provider="mistral", model="mistral-large-2512")
+                except Exception:
+                    # Fallback to local brain
+                    model_name = self.settings.get("models", {}).get("main_brain", "qwen2.5-coder:7b")
+                    raw = self.query_llm([{"role": "user", "content": prompt}], provider="local", model=model_name)
+                
+                raw = raw.strip().replace("```json", "").replace("```", "").strip()
+                start_idx = raw.find("{")
+                end_idx = raw.rfind("}")
+                if start_idx != -1 and end_idx != -1:
+                    raw = raw[start_idx:end_idx+1]
+                import json
+                data = json.loads(raw)
+                roast = data.get("roast", "Wah sir, bada bhari kaam kar rahe ho!")
+                yt_query = data.get("youtube_query", "lofi beats study")
+            except Exception as e:
+                logger.error(f"Failed to generate custom roast: {e}")
+                roast = f"Acha, '{text}' chal raha hai? Sahi hai sir, lage rahiye!"
+                yt_query = "funny video"
+
+            self.busy_suggested_query = yt_query
+            self.busy_state = "awaiting_youtube_suggestion"
+            
+            response = f"{roast} [pause] Kya main aapke liye YouTube par '{yt_query}' khol doon?"
+            self.orb.set_state("speaking")
+            self.tts.speak(response)
+            self.orb.set_state("idle")
+            self.brain.store(response, role="assistant")
+            return
+
+        # 3. Intercept if user says they are busy (Trigger state machine)
+        busy_cues = ["busy hoon", "busy hu", "kaam kar raha", "kaam kr rha", "busy in some work", "thoda kaam hai", "baad mein baat", "baad me baat", "busy in work"]
+        text_lower = text.lower().strip()
+        if any(c in text_lower for c in busy_cues):
+            self.busy_state = "user_said_busy"
+            response = "Acha, theek hai sir, main disturb nahi karungi. Waise... aap abhi kis kaam mein itne busy ho?"
+            self.orb.set_state("speaking")
+            self.tts.speak(response)
+            self.orb.set_state("idle")
+            self.brain.store(response, role="assistant")
+            return
 
         # Check for presentation finalization response
         if self.active_presentation_status == "created" and self.active_presentation_topic:
