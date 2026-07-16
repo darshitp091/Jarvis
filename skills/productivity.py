@@ -462,13 +462,23 @@ class ProductivityPlanner:
         with open(md_path, "w", encoding="utf-8") as f:
             f.write(md_content)
 
-        logger.info(f"Marp: Compiling '{md_path}' → '{abs_out}'...")
+        # Check if local Marp is installed
+        local_marp = "node_modules/.bin/marp.cmd" if os.name == "nt" else "node_modules/.bin/marp"
+        md_path_abs = os.path.abspath(md_path)
+        if os.path.exists(local_marp):
+            local_marp_abs = os.path.abspath(local_marp)
+            cmd_args = [local_marp_abs, md_path_abs, "--pptx", "--output", abs_out, "--allow-local-files", "--no-stdin"]
+            logger.info(f"Marp: Using local workspace marp-cli installation at {local_marp_abs}")
+        else:
+            cmd_args = [npx, "--yes", "@marp-team/marp-cli@latest", md_path_abs,
+                        "--pptx", "--output", abs_out, "--allow-local-files", "--no-stdin"]
+            logger.info("Marp: Local installation not found — falling back to npx.")
 
         try:
             result = subprocess.run(
-                [npx, "--yes", "@marp-team/marp-cli@latest", md_path,
-                 "--pptx", "--output", abs_out, "--allow-local-files"],
-                capture_output=True, text=True, timeout=120
+                cmd_args,
+                capture_output=True, text=True, timeout=120,
+                shell=(os.name == "nt")
             )
             if result.returncode == 0 and os.path.exists(abs_out):
                 logger.success(f"Marp: PPTX generated successfully at {abs_out}")
