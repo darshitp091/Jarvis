@@ -494,6 +494,247 @@ class ProductivityPlanner:
             logger.error(f"Marp exception: {e} — falling back to python-pptx.")
             return self.pptx_helper(title, subtitle, theme, slides_content, output_path)
 
+    def revealjs_helper(self, title: str, subtitle: str, theme: str, slides_content: list, output_path: str = None) -> str:
+        """
+        Generates a premium, interactive, animated Reveal.js HTML slideshow.
+        Opens it directly in the web browser for a professional, animated client review.
+        """
+        import re as _re
+        import webbrowser
+
+        if not output_path:
+            slug = _re.sub(r'[^a-zA-Z0-9_]', '_', title).lower().strip('_')
+            output_path = f"config/{slug}_slides.html"
+
+        # Map themes to Reveal.js configs
+        reveal_themes = {
+            "stark_tech": "black",
+            "midnight_cyberpunk": "league",
+            "light_professional": "serif",
+            "forest_minimalist": "beige"
+        }
+        rev_theme = reveal_themes.get(theme.lower(), "black")
+        
+        transitions = {
+            "stark_tech": "convex",
+            "midnight_cyberpunk": "zoom",
+            "light_professional": "fade",
+            "forest_minimalist": "slide"
+        }
+        trans = transitions.get(theme.lower(), "slide")
+
+        # Custom CSS variables
+        css_map = {
+            "stark_tech": """
+                .reveal {
+                    background: radial-gradient(circle, #27272a 0%, #09090b 100%) !important;
+                    color: #f4f4f5 !important;
+                }
+                h1, h2, h3 {
+                    color: #ef4444 !important;
+                    text-shadow: 0 0 10px rgba(239, 68, 68, 0.4) !important;
+                    font-family: 'Segoe UI', sans-serif !important;
+                    text-transform: uppercase !important;
+                }
+                .slide-layout {
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    gap: 30px;
+                }
+                .slide-left {
+                    flex: 1.2;
+                    text-align: left;
+                }
+                .slide-right {
+                    flex: 0.8;
+                }
+                .slide-image {
+                    border: 3px solid #ef4444;
+                    border-radius: 8px;
+                    box-shadow: 0 0 15px rgba(239, 68, 68, 0.4);
+                }
+                li {
+                    margin-bottom: 12px !important;
+                    font-size: 0.9em !important;
+                    color: #d4d4d8 !important;
+                }
+            """,
+            "midnight_cyberpunk": """
+                .reveal {
+                    background: radial-gradient(circle, #0f172a 0%, #020617 100%) !important;
+                    color: #f8fafc !important;
+                }
+                h1, h2, h3 {
+                    color: #38bdf8 !important;
+                    text-shadow: 0 0 15px rgba(56, 189, 248, 0.6) !important;
+                    font-family: 'Segoe UI', sans-serif !important;
+                    text-transform: uppercase !important;
+                }
+                .slide-layout {
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    gap: 30px;
+                }
+                .slide-left {
+                    flex: 1.2;
+                    text-align: left;
+                }
+                .slide-right {
+                    flex: 0.8;
+                }
+                .slide-image {
+                    border: 3px solid #ec4899;
+                    border-radius: 12px;
+                    box-shadow: 0 0 20px rgba(236, 72, 153, 0.5);
+                }
+                li {
+                    margin-bottom: 12px !important;
+                    font-size: 0.9em !important;
+                    color: #cbd5e1 !important;
+                }
+            """,
+            "light_professional": """
+                .reveal {
+                    background: #f8fafc !important;
+                    color: #334155 !important;
+                }
+                h1, h2, h3 {
+                    color: #0f172a !important;
+                    font-family: 'Segoe UI', sans-serif !important;
+                    font-weight: 800 !important;
+                }
+                .slide-layout {
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    gap: 30px;
+                }
+                .slide-left {
+                    flex: 1.2;
+                    text-align: left;
+                }
+                .slide-right {
+                    flex: 0.8;
+                }
+                .slide-image {
+                    border-radius: 8px;
+                    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+                }
+                li {
+                    margin-bottom: 12px !important;
+                    font-size: 0.9em !important;
+                    color: #475569 !important;
+                }
+            """
+        }
+        custom_css = css_map.get(theme.lower(), css_map["stark_tech"])
+
+        # Build slides html
+        slides_html_list = []
+        for slide in slides_content:
+            s_title = slide.get("title", "Slide")
+            bullets = slide.get("bullets", [])
+            image_path = slide.get("image_path", "")
+
+            bullets_html = "\\n".join([f"<li>{b}</li>" for b in bullets])
+
+            has_img = image_path and os.path.exists(image_path)
+            if has_img:
+                img_abs = os.path.abspath(image_path).replace("\\\\", "/")
+                slide_html = f"""
+                <section data-transition="{trans}">
+                    <div class="slide-layout">
+                        <div class="slide-left">
+                            <h2>{s_title}</h2>
+                            <ul>
+                                {bullets_html}
+                            </ul>
+                        </div>
+                        <div class="slide-right">
+                            <img class="slide-image" src="file:///{img_abs}" alt="{s_title}" style="max-height: 400px; max-width: 100%;">
+                        </div>
+                    </div>
+                </section>
+                """
+            else:
+                slide_html = f"""
+                <section data-transition="{trans}">
+                    <h2>{s_title}</h2>
+                    <ul style="display: inline-block; text-align: left;">
+                        {bullets_html}
+                    </ul>
+                </section>
+                """
+            slides_html_list.append(slide_html)
+
+        slides_html = "\\n".join(slides_html_list)
+
+        html_content = f"""<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <title>{{title}}</title>
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.5.0/reveal.min.css">
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.5.0/theme/{{rev_theme}}.min.css" id="theme">
+        <style>
+            {{custom_css}}
+            .reveal h1, .reveal h2, .reveal h3 {{{{
+                text-transform: none !important;
+            }}}}
+        </style>
+    </head>
+    <body>
+        <div class="reveal">
+            <div class="slides">
+                <!-- Title Slide -->
+                <section data-transition="{{trans}}">
+                    <h1>{{title}}</h1>
+                    <p style="color: #a1a1aa; font-size: 1.2em;">{{subtitle}}</p>
+                </section>
+                
+                <!-- Content Slides -->
+                {{slides_html}}
+            </div>
+        </div>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.5.0/reveal.js"></script>
+        <script>
+            Reveal.initialize({{{{
+                hash: true,
+                transition: '{{trans}}',
+                backgroundTransition: 'fade',
+                slideNumber: true,
+                controls: true,
+                progress: true,
+                center: true
+            }}}});
+        </script>
+    </body>
+</html>
+"""
+        # Format the template variables
+        final_html = html_content.format(
+            title=title,
+            subtitle=subtitle,
+            rev_theme=rev_theme,
+            custom_css=custom_css,
+            trans=trans,
+            slides_html=slides_html
+        )
+
+        os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+        with open(output_path, "w", encoding="utf-8") as f:
+            f.write(final_html)
+        
+        logger.success(f"Reveal.js: Interactive HTML presentation generated at {output_path}")
+        try:
+            webbrowser.open(os.path.abspath(output_path))
+        except Exception as err:
+            logger.error(f"Failed to open browser: {err}")
+            
+        return f"Marp and Reveal.js presentations compiled, sir — '{os.path.basename(output_path)}' open in browser."
+
     def pptx_helper(self, title: str, subtitle: str, theme: str, slides_content: list, output_path: str = "config/presentation.pptx") -> str:
         """Creates a professional PowerPoint presentation with dynamic theme layouts and images using python-pptx locally."""
 

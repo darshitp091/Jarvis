@@ -1249,19 +1249,25 @@ class JARVIS:
         self.active_presentation_topic = title
         self.active_presentation_status = "created"
 
-        # 6. Compile PPTX with topic-based filename via Marp (falls back to python-pptx)
+        # 6. Compile PPTX with topic-based filename via Marp & Interactive Reveal.js HTML
         import re as _re
         topic_filename = _re.sub(r'[^a-zA-Z0-9_]', '_', title).lower().strip('_')
         pptx_path = f"config/{topic_filename}.pptx"
-        self._last_pptx_path = pptx_path  # store for open/modify usage
+        html_path = f"config/{topic_filename}.html"
+        self._last_pptx_path = pptx_path
+        
+        # Compile static PPTX
         self.productivity.marp_pptx_helper(pres_title, pres_subtitle, theme, slides_content, output_path=pptx_path)
         self.productivity.open_presentation(filepath=pptx_path)
         
+        # Compile and open interactive Reveal.js slideshow
+        self.productivity.revealjs_helper(pres_title, pres_subtitle, theme, slides_content, output_path=html_path)
+        
         # 7. Ask user for review
         self.orb.set_state("speaking")
-        self.tts.speak("Maine presentation open kar di hai, sir. Ek baar dekh lijiye aur bataiye ki ye theek hai ya koi change karna hai?")
+        self.tts.speak("Maine static presentation open kar di hai aur browser mein interactive animated slides bhi load kar di hain, sir. Ek baar look check kar lijiye.")
         self.orb.set_state("idle")
-        return f"Presentation '{topic_filename}.pptx' khol di hai, sir."
+        return f"Presentation '{topic_filename}.pptx' and interactive slides khol di hain, sir."
 
     def _draft_and_send_style_reply(self, sender: str, channel: str, msg_body: str, user_instruction: str) -> str:
         """Drafts a reply on behalf of the user using LLM styled after past tone, and records it to config/outgoing_replies.json."""
