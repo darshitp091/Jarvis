@@ -736,232 +736,176 @@ class ProductivityPlanner:
         return f"Marp and Reveal.js presentations compiled, sir — '{os.path.basename(output_path)}' open in browser."
 
     def pptx_helper(self, title: str, subtitle: str, theme: str, slides_content: list, output_path: str = "config/presentation.pptx") -> str:
-        """Creates a premium PowerPoint presentation with cards layout, custom colors, and slide transitions locally."""
+        """
+        Creates a premium PowerPoint presentation by loading a pre-designed master template 
+        and replacing its text and image placeholders, preserving all original fonts, alignments, and transitions.
+        """
+        import shutil
 
         try:
             from pptx import Presentation
             from pptx.util import Inches, Pt
-            from pptx.dml.color import RGBColor
-            from pptx.enum.shapes import MSO_SHAPE
-            from pptx.enum.text import PP_ALIGN
-            from pptx.oxml import parse_xml
-            from pptx.oxml.ns import nsdecls
             
-            prs = Presentation()
-            prs.slide_width = Inches(13.333)
-            prs.slide_height = Inches(7.5)
-
-            # Helper to add slide transitions
-            def add_slide_transition(slide, trans_type="fade"):
-                try:
-                    tx_xml = f'<p:transition {nsdecls("p")}><p:{trans_type}/></p:transition>'
-                    slide.element.append(parse_xml(tx_xml))
-                except Exception:
-                    pass
-
-            # Theme parameters
-            THEMES = {
-                "stark_tech": {
-                    "bg": RGBColor(17, 24, 39),          # Dark gray
-                    "bg_card": RGBColor(31, 41, 55),     # Lighter dark gray
-                    "title_color": RGBColor(249, 115, 22), # Orange
-                    "body_color": RGBColor(243, 244, 246), # Light gray
-                    "accent": RGBColor(239, 68, 68),      # Red
-                    "font_title": "Trebuchet MS",
-                    "font_body": "Arial"
-                },
-                "midnight_cyberpunk": {
-                    "bg": RGBColor(9, 13, 22),           # Dark indigo
-                    "bg_card": RGBColor(17, 24, 39),     # Lighter dark
-                    "title_color": RGBColor(56, 189, 248), # Cyan
-                    "body_color": RGBColor(255, 255, 255), # White
-                    "accent": RGBColor(236, 72, 153),      # Hot Pink
-                    "font_title": "Trebuchet MS",
-                    "font_body": "Calibri"
-                },
-                "light_professional": {
-                    "bg": RGBColor(248, 250, 252),        # Off-white
-                    "bg_card": RGBColor(255, 255, 255),   # Pure white
-                    "title_color": RGBColor(15, 23, 42),   # Deep Slate
-                    "body_color": RGBColor(71, 85, 105),   # Slate gray
-                    "accent": RGBColor(59, 130, 246),      # Cool Blue
-                    "font_title": "Calibri",
-                    "font_body": "Calibri"
-                },
-                "forest_minimalist": {
-                    "bg": RGBColor(244, 244, 245),        # Warm gray
-                    "bg_card": RGBColor(255, 255, 255),   # Pure white
-                    "title_color": RGBColor(6, 78, 59),    # Emerald
-                    "body_color": RGBColor(31, 41, 55),    # Dark gray
-                    "accent": RGBColor(120, 113, 108),     # Muted stone
-                    "font_title": "Georgia",
-                    "font_body": "Calibri"
-                }
+            # Map theme to user downloaded premium templates
+            TEMPLATE_MAP = {
+                "stark_tech": "templates/Stark-Tech-Architecting-the-Future.pptx",
+                "midnight_cyberpunk": "templates/Branding_and_marketing.pptx",
+                "light_professional": "templates/Premium-Corporate-Business-Strategy.pptx",
+                "forest_minimalist": "templates/Architecting-Modern-Software-Defense.pptx"
             }
+            
+            default_template = "templates/Future-Ready-Product-Launch-and-Roadmap-Strategy.pptx"
+            selected_template = TEMPLATE_MAP.get(theme.lower(), default_template)
+            
+            # Fallback if selected template is missing
+            if not os.path.exists(selected_template):
+                logger.warning(f"Selected template '{selected_template}' not found. Searching templates/ for alternative...")
+                pptx_files = [f for f in os.listdir("templates") if f.endswith(".pptx")]
+                if pptx_files:
+                    selected_template = os.path.join("templates", pptx_files[0])
+                else:
+                    raise FileNotFoundError("No templates found in templates/ directory.")
 
-            style = THEMES.get(theme.lower(), THEMES["stark_tech"])
+            logger.info(f"Loading premium presentation template: {selected_template}")
+            prs = Presentation(os.path.abspath(selected_template))
+            
+            # 1. Populate Slide 0: Title Slide
+            if len(prs.slides) > 0:
+                title_slide = prs.slides[0]
+                txt_shapes = []
+                for s in title_slide.shapes:
+                    if s.has_text_frame and s.text_frame.text.strip():
+                        txt_shapes.append(s)
+                txt_shapes.sort(key=lambda s: s.top)
+                
+                if len(txt_shapes) > 0:
+                    tf = txt_shapes[0].text_frame
+                    if tf.paragraphs and tf.paragraphs[0].runs:
+                        tf.paragraphs[0].runs[0].text = title
+                        for r in tf.paragraphs[0].runs[1:]:
+                            r.text = ""
+                    else:
+                        tf.text = title
+                        
+                if len(txt_shapes) > 1:
+                    tf = txt_shapes[1].text_frame
+                    if tf.paragraphs and tf.paragraphs[0].runs:
+                        tf.paragraphs[0].runs[0].text = subtitle
+                        for r in tf.paragraphs[0].runs[1:]:
+                            r.text = ""
+                    else:
+                        tf.text = subtitle
 
-            # 1. Slide 1: Title Slide (Full Layout custom styling)
-            blank_layout = prs.slide_layouts[6] # Blank slide
-            slide = prs.slides.add_slide(blank_layout)
-            add_slide_transition(slide, "fade")
-
-            # Set background color
-            bg_rect = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, 0, 0, prs.slide_width, prs.slide_height)
-            bg_rect.fill.solid()
-            bg_rect.fill.fore_color.rgb = style["bg"]
-            bg_rect.line.fill.background()
-
-            # Decorative accent shape
-            accent_bar = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0.8), Inches(2.2), Inches(0.1), Inches(3.2))
-            accent_bar.fill.solid()
-            accent_bar.fill.fore_color.rgb = style["accent"]
-            accent_bar.line.fill.background()
-
-            # Add Title Text Frame
-            tx_title = slide.shapes.add_textbox(Inches(1.2), Inches(2.0), Inches(11.0), Inches(2.0))
-            tf_title = tx_title.text_frame
-            tf_title.word_wrap = True
-            p_title = tf_title.paragraphs[0]
-            p_title.text = title
-            p_title.font.name = style["font_title"]
-            p_title.font.size = Pt(54)
-            p_title.font.bold = True
-            p_title.font.color.rgb = style["title_color"]
-
-            # Add Subtitle Text Frame
-            tx_sub = slide.shapes.add_textbox(Inches(1.2), Inches(3.8), Inches(11.0), Inches(1.5))
-            tf_sub = tx_sub.text_frame
-            tf_sub.word_wrap = True
-            p_sub = tf_sub.paragraphs[0]
-            p_sub.text = subtitle
-            p_sub.font.name = style["font_body"]
-            p_sub.font.size = Pt(22)
-            p_sub.font.color.rgb = style["body_color"]
-
-            # 2. Slides 2+: Content Slides
-            # Select transition type dynamically based on theme
-            trans_choice = "push" if theme.lower() == "stark_tech" else "fade"
-            if theme.lower() == "midnight_cyberpunk":
-                trans_choice = "zoom"
-            elif theme.lower() == "forest_minimalist":
-                trans_choice = "wipe"
-
-            for slide_data in slides_content:
+            # 2. Populate Slide 1+: Content Slides
+            for idx, slide_data in enumerate(slides_content):
+                slide_idx = idx + 1
+                if slide_idx >= len(prs.slides):
+                    break
+                    
+                slide = prs.slides[slide_idx]
                 s_title = slide_data.get("title", "Topic")
                 s_bullets = slide_data.get("bullets", [])
                 image_path = slide_data.get("image_path", "")
-
-                slide = prs.slides.add_slide(blank_layout)
-                add_slide_transition(slide, trans_choice)
-
-                # Set background
-                bg_rect = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, 0, 0, prs.slide_width, prs.slide_height)
-                bg_rect.fill.solid()
-                bg_rect.fill.fore_color.rgb = style["bg"]
-                bg_rect.line.fill.background()
-
-                # Title Text Box
-                tx_header = slide.shapes.add_textbox(Inches(0.8), Inches(0.6), Inches(11.7), Inches(1.0))
-                tf_header = tx_header.text_frame
-                tf_header.word_wrap = True
-                p_header = tf_header.paragraphs[0]
-                p_header.text = s_title
-                p_header.font.name = style["font_title"]
-                p_header.font.size = Pt(36)
-                p_header.font.bold = True
-                p_header.font.color.rgb = style["title_color"]
-
-                # Accent line separator under header
-                sep_line = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0.8), Inches(1.5), Inches(11.7), Inches(0.04))
-                sep_line.fill.solid()
-                sep_line.fill.fore_color.rgb = style["accent"]
-                sep_line.line.fill.background()
-
-                # Check if image is available and valid
-                has_image = image_path and os.path.exists(image_path)
-
-                if has_image:
-                    # Layout A: Side-by-side. Text vertical cards on left, Image on right
-                    for idx, bullet in enumerate(s_bullets[:3]):  # Max 3 bullet cards in side-by-side
-                        card_y = 1.8 + (idx * 1.6)
+                
+                # Get all text shapes on this slide and sort vertically
+                all_text_shapes = []
+                for s in slide.shapes:
+                    if s.has_text_frame:
+                        txt_clean = s.text_frame.text.strip()
+                        if len(txt_clean) > 2:
+                            all_text_shapes.append(s)
+                            
+                all_text_shapes.sort(key=lambda s: s.top)
+                
+                # First text shape is header/title
+                if all_text_shapes:
+                    header_shape = all_text_shapes[0]
+                    tf = header_shape.text_frame
+                    if tf.paragraphs and tf.paragraphs[0].runs:
+                        tf.paragraphs[0].runs[0].text = s_title
+                        for r in tf.paragraphs[0].runs[1:]:
+                            r.text = ""
+                    else:
+                        tf.text = s_title
                         
-                        # Draw card background
-                        card = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(0.8), Inches(card_y), Inches(5.8), Inches(1.4))
-                        card.fill.solid()
-                        card.fill.fore_color.rgb = style["bg_card"]
-                        # Thin accent line on left border
-                        card.line.color.rgb = style["accent"]
-                        card.line.width = Pt(1.5)
+                    content_shapes = all_text_shapes[1:]
+                    
+                    # If multiple card boxes exist in the template, map them horizontally
+                    if len(content_shapes) >= len(s_bullets) and len(s_bullets) > 0:
+                        content_shapes.sort(key=lambda s: s.left)
+                        for b_idx, bullet in enumerate(s_bullets):
+                            if b_idx < len(content_shapes):
+                                tf_card = content_shapes[b_idx].text_frame
+                                tf_card.word_wrap = True
+                                if tf_card.paragraphs and tf_card.paragraphs[0].runs:
+                                    tf_card.paragraphs[0].runs[0].text = bullet
+                                    for r in tf_card.paragraphs[0].runs[1:]:
+                                        r.text = ""
+                                    for p_extra in tf_card.paragraphs[1:]:
+                                        p_extra.text = ""
+                                else:
+                                    tf_card.text = bullet
+                    else:
+                        if content_shapes:
+                            tf_body = content_shapes[0].text_frame
+                            tf_body.word_wrap = True
+                            tf_body.text = ""
+                            for b_idx, bullet in enumerate(s_bullets):
+                                if b_idx == 0:
+                                    p = tf_body.paragraphs[0]
+                                else:
+                                    p = tf_body.add_paragraph()
+                                p.text = "•  " + bullet
+                                p.font.size = Pt(16)
+                                p.space_after = Pt(8)
+                                
+                # Replace images on the slide if available
+                if image_path and os.path.exists(image_path):
+                    pic_shapes = [s for s in slide.shapes if s.shape_type == 13]
+                    if pic_shapes:
+                        pic_shape = pic_shapes[0]
+                        replaced = False
+                        # Method 1: Replace via blip_fill image part (standard pictures)
+                        try:
+                            rId = pic_shape._element.blip_fill.blip.rEmbed
+                            image_part = pic_shape.part.related_parts[rId]
+                            with open(image_path, "rb") as img_f:
+                                image_part._blob = img_f.read()
+                            replaced = True
+                            logger.info(f"Image replaced (blip_fill) on slide {slide_idx} with {image_path}")
+                        except Exception:
+                            pass
+                        # Method 2: Overlay a new picture at the same position/size
+                        if not replaced:
+                            try:
+                                from pptx.util import Emu
+                                left, top, width, height = pic_shape.left, pic_shape.top, pic_shape.width, pic_shape.height
+                                slide.shapes.add_picture(image_path, left, top, width, height)
+                                replaced = True
+                                logger.info(f"Image replaced (overlay) on slide {slide_idx} with {image_path}")
+                            except Exception as img_overlay_err:
+                                logger.warning(f"Could not replace image on slide {slide_idx}: {img_overlay_err}")
 
-                        # Write text inside card
-                        tx_content = slide.shapes.add_textbox(Inches(0.9), Inches(card_y + 0.1), Inches(5.6), Inches(1.2))
-                        tf_content = tx_content.text_frame
-                        tf_content.word_wrap = True
-                        p_bullet = tf_content.paragraphs[0]
-                        p_bullet.text = bullet
-                        p_bullet.font.name = style["font_body"]
-                        p_bullet.font.size = Pt(16)
-                        p_bullet.font.color.rgb = style["body_color"]
-                        p_bullet.line_spacing = 1.15
-                        
-                    # Add styled image on right
+            # 3. Clean up: Delete unused template slides
+            target_slide_count = len(slides_content) + 1
+            if len(prs.slides) > target_slide_count:
+                logger.info(f"Removing {len(prs.slides) - target_slide_count} unused slides from template...")
+                for idx in range(len(prs.slides) - 1, target_slide_count - 1, -1):
                     try:
-                        slide.shapes.add_picture(image_path, Inches(7.0), Inches(1.8), width=Inches(5.5), height=Inches(4.8))
-                    except Exception as img_err:
-                        logger.warning(f"Error adding image to slide '{s_title}': {img_err}")
-                else:
-                    # Layout B: Multi-column Card Grid layout (up to 3 cards)
-                    num_cards = min(len(s_bullets), 3)
-                    card_width = 3.6
-                    card_gap = 0.4
-                    start_x = 0.8
-                    if num_cards == 2:
-                        start_x = 2.8 # center them
-                    elif num_cards == 1:
-                        start_x = 4.8 # center single card
-
-                    for idx, bullet in enumerate(s_bullets[:3]):
-                        card_x = start_x + (idx * (card_width + card_gap))
-                        
-                        # Draw card background
-                        card = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(card_x), Inches(1.8), Inches(card_width), Inches(4.8))
-                        card.fill.solid()
-                        card.fill.fore_color.rgb = style["bg_card"]
-                        card.line.color.rgb = style["accent"]
-                        card.line.width = Pt(1.5)
-
-                        # Add card header indicator (e.g. "Key Point 01", "02")
-                        tx_ind = slide.shapes.add_textbox(Inches(card_x + 0.2), Inches(2.0), Inches(card_width - 0.4), Inches(0.5))
-                        tf_ind = tx_ind.text_frame
-                        p_ind = tf_ind.paragraphs[0]
-                        p_ind.text = f"FEATURE 0{idx+1}"
-                        p_ind.font.name = style["font_title"]
-                        p_ind.font.size = Pt(14)
-                        p_ind.font.bold = True
-                        p_ind.font.color.rgb = style["accent"]
-
-                        # Write main bullet text inside card
-                        tx_content = slide.shapes.add_textbox(Inches(card_x + 0.2), Inches(2.6), Inches(card_width - 0.4), Inches(3.8))
-                        tf_content = tx_content.text_frame
-                        tf_content.word_wrap = True
-                        p_bullet = tf_content.paragraphs[0]
-                        p_bullet.text = bullet
-                        p_bullet.font.name = style["font_body"]
-                        p_bullet.font.size = Pt(18)
-                        p_bullet.font.color.rgb = style["body_color"]
-                        p_bullet.line_spacing = 1.2
+                        del prs.slides._sldIdLst[idx]
+                    except Exception:
+                        pass
 
             out_p = os.path.abspath(os.path.expanduser(output_path))
             os.makedirs(os.path.dirname(out_p), exist_ok=True)
             prs.save(out_p)
-            logger.success(f"PowerPoint generated successfully at {output_path} with theme '{theme}'.")
-            return f"Successfully created PowerPoint presentation at {output_path} using theme '{theme}', sir."
+            logger.success(f"PowerPoint generated successfully at {output_path} using template '{selected_template}'.")
+            return f"Successfully created PowerPoint presentation at {output_path} using template '{os.path.basename(selected_template)}', sir."
         except ImportError:
             return "Sir, python-pptx install nahi hai. `pip install python-pptx` run karein."
         except Exception as e:
-            logger.error(f"Failed to generate presentation: {e}")
-            return f"Presentation banate waqt kuch gadbad ho gayi: {str(e)}"
+            logger.error(f"Failed to generate presentation from template: {e}")
+            return f"Presentation template fill karte waqt gadbad ho gayi: {str(e)}"
 
     def open_presentation(self, filepath: str = "config/presentation.pptx") -> str:
         """Opens the generated presentation locally on Windows."""

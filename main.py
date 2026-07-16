@@ -1255,25 +1255,21 @@ class JARVIS:
         self.active_presentation_topic = title
         self.active_presentation_status = "created"
 
-        # 6. Compile PPTX with topic-based filename via Marp & Interactive Reveal.js HTML
+        # 6. Fill PowerPoint using premium templates & save to presentations/ folder
         import re as _re
         topic_filename = _re.sub(r'[^a-zA-Z0-9_]', '_', title).lower().strip('_')
-        pptx_path = f"config/{topic_filename}.pptx"
-        html_path = f"config/{topic_filename}.html"
+        pptx_path = f"presentations/{topic_filename}.pptx"
         self._last_pptx_path = pptx_path
         
-        # Compile static PPTX
-        self.productivity.marp_pptx_helper(pres_title, pres_subtitle, theme, slides_content, output_path=pptx_path)
+        # Call the premium template filler
+        self.productivity.pptx_helper(pres_title, pres_subtitle, theme, slides_content, output_path=pptx_path)
         self.productivity.open_presentation(filepath=pptx_path)
-        
-        # Compile and open interactive Reveal.js slideshow
-        self.productivity.revealjs_helper(pres_title, pres_subtitle, theme, slides_content, output_path=html_path)
         
         # 7. Ask user for review
         self.orb.set_state("speaking")
-        self.tts.speak("Maine static presentation open kar di hai aur browser mein interactive animated slides bhi load kar di hain, sir. Ek baar look check kar lijiye.")
+        self.tts.speak("Maine premium templates se slide design populate kar di hai aur presentation folder mein save kar di hai, sir. Ek baar open PowerPoint check kar lijiye.")
         self.orb.set_state("idle")
-        return f"Presentation '{topic_filename}.pptx' and interactive slides khol di hain, sir."
+        return f"Presentation '{topic_filename}.pptx' generated inside presentations folder, sir."
 
     def _draft_and_send_style_reply(self, sender: str, channel: str, msg_body: str, user_instruction: str) -> str:
         """Drafts a reply on behalf of the user using LLM styled after past tone, and records it to config/outgoing_replies.json."""
