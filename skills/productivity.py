@@ -736,7 +736,7 @@ class ProductivityPlanner:
         return f"Marp and Reveal.js presentations compiled, sir — '{os.path.basename(output_path)}' open in browser."
 
     def pptx_helper(self, title: str, subtitle: str, theme: str, slides_content: list, output_path: str = "config/presentation.pptx") -> str:
-        """Creates a professional PowerPoint presentation with dynamic theme layouts and images using python-pptx locally."""
+        """Creates a premium PowerPoint presentation with cards layout, custom colors, and slide transitions locally."""
 
         try:
             from pptx import Presentation
@@ -744,15 +744,26 @@ class ProductivityPlanner:
             from pptx.dml.color import RGBColor
             from pptx.enum.shapes import MSO_SHAPE
             from pptx.enum.text import PP_ALIGN
+            from pptx.oxml import parse_xml
+            from pptx.oxml.ns import nsdecls
             
             prs = Presentation()
             prs.slide_width = Inches(13.333)
             prs.slide_height = Inches(7.5)
 
+            # Helper to add slide transitions
+            def add_slide_transition(slide, trans_type="fade"):
+                try:
+                    tx_xml = f'<p:transition {nsdecls("p")}><p:{trans_type}/></p:transition>'
+                    slide.element.append(parse_xml(tx_xml))
+                except Exception:
+                    pass
+
             # Theme parameters
             THEMES = {
                 "stark_tech": {
                     "bg": RGBColor(17, 24, 39),          # Dark gray
+                    "bg_card": RGBColor(31, 41, 55),     # Lighter dark gray
                     "title_color": RGBColor(249, 115, 22), # Orange
                     "body_color": RGBColor(243, 244, 246), # Light gray
                     "accent": RGBColor(239, 68, 68),      # Red
@@ -760,23 +771,26 @@ class ProductivityPlanner:
                     "font_body": "Arial"
                 },
                 "midnight_cyberpunk": {
-                    "bg": RGBColor(15, 23, 42),           # Slate dark
+                    "bg": RGBColor(9, 13, 22),           # Dark indigo
+                    "bg_card": RGBColor(17, 24, 39),     # Lighter dark
                     "title_color": RGBColor(56, 189, 248), # Cyan
                     "body_color": RGBColor(255, 255, 255), # White
                     "accent": RGBColor(236, 72, 153),      # Hot Pink
-                    "font_title": "Georgia",
+                    "font_title": "Trebuchet MS",
                     "font_body": "Calibri"
                 },
                 "light_professional": {
                     "bg": RGBColor(248, 250, 252),        # Off-white
+                    "bg_card": RGBColor(255, 255, 255),   # Pure white
                     "title_color": RGBColor(15, 23, 42),   # Deep Slate
                     "body_color": RGBColor(71, 85, 105),   # Slate gray
                     "accent": RGBColor(59, 130, 246),      # Cool Blue
-                    "font_title": "Arial",
-                    "font_body": "Arial"
+                    "font_title": "Calibri",
+                    "font_body": "Calibri"
                 },
                 "forest_minimalist": {
                     "bg": RGBColor(244, 244, 245),        # Warm gray
+                    "bg_card": RGBColor(255, 255, 255),   # Pure white
                     "title_color": RGBColor(6, 78, 59),    # Emerald
                     "body_color": RGBColor(31, 41, 55),    # Dark gray
                     "accent": RGBColor(120, 113, 108),     # Muted stone
@@ -790,14 +804,15 @@ class ProductivityPlanner:
             # 1. Slide 1: Title Slide (Full Layout custom styling)
             blank_layout = prs.slide_layouts[6] # Blank slide
             slide = prs.slides.add_slide(blank_layout)
+            add_slide_transition(slide, "fade")
 
-            # Set background color by drawing a full-slide rectangle
+            # Set background color
             bg_rect = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, 0, 0, prs.slide_width, prs.slide_height)
             bg_rect.fill.solid()
             bg_rect.fill.fore_color.rgb = style["bg"]
             bg_rect.line.fill.background()
 
-            # Decorative accent shape (a vertical colored line on the left side)
+            # Decorative accent shape
             accent_bar = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0.8), Inches(2.2), Inches(0.1), Inches(3.2))
             accent_bar.fill.solid()
             accent_bar.fill.fore_color.rgb = style["accent"]
@@ -825,12 +840,20 @@ class ProductivityPlanner:
             p_sub.font.color.rgb = style["body_color"]
 
             # 2. Slides 2+: Content Slides
+            # Select transition type dynamically based on theme
+            trans_choice = "push" if theme.lower() == "stark_tech" else "fade"
+            if theme.lower() == "midnight_cyberpunk":
+                trans_choice = "zoom"
+            elif theme.lower() == "forest_minimalist":
+                trans_choice = "wipe"
+
             for slide_data in slides_content:
                 s_title = slide_data.get("title", "Topic")
                 s_bullets = slide_data.get("bullets", [])
                 image_path = slide_data.get("image_path", "")
 
                 slide = prs.slides.add_slide(blank_layout)
+                add_slide_transition(slide, trans_choice)
 
                 # Set background
                 bg_rect = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, 0, 0, prs.slide_width, prs.slide_height)
@@ -858,35 +881,76 @@ class ProductivityPlanner:
                 # Check if image is available and valid
                 has_image = image_path and os.path.exists(image_path)
 
-                # Content layout bounding box
                 if has_image:
-                    # Side-by-side layout: Text on left, Image on right
-                    tx_content = slide.shapes.add_textbox(Inches(0.8), Inches(1.8), Inches(5.8), Inches(5.0))
+                    # Layout A: Side-by-side. Text vertical cards on left, Image on right
+                    for idx, bullet in enumerate(s_bullets[:3]):  # Max 3 bullet cards in side-by-side
+                        card_y = 1.8 + (idx * 1.6)
+                        
+                        # Draw card background
+                        card = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(0.8), Inches(card_y), Inches(5.8), Inches(1.4))
+                        card.fill.solid()
+                        card.fill.fore_color.rgb = style["bg_card"]
+                        # Thin accent line on left border
+                        card.line.color.rgb = style["accent"]
+                        card.line.width = Pt(1.5)
+
+                        # Write text inside card
+                        tx_content = slide.shapes.add_textbox(Inches(0.9), Inches(card_y + 0.1), Inches(5.6), Inches(1.2))
+                        tf_content = tx_content.text_frame
+                        tf_content.word_wrap = True
+                        p_bullet = tf_content.paragraphs[0]
+                        p_bullet.text = bullet
+                        p_bullet.font.name = style["font_body"]
+                        p_bullet.font.size = Pt(16)
+                        p_bullet.font.color.rgb = style["body_color"]
+                        p_bullet.line_spacing = 1.15
+                        
+                    # Add styled image on right
                     try:
                         slide.shapes.add_picture(image_path, Inches(7.0), Inches(1.8), width=Inches(5.5), height=Inches(4.8))
                     except Exception as img_err:
                         logger.warning(f"Error adding image to slide '{s_title}': {img_err}")
-                        # Fallback to full width if image fails to render
-                        tx_content.width = Inches(11.7)
                 else:
-                    # Full width layout
-                    tx_content = slide.shapes.add_textbox(Inches(0.8), Inches(1.8), Inches(11.7), Inches(5.0))
+                    # Layout B: Multi-column Card Grid layout (up to 3 cards)
+                    num_cards = min(len(s_bullets), 3)
+                    card_width = 3.6
+                    card_gap = 0.4
+                    start_x = 0.8
+                    if num_cards == 2:
+                        start_x = 2.8 # center them
+                    elif num_cards == 1:
+                        start_x = 4.8 # center single card
 
-                tf_content = tx_content.text_frame
-                tf_content.word_wrap = True
+                    for idx, bullet in enumerate(s_bullets[:3]):
+                        card_x = start_x + (idx * (card_width + card_gap))
+                        
+                        # Draw card background
+                        card = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(card_x), Inches(1.8), Inches(card_width), Inches(4.8))
+                        card.fill.solid()
+                        card.fill.fore_color.rgb = style["bg_card"]
+                        card.line.color.rgb = style["accent"]
+                        card.line.width = Pt(1.5)
 
-                for idx, bullet in enumerate(s_bullets):
-                    if idx == 0:
+                        # Add card header indicator (e.g. "Key Point 01", "02")
+                        tx_ind = slide.shapes.add_textbox(Inches(card_x + 0.2), Inches(2.0), Inches(card_width - 0.4), Inches(0.5))
+                        tf_ind = tx_ind.text_frame
+                        p_ind = tf_ind.paragraphs[0]
+                        p_ind.text = f"FEATURE 0{idx+1}"
+                        p_ind.font.name = style["font_title"]
+                        p_ind.font.size = Pt(14)
+                        p_ind.font.bold = True
+                        p_ind.font.color.rgb = style["accent"]
+
+                        # Write main bullet text inside card
+                        tx_content = slide.shapes.add_textbox(Inches(card_x + 0.2), Inches(2.6), Inches(card_width - 0.4), Inches(3.8))
+                        tf_content = tx_content.text_frame
+                        tf_content.word_wrap = True
                         p_bullet = tf_content.paragraphs[0]
-                    else:
-                        p_bullet = tf_content.add_paragraph()
-
-                    p_bullet.text = "•  " + bullet
-                    p_bullet.font.name = style["font_body"]
-                    p_bullet.font.size = Pt(18 if has_image else 20)  # slightly smaller text if side-by-side
-                    p_bullet.font.color.rgb = style["body_color"]
-                    p_bullet.space_after = Pt(12)
-                    p_bullet.line_spacing = 1.2
+                        p_bullet.text = bullet
+                        p_bullet.font.name = style["font_body"]
+                        p_bullet.font.size = Pt(18)
+                        p_bullet.font.color.rgb = style["body_color"]
+                        p_bullet.line_spacing = 1.2
 
             out_p = os.path.abspath(os.path.expanduser(output_path))
             os.makedirs(os.path.dirname(out_p), exist_ok=True)

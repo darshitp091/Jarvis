@@ -1185,7 +1185,13 @@ class JARVIS:
         )
         
         try:
-            raw = self.query_llm([{"role": "user", "content": prompt}], provider="mistral", model="mistral-large-2512")
+            try:
+                raw = self.query_llm([{"role": "user", "content": prompt}], provider="mistral", model="mistral-large-2512")
+            except Exception as mistral_err:
+                logger.warning(f"Mistral LLM query failed: {mistral_err}. Falling back to local brain model...")
+                model_name = self.settings.get("models", {}).get("main_brain", "qwen2.5-coder:7b")
+                raw = self.query_llm([{"role": "user", "content": prompt}], provider="local", model=model_name)
+                
             raw = raw.strip().replace("```json", "").replace("```", "").strip()
             start_idx = raw.find("{")
             end_idx = raw.rfind("}")
