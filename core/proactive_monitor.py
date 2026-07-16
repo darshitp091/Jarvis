@@ -11,6 +11,7 @@ class ProactiveMonitor:
     def __init__(self, config_dir: str = "config", camera_engine=None, alert_callback=None, compiler_repair=None):
         self.config_dir = config_dir
         self.calendar_path = os.path.join(self.config_dir, "calendar.json")
+        self.notifications_path = os.path.join(self.config_dir, "incoming_notifications.json")
         self.camera = camera_engine
         self.alert_callback = alert_callback
         self.compiler_repair = compiler_repair
@@ -28,10 +29,13 @@ class ProactiveMonitor:
         self.confusion_ticks = 0
         self.last_perf_alert_time = 0.0
 
-        # Initialize calendar file if missing
+        # Initialize calendar and notifications files if missing
         os.makedirs(self.config_dir, exist_ok=True)
         if not os.path.exists(self.calendar_path):
             with open(self.calendar_path, "w") as f:
+                json.dump([], f, indent=2)
+        if not os.path.exists(self.notifications_path):
+            with open(self.notifications_path, "w") as f:
                 json.dump([], f, indent=2)
 
     def start(self):
@@ -218,16 +222,67 @@ class ProactiveMonitor:
         except Exception:
             pass
 
+    def _check_notifications(self):
+        """Scans for simulated incoming messages (WhatsApp, Email) and triggers proactive voice alerts."""
+        if not os.path.exists(self.notifications_path):
+            return
+
+        with self.lock:
+            try:
+                with open(self.notifications_path, "r", encoding="utf-8") as f:
+                    notifications = json.load(f)
+            except Exception as e:
+                logger.error(f"Failed to read incoming notifications: {e}")
+                return
+
+            if not notifications:
+                return
+
+            # Processes one notification at a time to prevent audio overlaps
+            triggered_any = False
+            for n in notifications:
+                if n.get("triggered", False):
+                    continue
+                
+                channel = n.get("channel", "WhatsApp")
+                sender = n.get("sender", "Someone")
+                msg_body = n.get("message", "")
+                
+                n["triggered"] = True
+                triggered_any = True
+                
+                # Format Hinglish warning alert
+                warning_text = f"Sir, aapko {channel} par {sender} ka message aaya hai: '{msg_body}'."
+                
+                alert_payload = {
+                    "type": "incoming_message",
+                    "channel": channel,
+                    "sender": sender,
+                    "message": msg_body,
+                    "warning_text": warning_text
+                }
+                self._trigger_alert(json.dumps(alert_payload))
+                break
+
+            # Filter out processed notifications to keep the file clean
+            remaining = [n for n in notifications if not n.get("triggered", False)]
+            try:
+                with open(self.notifications_path, "w", encoding="utf-8") as f:
+                    json.dump(remaining, f, indent=2)
+            except Exception as e:
+                logger.error(f"Failed to save incoming notifications update: {e}")
+
     def _monitor_loop(self):
         calendar_check_timer = 0
         while self.is_running:
-            # 1. Check battery & performance every 10 seconds
+            # 1. Check battery, performance & notifications every 10 seconds
             self._check_battery()
             self._check_performance()
             self._check_disk_space()
             self._check_work_session()
             self._check_hardware()
             self._check_user_confusion()
+            self._check_notifications()
 
             # 2. Check calendar events every 30 seconds
             calendar_check_timer += 10

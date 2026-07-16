@@ -675,6 +675,24 @@ class JARVIS:
                     else:
                         with self.alert_lock:
                             self.alert_queue.append(spoken_text)
+                elif data.get("type") == "incoming_message":
+                    self.active_context = {
+                        "type": "incoming_message",
+                        "channel": data["channel"],
+                        "sender": data["sender"],
+                        "message": data["message"]
+                    }
+                    spoken_text = data["warning_text"]
+                    logger.info(f"Setting active_context for incoming message from: {data['sender']}")
+                    
+                    if self.is_authenticated and not self.is_asleep and self.orb.state == "idle":
+                        self.orb.set_state("speaking")
+                        self.orb.notification_signal.emit("PROACTIVE ALERT", spoken_text)
+                        self.tts.speak(spoken_text)
+                        self.orb.set_state("idle")
+                    else:
+                        with self.alert_lock:
+                            self.alert_queue.append(spoken_text)
                     return
             except Exception as e:
                 logger.error(f"Error parsing proactive JSON alert: {e}")
@@ -1233,6 +1251,61 @@ class JARVIS:
         self.tts.speak("Maine presentation open kar di hai, sir. Ek baar dekh lijiye aur bataiye ki ye theek hai ya koi change karna hai?")
         self.orb.set_state("idle")
         return f"Presentation '{topic_filename}.pptx' khol di hai, sir."
+
+    def _draft_and_send_style_reply(self, sender: str, channel: str, msg_body: str, user_instruction: str) -> str:
+        """Drafts a reply on behalf of the user using LLM styled after past tone, and records it to config/outgoing_replies.json."""
+        logger.info(f"Drafting style-matched reply on behalf of user to {sender} on {channel}...")
+        
+        system_prompt = (
+            "You are JARVIS. You draft text messages on behalf of the user (Darshit) matching his communication style. "
+            "Darshit usually replies in a very natural, concise Hinglish WhatsApp style (e.g. 'haan abhi busy hu, free hoke call karta hu' or 'ab kya hua bro?'). "
+            "Draft a response matching what Darshit instructed. Output ONLY the raw reply content, no quotes, no greeting, no punctuation formatting."
+        )
+        
+        user_prompt = (
+            f"Incoming Message from {sender} on {channel}: '{msg_body}'\n"
+            f"User's Instruction: '{user_instruction}'\n\n"
+            "Draft the casual message to send:"
+        )
+        
+        draft = "Sir, thodi der me message karti hu."
+        try:
+            import ollama
+            response = ollama.chat(
+                model=self.settings["models"]["main_brain"],
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                options={"temperature": 0.5}
+            )
+            draft = response["message"]["content"].strip().strip('"').strip("'")
+        except Exception as e:
+            logger.error(f"Failed to draft style response using local LLM: {e}")
+            
+        # Log/Save the message to outgoing JSON database (as if it was sent)
+        out_db_path = "config/outgoing_replies.json"
+        try:
+            replies = []
+            if os.path.exists(out_db_path):
+                with open(out_db_path, "r", encoding="utf-8") as f:
+                    replies = json.load(f)
+            
+            replies.append({
+                "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "channel": channel,
+                "recipient": sender,
+                "message_body": draft,
+                "status": "SENT"
+            })
+            
+            with open(out_db_path, "w", encoding="utf-8") as f:
+                json.dump(replies, f, indent=2, ensure_ascii=False)
+            logger.success(f"Message logged to outgoing database: {draft}")
+        except Exception as err:
+            logger.error(f"Failed to save outgoing message: {err}")
+
+        return f"Sir, maine aapki taraf se {channel} par {sender} ko reply bhej diya hai. Message tha: '{draft}'."
 
     def _generate_response(self, text: str, domain: str = "general") -> str:
         memories = self.brain.format_memories_for_prompt(text)
@@ -2442,6 +2515,10 @@ class JARVIS:
                     url = params.get("url", "")
                     if action == "download":
                         response = self.web.download_file(url)
+                    elif action == "open_youtube_video":
+                        response = self.web.open_youtube_video(params.get("query", query))
+                    elif action == "search_google":
+                        response = self.web.search_google(params.get("query", query))
                     elif action == "daily_news":
                         response = self.web.get_daily_news_summary()
                     elif action == "track_competitor":
@@ -3703,8 +3780,23 @@ class JARVIS:
                     cmd_lower = text.lower().strip()
                     word_count = len(cmd_lower.split())
 
-                    # Valid confirmations are usually short (5 words or fewer)
-                    if word_count <= 5:
+                    if ctx.get("type") == "incoming_message":
+                        if any(w in cmd_lower for w in ["reply", "jawab", "message kar", "message do", "tum reply", "tum apane hisaab se", "bhejo"]):
+                            sender = ctx["sender"]
+                            channel = ctx["channel"]
+                            msg_body = ctx["message"]
+                            self.active_context = None
+                            
+                            response = self._draft_and_send_style_reply(sender, channel, msg_body, text)
+                            self.orb.set_state("speaking")
+                            self.tts.speak(response)
+                            self.orb.set_state("idle")
+                            self.brain.store(response, role="assistant")
+                            continue
+                        else:
+                            self.active_context = None
+
+                    elif word_count <= 5:
                         if ctx.get("type") == "confirm_file_patch":
                             yes_words = ["yes", "go ahead", "do it", "confirm", "ok", "sure", "apply", "yep", "yeah"]
                             no_words = ["no", "abort", "cancel", "don't", "dont", "no do not", "discard", "nah", "nope"]

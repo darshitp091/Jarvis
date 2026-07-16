@@ -1009,6 +1009,13 @@ class IntentRouter:
             return {"skill": "productivity", "params": {"action": "record_meeting", "duration": dur}, "domain": "general"}
             
         # --- Web Research Enhancements ---
+        if cmd.startswith("search youtube for ") or "youtube video on" in cmd or "youtube par" in cmd or "recipe video" in cmd or "youtube video" in cmd:
+            q = cmd.replace("search youtube for ", "").replace("youtube video on ", "").replace("youtube video ", "").replace("youtube par ", "").replace("recipe video ", "").replace("video ", "").replace("kholo", "").replace("open", "").replace("search", "").strip()
+            return {"skill": "web_research", "params": {"action": "open_youtube_video", "query": q}, "domain": "general"}
+        if cmd.startswith("search google for ") or "google search " in cmd or "google par " in cmd or "google check" in cmd:
+            q = cmd.replace("search google for ", "").replace("google search ", "").replace("google par ", "").replace("search ", "").strip()
+            return {"skill": "web_research", "params": {"action": "search_google", "query": q}, "domain": "general"}
+            
         if cmd.startswith("download file "):
             return {"skill": "web_research", "params": {"action": "download", "url": cmd.replace("download file ", "").strip()}, "domain": "general"}
         if cmd.startswith("track competitor "):
