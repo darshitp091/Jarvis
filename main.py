@@ -1316,6 +1316,35 @@ class JARVIS:
         except Exception as err:
             logger.error(f"Failed to save outgoing message: {err}")
 
+        # Automate WhatsApp Desktop or Android ADB sending
+        if "WhatsApp" in channel:
+            resolved_num = self.phone.get_contact_by_name(sender)
+            if resolved_num:
+                clean_phone = "".join(c for c in resolved_num if c.isdigit())
+                if len(clean_phone) == 10:
+                    clean_phone = "91" + clean_phone
+                
+                if self.phone.is_device_connected():
+                    # Send via ADB is already handled in phone skill if active
+                    pass
+                else:
+                    # Send via WhatsApp Desktop deep-link
+                    import urllib.parse
+                    import webbrowser
+                    import pyautogui
+                    import threading
+                    encoded_text = urllib.parse.quote(draft)
+                    desktop_url = f"whatsapp://send?phone={clean_phone}&text={encoded_text}"
+                    try:
+                        logger.info(f"Opening desktop WhatsApp deep-link: {desktop_url}")
+                        webbrowser.open(desktop_url)
+                        def auto_press_enter():
+                            time.sleep(4.5)
+                            pyautogui.press('enter')
+                        threading.Thread(target=auto_press_enter, daemon=True).start()
+                    except Exception as err:
+                        logger.error(f"Failed to open desktop WhatsApp: {err}")
+
         return f"Sir, maine aapki taraf se {channel} par {sender} ko reply bhej diya hai. Message tha: '{draft}'."
 
     def _log_direct_reply(self, sender: str, channel: str, reply_text: str) -> str:
@@ -1342,6 +1371,35 @@ class JARVIS:
             logger.success(f"Message logged to outgoing database: {reply_text}")
         except Exception as err:
             logger.error(f"Failed to save direct outgoing message: {err}")
+
+        # Automate WhatsApp Desktop or Android ADB sending
+        if "WhatsApp" in channel:
+            resolved_num = self.phone.get_contact_by_name(sender)
+            if resolved_num:
+                clean_phone = "".join(c for c in resolved_num if c.isdigit())
+                if len(clean_phone) == 10:
+                    clean_phone = "91" + clean_phone
+                
+                if self.phone.is_device_connected():
+                    # Send via ADB is already handled in phone skill if active
+                    pass
+                else:
+                    # Send via WhatsApp Desktop deep-link
+                    import urllib.parse
+                    import webbrowser
+                    import pyautogui
+                    import threading
+                    encoded_text = urllib.parse.quote(reply_text)
+                    desktop_url = f"whatsapp://send?phone={clean_phone}&text={encoded_text}"
+                    try:
+                        logger.info(f"Opening desktop WhatsApp deep-link: {desktop_url}")
+                        webbrowser.open(desktop_url)
+                        def auto_press_enter():
+                            time.sleep(4.5)
+                            pyautogui.press('enter')
+                        threading.Thread(target=auto_press_enter, daemon=True).start()
+                    except Exception as err:
+                        logger.error(f"Failed to open desktop WhatsApp: {err}")
 
         return f"Sir, maine {channel} par {sender} ko bol diya hai: '{reply_text}'."
 

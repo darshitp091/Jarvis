@@ -199,7 +199,15 @@ class PhoneController:
     def _fetch_all_contacts(self) -> dict[str, str]:
         """Queries contacts database via ADB shell content query, returns dict of {normalized_name: number}"""
         contacts = {}
+        cache_path = "config/contacts_cache.json"
+        
         if not self.is_device_connected():
+            if os.path.exists(cache_path):
+                try:
+                    with open(cache_path, "r", encoding="utf-8") as f:
+                        return json.load(f)
+                except Exception:
+                    pass
             return contacts
 
         # Query phones database
@@ -215,6 +223,12 @@ class PhoneController:
                 "--projection", "display_name:number"
             ])
             if not success:
+                if os.path.exists(cache_path):
+                    try:
+                        with open(cache_path, "r", encoding="utf-8") as f:
+                            return json.load(f)
+                    except Exception:
+                        pass
                 return contacts
 
         # Parse outputs (e.g. Row: 0 display_name=Karan Aujla, data1=1234567890)
@@ -229,6 +243,15 @@ class PhoneController:
                 # Clean number
                 clean_num = re.sub(r"[^\d+]", "", number)
                 contacts[name] = clean_num
+                
+        # Cache the contacts
+        if contacts:
+            try:
+                os.makedirs("config", exist_ok=True)
+                with open(cache_path, "w", encoding="utf-8") as f:
+                    json.dump(contacts, f, indent=2, ensure_ascii=False)
+            except Exception:
+                pass
                 
         return contacts
 

@@ -222,18 +222,79 @@ class ProactiveMonitor:
         except Exception:
             pass
 
-    def _check_notifications(self):
-        """Scans for simulated incoming messages (WhatsApp, Email) and triggers proactive voice alerts."""
-        if not os.path.exists(self.notifications_path):
-            return
+    def _read_windows_desktop_notifications(self) -> list:
+        """Reads active Windows Desktop notifications for WhatsApp and returns a list of new message objects."""
+        new_items = []
+        try:
+            import asyncio
+            from winsdk.windows.ui.notifications.management import UserNotificationListener, UserNotificationListenerAccessStatus
+            from winsdk.windows.ui.notifications import NotificationKinds
 
-        with self.lock:
+            # Ensure set of processed IDs exists
+            if not hasattr(self, "processed_windows_notif_ids"):
+                self.processed_windows_notif_ids = set()
+
+            listener = UserNotificationListener.current
+            status = listener.get_access_status()
+            if status != UserNotificationListenerAccessStatus.ALLOWED:
+                return new_items
+
+            async def fetch():
+                return await listener.get_notifications_async(NotificationKinds.TOAST)
+
+            # Retrieve active notifications in a clean, short-lived event loop
+            loop = asyncio.new_event_loop()
             try:
-                with open(self.notifications_path, "r", encoding="utf-8") as f:
-                    notifications = json.load(f)
-            except Exception as e:
-                logger.error(f"Failed to read incoming notifications: {e}")
-                return
+                notifications = loop.run_until_complete(fetch())
+            finally:
+                loop.close()
+
+            for notif in notifications:
+                try:
+                    app_name = notif.app_info.display_info.display_name
+                except Exception:
+                    continue
+
+                if "WhatsApp" in app_name:
+                    notif_id = notif.id
+                    if notif_id not in self.processed_windows_notif_ids:
+                        self.processed_windows_notif_ids.add(notif_id)
+
+                        # Extract text contents
+                        binding = notif.notification.visual.get_binding("ToastGeneric")
+                        if binding:
+                            text_elements = binding.get_text_elements()
+                            if text_elements:
+                                sender = text_elements[0].text
+                                msg_body = text_elements[1].text if len(text_elements) > 1 else ""
+                                
+                                # Skip empty messages or system updates
+                                if sender and msg_body and not any(term in msg_body.lower() for term in ["updating", "checking for new messages"]):
+                                    new_items.append({
+                                        "channel": "WhatsApp Desktop",
+                                        "sender": sender,
+                                        "message": msg_body,
+                                        "triggered": False
+                                    })
+        except Exception as e:
+            logger.debug(f"Failed to read Windows desktop notifications: {e}")
+        return new_items
+
+    def _check_notifications(self):
+        """Scans for simulated and desktop incoming messages (WhatsApp, Email) and triggers proactive alerts."""
+        desktop_notifs = self._read_windows_desktop_notifications()
+        
+        with self.lock:
+            notifications = []
+            if os.path.exists(self.notifications_path):
+                try:
+                    with open(self.notifications_path, "r", encoding="utf-8") as f:
+                        notifications = json.load(f)
+                except Exception as e:
+                    logger.error(f"Failed to read incoming notifications: {e}")
+
+            # Merge desktop notifications
+            notifications.extend(desktop_notifs)
 
             if not notifications:
                 return
