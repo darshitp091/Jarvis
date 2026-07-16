@@ -253,10 +253,11 @@ class ProactiveMonitor:
                 
                 # Use local LLM to summarize/convert to indirect Hinglish conversational brief
                 summary_prompt = (
-                    "You are JARVIS. Convert the following incoming chat message from direct to respectful, indirect Hinglish "
+                    "You are JARVIS. Convert the following incoming chat or email message from direct style to a brief, respectful, indirect conversational Hinglish briefing "
                     "(using Latin/WhatsApp script, female verb endings). "
+                    "You MUST output in colloquial Hinglish even if the input message is in English. "
                     "Example 1: Roshan: 'Kab tak aa rha hai tu?' -> 'Sir, roshan ne aapko whatsapp par message kiya hai ki aap kab tak aa rahe ho?' "
-                    "Example 2: Boss: 'Please send the project report by 5 PM.' -> 'Sir, boss ne email par project report shaam paanch baje tak maangi hai.' "
+                    "Example 2: Google: 'App password created' -> 'Sir, google se security alert email aaya hai ki aapke account par app password create ho gaya hai.' "
                     "Output ONLY the converted Hinglish briefing, under 18 words, no extra details or quotes."
                 )
                 user_prompt = f"Sender: {sender}\nChannel: {channel}\nMessage: '{msg_body}'"
