@@ -556,6 +556,28 @@ class WebResearch:
         except Exception as e:
             return f"Failed to open tracking link: {str(e)}"
 
+    def open_youtube_video(self, query: str) -> str:
+        """Searches YouTube and opens the results directly in the browser."""
+        import urllib.parse
+        q_encoded = urllib.parse.quote(query)
+        url = f"https://www.youtube.com/results?search_query={q_encoded}"
+        try:
+            webbrowser.open(url)
+            return f"YouTube par '{query}' search karke video results open kar diye hain, sir."
+        except Exception as e:
+            return f"Failed to open YouTube search: {str(e)}"
+
+    def search_google(self, query: str) -> str:
+        """Searches Google and opens the results directly in the browser."""
+        import urllib.parse
+        q_encoded = urllib.parse.quote(query)
+        url = f"https://www.google.com/search?q={q_encoded}"
+        try:
+            webbrowser.open(url)
+            return f"Google par '{query}' search kar diya hai, sir. Results check kijiye."
+        except Exception as e:
+            return f"Failed to open Google search: {str(e)}"
+
 if __name__ == "__main__":
     researcher = WebResearch()
     print("Testing Web Research Module...")
