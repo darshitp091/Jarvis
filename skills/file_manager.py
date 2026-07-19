@@ -274,15 +274,14 @@ class FileManager:
         except Exception as e:
             return f"PDF signing failed: {e}"
 
-    def find_and_open_target(self, target_name: str) -> str:
-        """Searches common user locations (Downloads, Desktop, Documents, Home, Workspace) by folder/file name and opens it in Windows Explorer or default app."""
+    def find_and_open_target(self, target_name: str, specific_location: str = None) -> str:
+        """Searches specific or common user locations (Downloads, Desktop, Documents, Home, Workspace) by folder/file name and opens it in Windows Explorer or default app."""
         if not target_name:
             return "Please specify a folder or file name to open, sir."
 
         clean_name = target_name.strip().strip("'\"").lower()
         user_home = os.path.expanduser("~")
 
-        # 1. Alias dictionary mapping common spoken folder names
         ALIASES = {
             "downloads": os.path.join(user_home, "Downloads"),
             "download": os.path.join(user_home, "Downloads"),
@@ -299,24 +298,41 @@ class FileManager:
             "projects": r"C:\Users\patel\Jarvis",
         }
 
-        if clean_name in ALIASES and os.path.exists(ALIASES[clean_name]):
-            target_path = ALIASES[clean_name]
-            os.startfile(target_path)
-            return f"Sir, opening '{os.path.basename(target_path)}' folder in Windows Explorer."
+        # If a specific location like "downloads" or "desktop" was requested by user
+        target_dir = None
+        if specific_location:
+            loc_clean = specific_location.strip().lower()
+            if loc_clean in ALIASES:
+                target_dir = ALIASES[loc_clean]
+            elif os.path.exists(specific_location):
+                target_dir = os.path.abspath(specific_location)
 
-        # Check if direct absolute/relative path exists
-        if os.path.exists(target_name):
-            os.startfile(os.path.abspath(target_name))
-            return f"Sir, opening '{target_name}'."
+        if not target_dir:
+            if clean_name in ALIASES and os.path.exists(ALIASES[clean_name]):
+                target_path = ALIASES[clean_name]
+                os.startfile(target_path)
+                return f"Sir, opening '{os.path.basename(target_path)}' folder in Windows Explorer."
 
-        # 2. Fast filesystem scan across primary user locations
-        search_dirs = [
+            if os.path.exists(target_name):
+                os.startfile(os.path.abspath(target_name))
+                return f"Sir, opening '{target_name}'."
+
+        # Search list — priority to target_dir if provided
+        search_dirs = []
+        if target_dir and os.path.exists(target_dir):
+            search_dirs.append(target_dir)
+
+        default_dirs = [
             os.path.join(user_home, "Desktop"),
             os.path.join(user_home, "Downloads"),
             os.path.join(user_home, "Documents"),
             r"C:\Users\patel\Jarvis",
             user_home
         ]
+
+        for d in default_dirs:
+            if d not in search_dirs:
+                search_dirs.append(d)
 
         matches = []
         for sdir in search_dirs:
@@ -326,21 +342,23 @@ class FileManager:
                 for item in os.listdir(sdir):
                     item_path = os.path.join(sdir, item)
                     if clean_name in item.lower():
-                        matches.append(item_path)
+                        matches.append((item_path, sdir))
                         if item.lower() == clean_name:
                             os.startfile(item_path)
                             kind = "folder" if os.path.isdir(item_path) else "file"
-                            return f"Sir, located exact match. Opening {kind} '{item}'."
+                            folder_name = os.path.basename(sdir)
+                            return f"Sir, '{item}' {folder_name} folder mein mil gaya hai. Opening {kind} now!"
             except Exception:
                 pass
 
         if matches:
-            best_match = matches[0]
+            best_match, matched_sdir = matches[0]
             os.startfile(best_match)
             kind = "folder" if os.path.isdir(best_match) else "file"
-            return f"Sir, opening {kind} '{os.path.basename(best_match)}' in Windows Explorer."
+            folder_name = os.path.basename(matched_sdir)
+            return f"Sir, '{os.path.basename(best_match)}' {folder_name} mein mil gaya hai. Opening {kind} now!"
 
-        # 3. Secondary deeper scan (depth 3 max)
+        # Secondary deeper scan (depth 3 max)
         for sdir in search_dirs[:3]:
             try:
                 for root, dirs, files in os.walk(sdir):
@@ -353,14 +371,16 @@ class FileManager:
                         if clean_name in d.lower():
                             target = os.path.join(root, d)
                             os.startfile(target)
-                            return f"Sir, located and opened folder '{d}' in Windows Explorer."
+                            return f"Sir, '{d}' folder located in {os.path.basename(sdir)}. Opening in Windows Explorer now!"
 
                     for f in files:
                         if clean_name in f.lower():
                             target = os.path.join(root, f)
                             os.startfile(target)
-                            return f"Sir, located and opened file '{f}'."
+                            return f"Sir, '{f}' file located in {os.path.basename(sdir)}. Opening now!"
             except Exception:
                 pass
 
+        if specific_location:
+            return f"Sir, maine '{specific_location}' folder check kiya, par vahan '{target_name}' name ki koi file ya folder nahi mili."
         return f"Sir, I searched your Desktop, Downloads, and Documents, but could not find a file or folder named '{target_name}'."
