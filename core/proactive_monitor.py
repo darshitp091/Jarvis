@@ -268,17 +268,49 @@ class ProactiveMonitor:
                                 sender = text_elements[0].text
                                 msg_body = text_elements[1].text if len(text_elements) > 1 else ""
                                 
-                                # Skip empty messages or system updates
+                                # Skip empty messages, system updates, groups, companies, and spam
                                 if sender and msg_body and not any(term in msg_body.lower() for term in ["updating", "checking for new messages"]):
-                                    new_items.append({
-                                        "channel": "WhatsApp Desktop",
-                                        "sender": sender,
-                                        "message": msg_body,
-                                        "triggered": False
-                                    })
+                                    if self._is_personal_contact(sender, msg_body):
+                                        new_items.append({
+                                            "channel": "WhatsApp Desktop",
+                                            "sender": sender,
+                                            "message": msg_body,
+                                            "triggered": False
+                                        })
         except Exception as e:
             logger.debug(f"Failed to read Windows desktop notifications: {e}")
         return new_items
+
+    def _is_personal_contact(self, sender: str, msg_body: str) -> bool:
+        """Determines if a notification is from a personal 1-on-1 contact (ignoring groups, companies, spam, OTPs)."""
+        if not sender or not msg_body:
+            return False
+        
+        sender_lower = sender.lower().strip()
+        msg_lower = msg_body.lower().strip()
+        
+        # 1. Ignore group chats (contain group titles, colon separators like 'Sender: Group', or group keywords)
+        group_indicators = [
+            "group", "exchange", "community", "announcement", "team", "project", 
+            "channel", "broadcast", "club", "society", "batch", "office", "class", 
+            "department", "family", "friends", "work"
+        ]
+        if any(g in sender_lower for g in group_indicators) or ":" in sender:
+            logger.info(f"ProactiveMonitor: Filtered out group chat notification from '{sender}'")
+            return False
+
+        # 2. Ignore company / commercial / scam / OTP notifications
+        spam_indicators = [
+            "otp", "verify", "verification", "promo", "offer", "discount", "swiggy", 
+            "zomato", "uber", "ola", "bank", "alert", "credit", "debit", "recharge", 
+            "payment", "policy", "loan", "insurance", "security", "update", "service", 
+            "no-reply", "noreply", "info", "support", "company", "business"
+        ]
+        if any(s in sender_lower for s in spam_indicators) or any(s in msg_lower for s in ["otp", "verification code", "do not share", "click here to unsubscribe"]):
+            logger.info(f"ProactiveMonitor: Filtered out company/spam notification from '{sender}'")
+            return False
+
+        return True
 
     def _check_notifications(self):
         """Scans for simulated and desktop incoming messages (WhatsApp, Email) and triggers proactive alerts."""
@@ -308,6 +340,10 @@ class ProactiveMonitor:
                 channel = n.get("channel", "WhatsApp")
                 sender = n.get("sender", "Someone")
                 msg_body = n.get("message", "")
+
+                if not self._is_personal_contact(sender, msg_body):
+                    n["triggered"] = True
+                    continue
                 
                 n["triggered"] = True
                 triggered_any = True

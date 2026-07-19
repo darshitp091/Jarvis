@@ -607,20 +607,52 @@ class SpotifyControl:
                         logger.warning("Disabling Spotify API mode due to Premium/Free limitations.")
                         self.use_api = False
 
-        # Fallback media hotkeys
-        actions = {
-            "pause": "playpause",
-            "resume": "playpause",
-            "next": "nexttrack",
-            "previous": "prevtrack",
-            "volume_up": "volumeup",
-            "volume_down": "volumedown"
-        }
-        if action in actions:
+        # Method 1: OS-Level Global Windows Media Keys (Works globally without API key or window focus)
+        VK_PLAY_PAUSE = 0xB3
+        VK_NEXT_TRACK = 0xB0
+        VK_PREV_TRACK = 0xB1
+        VK_VOLUME_UP = 0xAF
+        VK_VOLUME_DOWN = 0xAE
+
+        if action in ["pause", "resume"]:
+            self.send_os_media_key(VK_PLAY_PAUSE)
+            return "Playback state toggled, sir."
+        elif action == "next":
+            self.send_os_media_key(VK_NEXT_TRACK)
+            return "Skipped to next track, sir."
+        elif action == "previous":
+            self.send_os_media_key(VK_PREV_TRACK)
+            return "Returned to previous track, sir."
+        elif action == "volume_up":
+            self.send_os_media_key(VK_VOLUME_UP)
+            return "Volume increased, sir."
+        elif action == "volume_down":
+            self.send_os_media_key(VK_VOLUME_DOWN)
+            return "Volume decreased, sir."
+
+        return "Unknown media action, sir."
+
+    def send_os_media_key(self, key_code: int) -> bool:
+        """Sends OS-level global media key hardware event on Windows (Method 1)."""
+        if platform.system() == "Windows":
             try:
-                pyautogui.press(actions[action])
-                return f"Media {action} executed, sir."
+                ctypes.windll.user32.keybd_event(key_code, 0, 0, 0)  # key down
+                time.sleep(0.05)
+                ctypes.windll.user32.keybd_event(key_code, 0, 2, 0)  # key up
+                return True
             except Exception as e:
-                logger.error(f"Failed to press media key: {e}")
-                return "I couldn't control the media keys, sir."
-        return f"Unknown playback command '{action}', sir."
+                logger.error(f"Failed to trigger OS media key: {e}")
+        try:
+            actions = {
+                0xB3: "playpause",
+                0xB0: "nexttrack",
+                0xB1: "prevtrack",
+                0xAF: "volumeup",
+                0xAE: "volumedown"
+            }
+            if key_code in actions:
+                pyautogui.press(actions[key_code])
+                return True
+        except Exception:
+            pass
+        return False

@@ -903,12 +903,19 @@ class JARVIS:
     def _startup_voice(self):
         if not self.is_authenticated:
             if not self.auth.is_setup():
-                self.tts.speak("Secure mode is enabled, but no PIN is set. Please state a six digit PIN to setup your lock.")
+                self.tts.speak("Secure mode enabled hai, lekin koi PIN set nahi hai. Kripya setup ke liye 6-digit PIN batayein.")
             else:
-                self.tts.speak("Authentication required. Please state your six digit PIN.")
+                self.tts.speak("Authentication required hai, sir. Apna 6-digit PIN bataiye.")
         else:
+            import random
             name = self.config.get("jarvis", {}).get("name", "JARVIS")
-            self.tts.speak(f"{name} online. All systems are operational, waiting for your command, sir.")
+            startup_greetings = [
+                f"Namaste sir, {name} online hai. Sabhi systems tayar hain, bataiye kya kaam hai?",
+                f"Haan sir, {name} active hai. Batayein aaj kya setup karna hai?",
+                f"Greetings sir! {name} online hai aur fully operational hai. Aagya dijiye.",
+                f"{name} active hai sir. Command center ready hai, boliye kya madad karu?"
+            ]
+            self.tts.speak(random.choice(startup_greetings))
 
     def query_llm(self, messages: list, system_prompt: str = None, provider: str = "mistral", model: str = None) -> str:
         """Queries the active LLM provider (mistral, ofoxai, groq, or local Ollama fallback)."""
@@ -1940,8 +1947,19 @@ class JARVIS:
             new_inst = class_obj()
         setattr(self, attr_name, new_inst)
 
+    def _clean_name_address(self, text: str) -> str:
+        """Strips casual friendly address words ('jarvis', 'jarvis bhai', 'hey jarvis', etc.) from user input."""
+        import re
+        if not text:
+            return text
+        pattern = r"\b(hey|sun|sunn|chalo|arre|arrey|oh|bhai)?\s*jarvis\s*(bhai|ji|bro|yaara)?\b"
+        cleaned = re.sub(pattern, "", text, flags=re.IGNORECASE).strip()
+        cleaned = re.sub(r"\s+", " ", cleaned).strip(",. ")
+        return cleaned if cleaned else text
+
     def _process_single_command(self, text: str, speak_filler: bool = True, is_chained: bool = False):
         """Full pipeline: route → execute → respond → speak"""
+        text = self._clean_name_address(text)
         self.orb.set_state("thinking")
 
         # Speak filler instantly while processing
@@ -3814,8 +3832,8 @@ class JARVIS:
                         threading.Thread(target=apply_night_mode, daemon=True).start()
 
                     if alerts_to_speak:
-                        alert_msg = " Also, ".join(alerts_to_speak)
-                        self.tts.speak(f"{greeting} I notice a critical warning. {alert_msg}")
+                        alert_msg = ". Aur ".join(alerts_to_speak)
+                        self.tts.speak(f"{greeting} Aur haan sir, {alert_msg}")
                     else:
                         self.tts.speak(greeting)
                         
@@ -4012,31 +4030,39 @@ class JARVIS:
                         channel = ctx["channel"]
                         msg_body = ctx["message"]
                         
-                        # Store session context for follow-up turns
-                        self.last_message_session = {
-                            "sender": sender,
-                            "channel": channel,
-                            "last_message": msg_body
-                        }
+                        # Guard: Only process as reply if the user command explicitly expresses a reply intent
+                        reply_cues = ["reply", "jawab", "bol do", "bolna", "message kar", "bhej do", "unko bolo", "unse bolo", "send reply", "unko bol", "usko bol"]
+                        is_reply_intent = any(w in cmd_lower for w in reply_cues)
                         
-                        self.active_context = None
-                        
-                        if any(w in cmd_lower for w in ["apne hisaab", "apne hisab", "apne tarike", "on your own", "apne se"]):
-                            response = self._draft_and_send_style_reply(sender, channel, msg_body, text)
+                        if not is_reply_intent:
+                            logger.info(f"Command '{text}' is not a reply intent. Clearing incoming_message active_context and routing as new command.")
+                            self.active_context = None
                         else:
-                            # Direct message text extraction
-                            clean_reply = text
-                            for prefix in ["reply kar do ki ", "reply kar do ", "message kar do ki ", "message kar do ", "reply do ", "bol do ki ", "bol do "]:
-                                if clean_reply.lower().startswith(prefix):
-                                    clean_reply = clean_reply[len(prefix):]
-                                    break
-                            response = self._log_direct_reply(sender, channel, clean_reply)
+                            # Store session context for follow-up turns
+                            self.last_message_session = {
+                                "sender": sender,
+                                "channel": channel,
+                                "last_message": msg_body
+                            }
                             
-                        self.orb.set_state("speaking")
-                        self.tts.speak(response)
-                        self.orb.set_state("idle")
-                        self.brain.store(response, role="assistant")
-                        continue
+                            self.active_context = None
+                            
+                            if any(w in cmd_lower for w in ["apne hisaab", "apne hisab", "apne tarike", "on your own", "apne se"]):
+                                response = self._draft_and_send_style_reply(sender, channel, msg_body, text)
+                            else:
+                                # Direct message text extraction
+                                clean_reply = text
+                                for prefix in ["reply kar do ki ", "reply kar do ", "message kar do ki ", "message kar do ", "reply do ", "bol do ki ", "bol do ", "unko bol do ki ", "usko bol do ki "]:
+                                    if clean_reply.lower().startswith(prefix):
+                                        clean_reply = clean_reply[len(prefix):]
+                                        break
+                                response = self._log_direct_reply(sender, channel, clean_reply)
+                                
+                            self.orb.set_state("speaking")
+                            self.tts.speak(response)
+                            self.orb.set_state("idle")
+                            self.brain.store(response, role="assistant")
+                            continue
 
                     elif word_count <= 5:
                         if ctx.get("type") == "confirm_file_patch":

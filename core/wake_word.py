@@ -406,13 +406,17 @@ class WakeWordDetector:
                 hinglish_phrases = [
                     "chalo utho jarvis", "jarvis chalo utho", "jarvis kaise ho", 
                     "kaise ho jarvis", "chalo utho", "kaise ho", "aaj bahut kaam hai", 
-                    "utho jarvis", "wake up jarvis", "wake up"
+                    "utho jarvis", "wake up jarvis", "wake up", "jarvis bhai", "jarvis ji",
+                    "sun jarvis", "sunn jarvis", "chalo jarvis", "jarvis suno", "jarvis sun",
+                    "bhai jarvis", "arre jarvis", "arrey jarvis", "oh jarvis", "jarvis bolo",
+                    "jarvis aao", "hey jarvis", "ek kaam karo jarvis", "jarvis ek kaam karo"
                 ]
                 phonetic_matches.extend(hinglish_phrases)
-                if "jarvis" in target_word:
+                if "jarvis" in target_word or True:
                     phonetic_matches.extend([
                         "jarvis", "jarves", "jarv", "garvis", "java", "charvis", "service",
-                        "hey jarvis", "hey java", "hey service", "jaeves", "travis", "jervis"
+                        "hey jarvis", "hey java", "hey service", "jaeves", "travis", "jervis",
+                        "jarvis bhai", "jarvis ji", "sun jarvis", "chalo jarvis"
                     ])
 
                 while True:
