@@ -1041,9 +1041,12 @@ class IntentRouter:
             dur = int(dur_match.group(1)) if dur_match else 60
             return {"skill": "productivity", "params": {"action": "record_meeting", "duration": dur}, "domain": "general"}
             
-        # --- Web Research Enhancements ---
-        if cmd.startswith("search youtube for ") or "youtube video on" in cmd or "youtube par" in cmd or "recipe video" in cmd or "youtube video" in cmd:
-            q = cmd.replace("search youtube for ", "").replace("youtube video on ", "").replace("youtube video ", "").replace("youtube par ", "").replace("recipe video ", "").replace("video ", "").replace("kholo", "").replace("open", "").replace("search", "").strip()
+        # --- Web Research & YouTube Video Player ---
+        if any(v in cmd for v in ["play video", "watch video", "open video", "youtube video", "recipe video", "search youtube", "youtube par"]):
+            q = cmd
+            for prefix in ["play video on ", "play video ", "watch video on ", "watch video ", "open video ", "youtube video on ", "youtube video ", "search youtube for ", "youtube par ", "recipe video "]:
+                q = q.replace(prefix, "")
+            q = q.replace("kholo", "").replace("open", "").replace("search", "").replace("play", "").replace("show", "").strip()
             return {"skill": "web_research", "params": {"action": "open_youtube_video", "query": q}, "domain": "general"}
         if cmd.startswith("search google for ") or "google search " in cmd or "google par " in cmd or "google check" in cmd:
             q = cmd.replace("search google for ", "").replace("google search ", "").replace("google par ", "").replace("search ", "").strip()
