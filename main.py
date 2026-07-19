@@ -3064,6 +3064,8 @@ class JARVIS:
                         response = self.file_manager.sync_folders(params.get("src", ""), params.get("dst", ""))
                     elif action == "backup_to_local_cloud":
                         response = self.file_manager.backup_to_local_cloud(path, params.get("cloud_provider", "onedrive"))
+                    elif action == "find_and_open":
+                        response = self.file_manager.find_and_open_target(params.get("target", path))
                     else:
                         response = "File action not supported, sir."
 

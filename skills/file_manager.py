@@ -273,3 +273,94 @@ class FileManager:
             return f"Sir, signed PDF successfully saved at: '{out_path}'."
         except Exception as e:
             return f"PDF signing failed: {e}"
+
+    def find_and_open_target(self, target_name: str) -> str:
+        """Searches common user locations (Downloads, Desktop, Documents, Home, Workspace) by folder/file name and opens it in Windows Explorer or default app."""
+        if not target_name:
+            return "Please specify a folder or file name to open, sir."
+
+        clean_name = target_name.strip().strip("'\"").lower()
+        user_home = os.path.expanduser("~")
+
+        # 1. Alias dictionary mapping common spoken folder names
+        ALIASES = {
+            "downloads": os.path.join(user_home, "Downloads"),
+            "download": os.path.join(user_home, "Downloads"),
+            "documents": os.path.join(user_home, "Documents"),
+            "document": os.path.join(user_home, "Documents"),
+            "desktop": os.path.join(user_home, "Desktop"),
+            "pictures": os.path.join(user_home, "Pictures"),
+            "photos": os.path.join(user_home, "Pictures"),
+            "videos": os.path.join(user_home, "Videos"),
+            "music": os.path.join(user_home, "Music"),
+            "jarvis": r"C:\Users\patel\Jarvis",
+            "workspace": r"C:\Users\patel\Jarvis",
+            "project": r"C:\Users\patel\Jarvis",
+            "projects": r"C:\Users\patel\Jarvis",
+        }
+
+        if clean_name in ALIASES and os.path.exists(ALIASES[clean_name]):
+            target_path = ALIASES[clean_name]
+            os.startfile(target_path)
+            return f"Sir, opening '{os.path.basename(target_path)}' folder in Windows Explorer."
+
+        # Check if direct absolute/relative path exists
+        if os.path.exists(target_name):
+            os.startfile(os.path.abspath(target_name))
+            return f"Sir, opening '{target_name}'."
+
+        # 2. Fast filesystem scan across primary user locations
+        search_dirs = [
+            os.path.join(user_home, "Desktop"),
+            os.path.join(user_home, "Downloads"),
+            os.path.join(user_home, "Documents"),
+            r"C:\Users\patel\Jarvis",
+            user_home
+        ]
+
+        matches = []
+        for sdir in search_dirs:
+            if not os.path.exists(sdir):
+                continue
+            try:
+                for item in os.listdir(sdir):
+                    item_path = os.path.join(sdir, item)
+                    if clean_name in item.lower():
+                        matches.append(item_path)
+                        if item.lower() == clean_name:
+                            os.startfile(item_path)
+                            kind = "folder" if os.path.isdir(item_path) else "file"
+                            return f"Sir, located exact match. Opening {kind} '{item}'."
+            except Exception:
+                pass
+
+        if matches:
+            best_match = matches[0]
+            os.startfile(best_match)
+            kind = "folder" if os.path.isdir(best_match) else "file"
+            return f"Sir, opening {kind} '{os.path.basename(best_match)}' in Windows Explorer."
+
+        # 3. Secondary deeper scan (depth 3 max)
+        for sdir in search_dirs[:3]:
+            try:
+                for root, dirs, files in os.walk(sdir):
+                    rel_depth = root.count(os.sep) - sdir.count(os.sep)
+                    if rel_depth > 3:
+                        dirs.clear()
+                        continue
+
+                    for d in dirs:
+                        if clean_name in d.lower():
+                            target = os.path.join(root, d)
+                            os.startfile(target)
+                            return f"Sir, located and opened folder '{d}' in Windows Explorer."
+
+                    for f in files:
+                        if clean_name in f.lower():
+                            target = os.path.join(root, f)
+                            os.startfile(target)
+                            return f"Sir, located and opened file '{f}'."
+            except Exception:
+                pass
+
+        return f"Sir, I searched your Desktop, Downloads, and Documents, but could not find a file or folder named '{target_name}'."
