@@ -3062,6 +3062,9 @@ class JARVIS:
                         response = self.file_manager.inspect_folder_contents(params.get("target", path), parent_location=params.get("location"))
                     elif action == "purge_folder":
                         response = self.file_manager.purge_folder_contents(params.get("target", path), parent_location=params.get("location"))
+                        if params.get("also_empty_bin"):
+                            bin_res = self.os_ctrl.empty_recycle_bin()
+                            response = f"{response} {bin_res}"
                     else:
                         response = "File action not supported, sir."
 

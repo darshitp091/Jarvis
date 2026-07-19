@@ -412,10 +412,11 @@ class IntentRouter:
         if any(v in cmd for v in clean_verbs) and any(n in cmd for n in temp_nouns):
             return {"skill": "os_control", "params": {"action": "clean_disk"}, "domain": "general"}
             
-        # Empty recycle bin: any empty verb AND any recycle noun in command
+        # Empty recycle bin: only if NOT a specific folder deletion command
         recycle_verbs = ["empty", "clean", "clear", "remove", "delete", "delet", "dilet", "empty_recycle_bin"]
         recycle_nouns = ["trash", "recycle", "bin", "vine"]
-        if (any(v in cmd for v in recycle_verbs) and any(n in cmd for n in recycle_nouns)) or "recycle bin" in cmd:
+        has_folder_target = any(k in cmd for k in ["screenshot", "screenshots", "downloads", "pictures", "documents", "folder", "subfolder"])
+        if not has_folder_target and ((any(v in cmd for v in recycle_verbs) and any(n in cmd for n in recycle_nouns)) or "recycle bin" in cmd):
             return {"skill": "os_control", "params": {"action": "empty_recycle_bin"}, "domain": "general"}
 
         wifi_conn_match = re.search(r"connect to wifi (?:profile\s+)?(.+)", cmd)
@@ -1042,6 +1043,23 @@ class IntentRouter:
         inspect_sub_match2 = re.search(r"(pictures|downloads|desktop|documents|photos)\s+(?:ke andar\s+)?([a-zA-Z0-9_\-\s]+?)\s+(?:folder\s+)?(?:check karo|inspect karo|chck karo|mein kitni files hai|check)", cmd)
         if inspect_sub_match2:
             return {"skill": "file_manager", "params": {"action": "inspect_folder", "target": inspect_sub_match2.group(2).strip(), "location": inspect_sub_match2.group(1).strip()}, "domain": "general"}
+
+        # Flexible Subfolder Purging / Deletion regex (matches "screenshot folder ke saariya files delete karo", "to jitni bhi, files & screenshots folder mein, sub ko delete kardo", etc.)
+        if any(w in cmd for w in ["delete", "remove", "clean", "purge", "clear", "shred", "hatao", "hata do", "saari files", "saariya", "sub ko delete"]):
+            if any(target_kw in cmd for target_kw in ["screenshot", "screenshots", "downloads", "temp", "images", "photos", "folder"]):
+                target_sub = "screenshots" if ("screenshot" in cmd or "screenshots" in cmd) else "downloads"
+                for kw in ["screenshot", "screenshots", "images", "temp", "photos"]:
+                    if kw in cmd:
+                        target_sub = kw
+                        break
+                parent_loc = None
+                for loc in ["pictures", "downloads", "desktop", "documents", "photos"]:
+                    if loc in cmd and loc != target_sub:
+                        parent_loc = loc
+                        break
+                
+                and_clean_bin = any(b in cmd for b in ["recycle bin", "disk clean", "trash", "recyclebin", "recycle bin clean"])
+                return {"skill": "file_manager", "params": {"action": "purge_folder", "target": target_sub, "location": parent_loc, "also_empty_bin": and_clean_bin}, "domain": "general"}
 
         purge_sub_match = re.search(r"(?:delete|remove|clean|purge|clear|shred)\s+(?:all\s+files\s+in|everything\s+in|saari\s+files\s+in)?\s*([a-zA-Z0-9_\-\s]+?)\s+(?:folder\s+)?(?:in|ke andar)\s+(pictures|downloads|desktop|documents|photos)", cmd)
         if purge_sub_match:

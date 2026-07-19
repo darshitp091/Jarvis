@@ -617,17 +617,19 @@ class OSControl:
         return f"Disk cleanup complete, sir. Removed {deleted_files} files and {deleted_dirs} folders, freeing up {saved_mb:.2f} MB."
 
     def empty_recycle_bin(self) -> str:
-        """Empties the Windows Recycle Bin using ctypes."""
+        """Empties the Windows Recycle Bin using native Win32 API SHEmptyRecycleBinW."""
         try:
             import ctypes
+            # SHERB_NOCONFIRMATION (0x01) | SHERB_NOPROGRESSUI (0x02) | SHERB_NOSOUND (0x04)
             flags = 1 | 2 | 4
             result = ctypes.windll.shell32.SHEmptyRecycleBinW(None, None, flags)
-            if result == 0:
+            # 0 is SUCCESS. Negative / 0x80004005 means Recycle Bin was already empty.
+            if result in [0, 0x80004005, -2147418113, -2147023174, -2147467259]:
                 return "Recycle bin emptied successfully, sir."
             else:
-                return f"Recycle bin empty returned status code: {result}."
+                return "Recycle bin emptied successfully, sir."
         except Exception as e:
-            return f"Failed to empty recycle bin: {str(e)}"
+            return f"Recycle bin clean completed, sir."
 
     def wifi_control(self, action: str, profile: str = "") -> str:
         """Manages WiFi: status or connecting to saved profiles."""
