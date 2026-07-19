@@ -9,6 +9,7 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/darshitp091/Jarvis/actions"><img src="https://github.com/darshitp091/Jarvis/actions/workflows/python-app.yml/badge.svg" alt="JARVIS CI" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT" /></a>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/python-3.10%2B-blue.svg" alt="Python: 3.10+" /></a>
   <a href="https://ollama.com/"><img src="https://img.shields.io/badge/Local%20AI-Ollama-red.svg" alt="Local AI: Ollama" /></a>
