@@ -121,12 +121,21 @@ As a complete hands-free computer controller, JARVIS executes operating system a
 ### 1. 🗣️ Multilingual Audio & Speech (Hinglish-First)
 - **Zero-Command Transcription:** Displays instant visual CLI feedback (`JARVIS Heard: <text>`).
 - **Fine-Tuned Hinglish STT:** Whisper-small fine-tuned locally on the `agarwalayushi/hinglish` dataset (2,200+ hours of Hindi, English & Romanized Hinglish speech). Handles natural code-mixed Hinglish seamlessly.
+- **Hybrid Hinglish Wake Engine:** Listens for natural Hinglish wake phrases (`"jarvis"`, `"jarvis bhai"`, `"sun jarvis"`, `"chalo utho jarvis"`, `"jarvis ji"`, `"hey jarvis"`). Includes interactive enrollment tool (`record_hinglish_wakeword.py`).
+- **Adaptive Speaker Verification (`0.62` Threshold):** Compares owner voice MFCC profiles against enrolled profile. Features dynamic thresholding (`0.62` default, `0.55` music active) and continuous voice print adaptation.
+- **6-Minute Active Wake Lock (`360s`):** Maintains active conversational state when music is paused, preventing JARVIS from prematurely falling asleep every 5 seconds.
 - **ONNX Silero VAD:** Lightweight, CPU-friendly Voice Activity Detection using ONNX-exported Silero VAD — prevents false triggers and ensures clean segmentation.
 - **Chained Command Splitter:** Understands multi-step Hinglish commands like _"pehle yeh karo, phir woh karo"_ and executes each sub-task in sequence.
 - **Neural Speech Synthesis:** Streams natural Kokoro or Edge-TTS speech with expressive emotional tags (`[excited]`, `[thoughtful]`, `[sigh]`, `[laugh]`) to control tone, pause inflections, and rate.
 - **Acoustic Interruption:** Automatically stops speaking mid-sentence when you start talking over it.
 
-### 2. 📊 Professional Presentation Generator (Research-Driven)
+### 2. 💬 Proactive WhatsApp & Mobile Notification Engine
+- **Personal Contact Filter:** Filters out group chats, corporate alerts (swiggy, bank alerts), and OTPs, notifying you only of personal contacts.
+- **Real-Time Spoken Announcements:** When awake, JARVIS announces incoming personal WhatsApp messages immediately: *"Sir, Roshan ka WhatsApp message aaya hai... Kya reply bhej doon?"*
+- **Quiet Asleep Queue:** When sleeping, messages queue silently in `unread_whatsapp_messages` without interrupting your sleep, announcing a subtle notice upon wake-up.
+- **WhatsApp Desktop Direct Reply:** Automatically opens WhatsApp Desktop deep-links (`whatsapp://send?...`) and types your voice replies directly.
+
+### 3. 📊 Professional Presentation Generator (Research-Driven)
 - **Online Content Research:** Crawls Google/DuckDuckGo/Bing for the requested topic, summarizes research into a bilingual Hinglish LLM outline before generating any slides.
 - **Intelligent Slide Layout Engine:** Generates premium side-by-side slide layouts: bullet-point text column (left) with a contextually-matched downloaded image (right). Falls back to full-width text if no image is found.
 - **Bing Image Scraper:** Queries Bing Images per slide, decodes HTML entities to extract high-res image URLs, downloads and validates them with PIL before embedding.
@@ -136,37 +145,40 @@ As a complete hands-free computer controller, JARVIS executes operating system a
 - **Vision-Based Active Slide Detection:** Uses `ScreenVision` to screenshot and OCR the currently open PowerPoint slide to determine which slide to modify — no need to say the slide number.
 - **State Persistence:** Saves full presentation metadata to `config/last_presentation.json` to enable follow-up edits even after JARVIS restarts.
 
-### 3. 👁️ Proactive Visual Assistant (Always-On Screen Monitor)
+### 4. 👁️ Proactive Visual Assistant (Always-On Screen Monitor)
 - **Continuous Background Loop:** A dedicated background thread (`_visual_assistant_loop`) captures screenshots every ~30 seconds using `mss`.
 - **App-Aware Context Engine:** Identifies the active window/application and tailors its suggestions accordingly — coding tips while in VS Code, productivity hints in a browser, etc.
 - **OCR Text Extraction:** Extracts on-screen text via Tesseract OCR and passes it as context to the LLM for intelligent, relevant suggestions.
 - **Proactive Voice Prompts:** If JARVIS notices something interesting (error message on screen, long YouTube video paused, etc.) it proactively speaks a helpful, contextual suggestion — without being asked.
 - **Non-Blocking Design:** Runs entirely on a separate daemon thread; never blocks voice listening or command execution.
 
-### 4. 🖐️ Spatial Hand Gesture Control
+### 5. 🖐️ Spatial Hand Gesture Control
 Control your mouse pointer and applications hands-free via your webcam feed (~30 FPS):
 - **EMA Cursor Smoothing:** Precision finger tracking with Exponential Moving Average filters to eliminate hand tremors.
 - **Click & Scroll Gestures:** Pinch Index + Thumb (Left Click & Drag), Pinch Middle + Thumb (Right Click), Pinch Pinky + Thumb (Double Click), and vertical multi-finger scrolls.
 - **Air Writing Canvas:** Draw neon trails directly on your screen by raising a "Rock-On" gesture.
 - **Window Swiping:** Focus or move active windows, and close applications instantly by holding a closed fist for 1.5 seconds (equipped with protection guards to prevent self-closure).
 
-### 5. 👁️ Eye-Gaze & Fatigue Diagnostics
+### 6. 👁️ Eye-Gaze & Fatigue Diagnostics
 - **Contextual Prompts:** Monitors brow furrowing and gaze centering. Prompts to analyze your active code screen if you appear confused for more than 30 seconds.
 - **Sentry Lock:** Auto-locks Windows and suspends camera feed if unauthorized face-peekers are detected behind you.
 
-### 6. 📱 Android ADB Mobile Bridge
+### 7. 📱 Android ADB Mobile Bridge
 Control your mobile phone over an offline USB ADB connection:
 - **System Diagnostics:** Query battery status, toggle flashlight, adjust sound streams, and mute audio.
 - **Multimodal Screen Analysis:** Take screen grabs, pull photos, and describe them utilizing local vision models.
 - **Communications:** Compose SMS messages, launch WhatsApp calls, and query contacts fuzzily.
 
-### 7. 🏛️ Smart Note-Vault & Memory
+### 8. 🏛️ Smart Note-Vault & Memory
 - **Conversational Vault:** Dictate raw, unstructured notes. JARVIS uses the LLM to structure, clean, and save them in Obsidian with standard frontmatter headers and descriptive titles.
 - **Episodic Memory Consolidator:** A background scheduler reads raw daily logs, extracts stable user preferences and coding styles, and stores them long-term.
 - **Stateful Conversation Tracking:** JARVIS tracks active tasks in memory (e.g., presentation topic, last file opened) and routes follow-up commands to the right skill automatically — no need to repeat context.
 
-### 8. 🛠️ Self-Healing Autonomy
-- **Sandbox Compiler:** When system scripts or API modules crash, an offline sandbox catches the traceback, prompts Llama for code modifications, compiles it inside a sandboxed environment, and patches the file live.
+### 9. 🛠️ Codestral & LLM Self-Healing Sensory Loop
+- **Active Crash Diagnostics:** Logs full stack tracebacks to `config/crash_diagnostics.json` whenever an unexpected runtime error occurs.
+- **Dynamic Hotpatching:** Instantly patches missing attributes, PyAudio stream drops, and parameter mismatches without crashing the application.
+- **Mistral / Codestral Diagnosis:** Calls Codestral / Mistral LLM to analyze stack traces and speak a concise Hinglish diagnosis and recovery briefing.
+- **Loop-Storm Safeguard:** Monitors error rates over 30-second windows and resets sensory subsystems automatically if an error loop occurs, preventing infinite repeating speech error loops.
 
 ---
 
