@@ -561,6 +561,37 @@ class IntentRouter:
         if sync_match:
             return {"skill": "file_manager", "params": {"action": "sync_folders", "src": sync_match.group(1).strip(), "dst": sync_match.group(2).strip()}, "domain": "general"}
 
+        # --- E-Commerce & Shopping Assistant ---
+        shop_search_match = re.search(r"(?:search|buy|find|open|show)(?:\s+for)?\s+(.+?)\s+on\s+(amazon|flipkart|myntra|swiggy|zomato)", cmd)
+        if shop_search_match:
+            return {"skill": "shopping", "params": {"action": "search_product", "query": shop_search_match.group(1).strip(), "platform": shop_search_match.group(2).strip()}, "domain": "general"}
+        
+        buy_prod_match = re.search(r"(?:buy|purchase|order)\s+(.+)", cmd)
+        if buy_prod_match and not any(w in cmd for w in ["phone", "course", "ticket", "stock", "crypto"]):
+            return {"skill": "shopping", "params": {"action": "search_product", "query": buy_prod_match.group(1).strip(), "platform": "amazon"}, "domain": "general"}
+
+        if any(c in cmd for c in ["add to cart", "cart mein dalo", "cart me dalo", "add this to cart", "cart mein add karo"]):
+            return {"skill": "shopping", "params": {"action": "add_to_cart"}, "domain": "general"}
+            
+        if any(c in cmd for c in ["buy now", "checkout proceed", "order placed karo", "proceed to checkout"]):
+            return {"skill": "shopping", "params": {"action": "buy_now"}, "domain": "general"}
+
+        # --- Color Picker, Mind Map & Shredder ---
+        if any(c in cmd for c in ["pick color", "color picker", "sample color", "screen color", "color pick karo"]):
+            return {"skill": "os_control", "params": {"action": "pick_screen_color"}, "domain": "general"}
+
+        mindmap_match = re.search(r"(?:mind map|mindmap)(?:\s+for|\s+on)?\s+(.+)", cmd)
+        if mindmap_match:
+            return {"skill": "productivity", "params": {"action": "mindmap", "topic": mindmap_match.group(1).strip()}, "domain": "general"}
+            
+        shred_match = re.search(r"(?:shred file|secure delete|shred)\s+(.+)", cmd)
+        if shred_match:
+            return {"skill": "file_manager", "params": {"action": "shred", "path": shred_match.group(1).strip()}, "domain": "general"}
+
+        sign_pdf_match = re.search(r"sign pdf\s+(.+)", cmd)
+        if sign_pdf_match:
+            return {"skill": "file_manager", "params": {"action": "sign_pdf", "pdf_path": sign_pdf_match.group(1).strip()}, "domain": "general"}
+
         backup_match = re.search(r"^backup\s+(.+?)\s+to\s+(onedrive|google_drive|google drive)", cmd)
         if backup_match:
             provider = backup_match.group(2).replace(" ", "_").strip()

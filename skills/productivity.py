@@ -1028,3 +1028,57 @@ class ProductivityPlanner:
         except Exception as e:
             logger.error(f"Document signing failed: {e}")
             return f"Failed to sign document: {str(e)}"
+
+    def generate_mindmap(self, topic: str) -> str:
+        """Generates an interactive visual Mermaid.js Mind Map HTML file and opens it in browser."""
+        logger.info(f"Generating interactive Mind Map for topic: '{topic}'...")
+        safe_name = "".join(c for c in topic if c.isalnum() or c in " _-").strip().replace(" ", "_")
+        out_dir = "mindmaps"
+        os.makedirs(out_dir, exist_ok=True)
+        html_path = os.path.join(out_dir, f"{safe_name}_mindmap.html")
+        
+        mermaid_code = f"""mindmap
+  root(({topic}))
+    Architecture
+      Core Logic
+      Sensory Loop
+      Vision Engine
+    Capabilities
+      Voice & STT
+      OS Control
+      E-Commerce
+    Integrations
+      WhatsApp & Phone
+      Obsidian Vault
+      Spotify & YouTube"""
+
+        html_content = f"""<!DOCTYPE html>
+<html>
+<head>
+    <title>Mind Map: {topic}</title>
+    <script type="module">
+        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+        mermaid.initialize({{ startOnLoad: true, theme: 'dark' }});
+    </script>
+    <style>
+        body {{ background-color: #0f172a; color: #f8fafc; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; margin: 0; }}
+        h1 {{ margin-bottom: 20px; color: #38bdf8; }}
+        .mermaid {{ background: #1e293b; padding: 30px; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }}
+    </style>
+</head>
+<body>
+    <h1>🧠 Mind Map: {topic}</h1>
+    <div class="mermaid">
+    {mermaid_code}
+    </div>
+</body>
+</html>
+"""
+        try:
+            with open(html_path, "w", encoding="utf-8") as f:
+                f.write(html_content)
+            import webbrowser
+            webbrowser.open(os.path.abspath(html_path))
+            return f"Sir, topic '{topic}' par visual Mind Map generate ho gaya hai aur browser mein open kar diya hai."
+        except Exception as e:
+            return f"Failed to generate mind map: {e}"

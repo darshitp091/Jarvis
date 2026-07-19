@@ -126,6 +126,7 @@ from core.context_sentinel import ContextSentinel
 from skills.app_control import AppControl
 from core.profile_manager import ProfileManager
 from skills.obsidian_control import ObsidianControl; _p("DBG: obsidian ok")
+from skills.shopping_assistant import ShoppingAssistant; _p("DBG: shopping_assistant ok")
 
 
 class JARVIS:
@@ -207,6 +208,7 @@ class JARVIS:
                 logger.warning("Spotify not authorized. Run 'python authorize_spotify.py' once to enable full API mode.")
         _p("INIT: YouTubeMusicPlayer"); self.youtube_music = YouTubeMusicPlayer()
         _p("INIT: ObsidianControl"); self.obsidian_ctrl = ObsidianControl()
+        _p("INIT: ShoppingAssistant"); self.shopping = ShoppingAssistant()
         self.youtube_music.on_song_change = lambda title, msg: self.orb.notification_signal.emit(title, msg)
         self.tts.on_speak_start = self._duck_audio
         self.tts.on_speak_end = self._unduck_audio
@@ -2356,6 +2358,8 @@ class JARVIS:
                         response = self.os_ctrl.show_screen_ruler()
                     elif action == "show_snipping_tool":
                         response = self.os_ctrl.show_snipping_tool()
+                    elif action == "pick_screen_color":
+                        response = self.os_ctrl.pick_screen_color()
                     else:
                         response = self._generate_response(text, domain)
 
@@ -3240,7 +3244,10 @@ class JARVIS:
                             nodes = json.loads(raw)
                         except Exception:
                             nodes = ["Overview", "Details", "Challenges", "Solutions", "Future"]
-                        response = self.productivity.create_mind_map(central_idea, nodes)
+                        response = self.productivity.generate_mindmap(central_idea)
+                    elif action == "mindmap":
+                        topic = params.get("topic", text)
+                        response = self.productivity.generate_mindmap(topic)
                     elif action == "block_distractions":
                         response = self.productivity.block_distractions(params.get("domains_list", []), params.get("block", True))
                     elif action == "sign_document":
@@ -3251,6 +3258,20 @@ class JARVIS:
                             params.get("coords", (100, 100))
                         )
                     else:
+                        response = self._generate_response(text, domain)
+
+                elif skill == "shopping":
+                    action = params.get("action", "")
+                    query = params.get("query", text)
+                    platform = params.get("platform", "amazon")
+                    if action == "search_product":
+                        response = self.shopping.search_and_show_product(query, platform)
+                    elif action == "add_to_cart":
+                        response = self.shopping.add_to_cart(query)
+                    elif action == "buy_now":
+                        response = self.shopping.buy_now_checkout(query)
+                    else:
+                        response = self.shopping.search_and_show_product(query, platform)
                         response = "Productivity action not supported, sir."
 
                 elif skill == "image_editor":

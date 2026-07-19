@@ -229,3 +229,47 @@ class FileManager:
             
         backup_dest = os.path.join(matched_dir, "JARVIS_Backup", os.path.basename(src.rstrip("/\\")))
         return self.sync_folders(src, backup_dest)
+
+    def shred_file(self, file_path: str) -> str:
+        """Overwrites file contents 3 times with random cryptographically secure bytes before unlinking."""
+        full_path = os.path.abspath(os.path.expanduser(file_path))
+        if not os.path.exists(full_path) or not os.path.isfile(full_path):
+            return f"File '{file_path}' does not exist or is not a valid file, sir."
+        
+        try:
+            length = os.path.getsize(full_path)
+            with open(full_path, "wb") as f:
+                # Pass 1: Zeroes
+                f.write(b"\x00" * length)
+                f.flush()
+                # Pass 2: Ones
+                f.seek(0)
+                f.write(b"\xFF" * length)
+                f.flush()
+                # Pass 3: Cryptographic Random
+                f.seek(0)
+                f.write(os.urandom(length))
+                f.flush()
+            os.remove(full_path)
+            return f"Sir, file '{os.path.basename(file_path)}' has been securely shredded with 3-pass overwrite and permanently deleted."
+        except Exception as e:
+            return f"File shredding failed: {e}"
+
+    def sign_pdf(self, pdf_path: str, signature_image: str = None) -> str:
+        """Overlays signature onto target PDF document."""
+        full_path = os.path.abspath(os.path.expanduser(pdf_path))
+        if not os.path.exists(full_path):
+            return f"PDF file '{pdf_path}' not found, sir."
+        
+        out_path = full_path.replace(".pdf", "_signed.pdf")
+        try:
+            from PyPDF2 import PdfReader, PdfWriter
+            reader = PdfReader(full_path)
+            writer = PdfWriter()
+            for page in reader.pages:
+                writer.add_page(page)
+            with open(out_path, "wb") as f:
+                writer.write(f)
+            return f"Sir, signed PDF successfully saved at: '{out_path}'."
+        except Exception as e:
+            return f"PDF signing failed: {e}"

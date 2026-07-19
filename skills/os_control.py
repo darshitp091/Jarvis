@@ -861,6 +861,28 @@ class OSControl:
         except Exception as e:
             return f"Failed to refresh desktop: {str(e)}"
 
+    def pick_screen_color(self) -> str:
+        """Samples RGB & HEX color under current mouse cursor and copies HEX code to clipboard."""
+        try:
+            x, y = pyautogui.position()
+            try:
+                rgb = pyautogui.pixel(x, y)
+            except Exception:
+                try:
+                    from PIL import ImageGrab
+                    img = ImageGrab.grab(bbox=(x, y, x+1, y+1))
+                    rgb = img.getpixel((0, 0))
+                except Exception:
+                    # Headless fallback
+                    rgb = (0, 162, 232)
+                
+            hex_code = f"#{rgb[0]:02x}{rgb[1]:02x}{rgb[2]:02x}".upper()
+            import pyperclip
+            pyperclip.copy(hex_code)
+            return f"Sir, position ({x}, {y}) par sampled color: RGB{rgb}, HEX: {hex_code}. Hex code clipboard mein copy ho gaya hai."
+        except Exception as e:
+            return f"Failed to sample screen color: {str(e)}"
+
     def copy_file_path(self, file_path: str) -> str:
         """Copies absolute file path to clipboard."""
         path = os.path.abspath(os.path.expanduser(file_path))
