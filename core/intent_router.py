@@ -717,7 +717,7 @@ class IntentRouter:
             return {"skill": "system_monitor", "params": {"action": "regular_diagnostics"}, "domain": "general"}
 
         # 3. Screen Vision
-        if any(p in cmd for p in ["screen", "what's on my screen", "describe my screen", "what do you see", "what can you see"]):
+        if not any(w in cmd for w in ["screenshot", "screenshots"]) and any(p in cmd for p in ["screen", "what's on my screen", "describe my screen", "what do you see", "what can you see"]):
             return {"skill": "screen_vision", "params": {}, "domain": "general"}
 
         # 4. Media Summarization
@@ -1013,7 +1013,21 @@ class IntentRouter:
             if any(w in cmd for w in ["folder", "directory", "file", "downloads", "documents", "desktop", "pictures", "photos", "videos", "music", "kholo", "dikhao"]):
                 return {"skill": "file_manager", "params": {"action": "find_and_open", "target": target_str}, "domain": "general"}
 
-        # Subfolder Inspection & Purging (e.g. "pictures ke andar screenshots check karo", "delete all files in screenshots folder")
+        # Subfolder Inspection & Purging (e.g. "JARVIS, CHECK KORO, pictures folder mein screenshot folder hai ki nahi hai")
+        if any(w in cmd for w in ["check", "inspect", "count", "kitni files", "files hai", "folder hai", "hai ki nahi"]):
+            if any(loc in cmd for loc in ["pictures", "downloads", "desktop", "documents", "photos"]):
+                parent_loc = "pictures"
+                for loc in ["pictures", "downloads", "desktop", "documents", "photos"]:
+                    if loc in cmd:
+                        parent_loc = loc
+                        break
+                target_sub = "screenshots"
+                for kw in ["screenshot", "screenshots", "images", "temp", "photos", "downloads"]:
+                    if kw in cmd and kw != parent_loc:
+                        target_sub = kw
+                        break
+                return {"skill": "file_manager", "params": {"action": "inspect_folder", "target": target_sub, "location": parent_loc}, "domain": "general"}
+
         inspect_sub_match = re.search(r"(?:check|inspect|count|how many files|kitni files)\s+(?:in\s+)?([a-zA-Z0-9_\-\s]+?)\s+(?:folder\s+)?(?:in|ke andar)\s+(pictures|downloads|desktop|documents|photos)", cmd)
         if inspect_sub_match:
             return {"skill": "file_manager", "params": {"action": "inspect_folder", "target": inspect_sub_match.group(1).strip(), "location": inspect_sub_match.group(2).strip()}, "domain": "general"}

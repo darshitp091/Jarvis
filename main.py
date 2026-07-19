@@ -918,15 +918,7 @@ class JARVIS:
             else:
                 self.tts.speak("Authentication required hai, sir. Apna 6-digit PIN bataiye.")
         else:
-            import random
-            name = self.config.get("jarvis", {}).get("name", "JARVIS")
-            startup_greetings = [
-                f"Namaste sir, {name} online hai. Sabhi systems tayar hain, bataiye kya kaam hai?",
-                f"Haan sir, {name} active hai. Batayein aaj kya setup karna hai?",
-                f"Greetings sir! {name} online hai aur fully operational hai. Aagya dijiye.",
-                f"{name} active hai sir. Command center ready hai, boliye kya madad karu?"
-            ]
-            self.tts.speak(random.choice(startup_greetings))
+            logger.info("JARVIS initialized silently on startup. Standing by for wake word.")
 
     def query_llm(self, messages: list, system_prompt: str = None, provider: str = "mistral", model: str = None) -> str:
         """Queries the active LLM provider (mistral, ofoxai, groq, or local Ollama fallback)."""
@@ -4093,6 +4085,16 @@ class JARVIS:
                         channel = ctx["channel"]
                         msg_body = ctx["message"]
                         
+                        ignore_cues = ["ignore", "chhod do", "chhod dena", "rehne do", "leave it", "dismiss", "skip", "no reply", "mat karo", "zarurat nahi"]
+                        is_ignore_intent = any(w in cmd_lower for w in ignore_cues)
+                        if is_ignore_intent:
+                            logger.info(f"User instructed to ignore notification from {sender}. Clearing active context.")
+                            self.active_context = None
+                            self.orb.set_state("speaking")
+                            self.tts.speak("Understood sir, message ignore kar diya hai. Bataiye aage kya kaam karna hai.")
+                            self.orb.set_state("idle")
+                            continue
+
                         # Guard: Only process as reply if the user command explicitly expresses a reply intent
                         reply_cues = ["reply", "jawab", "bol do", "bolna", "message kar", "bhej do", "unko bolo", "unse bolo", "send reply", "unko bol", "usko bol"]
                         is_reply_intent = any(w in cmd_lower for w in reply_cues)
