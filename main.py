@@ -4432,6 +4432,9 @@ class JARVIS:
                 self.os_ctrl.sentry_active = False
                 logger.info("Deactivated Sentry Mode (authenticated owner present).")
 
-if __name__ == "__main__":
+def main():
     jarvis = JARVIS()
     sys.exit(jarvis.app.exec())
+
+if __name__ == "__main__":
+    main()
