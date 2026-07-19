@@ -384,3 +384,167 @@ class FileManager:
         if specific_location:
             return f"Sir, maine '{specific_location}' folder check kiya, par vahan '{target_name}' name ki koi file ya folder nahi mili."
         return f"Sir, I searched your Desktop, Downloads, and Documents, but could not find a file or folder named '{target_name}'."
+
+    def _resolve_folder_target(self, folder_query: str, parent_location: str = None) -> str:
+        """Resolves target folder path from query and optional parent location alias."""
+        user_home = os.path.expanduser("~")
+        ALIASES = {
+            "downloads": os.path.join(user_home, "Downloads"),
+            "download": os.path.join(user_home, "Downloads"),
+            "documents": os.path.join(user_home, "Documents"),
+            "document": os.path.join(user_home, "Documents"),
+            "desktop": os.path.join(user_home, "Desktop"),
+            "pictures": os.path.join(user_home, "Pictures"),
+            "photos": os.path.join(user_home, "Pictures"),
+            "videos": os.path.join(user_home, "Videos"),
+            "music": os.path.join(user_home, "Music"),
+            "jarvis": r"C:\Users\patel\Jarvis",
+            "workspace": r"C:\Users\patel\Jarvis",
+        }
+
+        clean_folder = folder_query.strip().lower()
+        if clean_folder in ALIASES and not parent_location:
+            return ALIASES[clean_folder]
+
+        parent_dir = None
+        if parent_location:
+            p_clean = parent_location.strip().lower()
+            if p_clean in ALIASES:
+                parent_dir = ALIASES[p_clean]
+            elif os.path.exists(parent_location):
+                parent_dir = os.path.abspath(parent_location)
+
+        if parent_dir and os.path.exists(parent_dir):
+            target_path = os.path.join(parent_dir, folder_query)
+            if os.path.exists(target_path) and os.path.isdir(target_path):
+                return target_path
+
+            try:
+                for item in os.listdir(parent_dir):
+                    full = os.path.join(parent_dir, item)
+                    if os.path.isdir(full) and clean_folder in item.lower():
+                        return full
+            except Exception:
+                pass
+
+        search_roots = [
+            os.path.join(user_home, "Pictures"),
+            os.path.join(user_home, "Desktop"),
+            os.path.join(user_home, "Downloads"),
+            os.path.join(user_home, "Documents"),
+            r"C:\Users\patel\Jarvis",
+            user_home
+        ]
+
+        for root_dir in search_roots:
+            if not os.path.exists(root_dir):
+                continue
+            target_path = os.path.join(root_dir, folder_query)
+            if os.path.exists(target_path) and os.path.isdir(target_path):
+                return target_path
+
+            try:
+                for item in os.listdir(root_dir):
+                    full = os.path.join(root_dir, item)
+                    if os.path.isdir(full) and clean_folder in item.lower():
+                        return full
+            except Exception:
+                pass
+
+            try:
+                for r, dirs, _ in os.walk(root_dir):
+                    rel_depth = r.count(os.sep) - root_dir.count(os.sep)
+                    if rel_depth > 2:
+                        dirs.clear()
+                        continue
+                    for d in dirs:
+                        if clean_folder in d.lower():
+                            return os.path.join(r, d)
+            except Exception:
+                pass
+
+        if os.path.exists(folder_query) and os.path.isdir(folder_query):
+            return os.path.abspath(folder_query)
+
+        return None
+
+    def inspect_folder_contents(self, folder_query: str, parent_location: str = None) -> str:
+        """Inspects target folder, counts files/subfolders, and calculates total size."""
+        target_dir = self._resolve_folder_target(folder_query, parent_location)
+        if not target_dir or not os.path.exists(target_dir):
+            loc_str = f" in '{parent_location}'" if parent_location else ""
+            return f"Sir, I could not find a folder named '{folder_query}'{loc_str}."
+
+        folder_name = os.path.basename(target_dir)
+        parent_name = os.path.basename(os.path.dirname(target_dir))
+
+        try:
+            items = os.listdir(target_dir)
+            files = [i for i in items if os.path.isfile(os.path.join(target_dir, i))]
+            subdirs = [i for i in items if os.path.isdir(os.path.join(target_dir, i))]
+
+            total_size_bytes = 0
+            for root, _, f_list in os.walk(target_dir):
+                for f in f_list:
+                    try:
+                        total_size_bytes += os.path.getsize(os.path.join(root, f))
+                    except Exception:
+                        pass
+
+            size_mb = total_size_bytes / (1024 * 1024)
+            size_str = f"{size_mb:.1f} MB" if size_mb < 1024 else f"{size_mb / 1024:.2f} GB"
+
+            return (
+                f"Sir, {parent_name} folder ke andar '{folder_name}' folder mila. "
+                f"Isme total {len(files)} files aur {len(subdirs)} subfolders hain (Total size: {size_str})."
+            )
+        except Exception as e:
+            return f"Failed to inspect folder contents: {e}"
+
+    def purge_folder_contents(self, folder_query: str, parent_location: str = None, secure_shred: bool = False) -> str:
+        """Deletes all files and contents inside the specified subfolder while preserving the folder itself."""
+        target_dir = self._resolve_folder_target(folder_query, parent_location)
+        if not target_dir or not os.path.exists(target_dir):
+            loc_str = f" in '{parent_location}'" if parent_location else ""
+            return f"Sir, I could not find a folder named '{folder_query}'{loc_str}."
+
+        folder_name = os.path.basename(target_dir)
+
+        # Safety Guard: Protect Root, Windows, User Home root directories
+        user_home = os.path.expanduser("~")
+        protected_paths = [
+            r"C:\", r"C:\Windows", r"C:\Program Files", r"C:\Program Files (x86)",
+            user_home, os.path.join(user_home, "Desktop"), os.path.join(user_home, "Documents")
+        ]
+        if os.path.abspath(target_dir) in [os.path.abspath(p) for p in protected_paths]:
+            return f"Sir, '{folder_name}' is a critical system directory! I cannot wipe this directory for safety."
+
+        try:
+            items = os.listdir(target_dir)
+            if not items:
+                return f"Sir, '{folder_name}' folder pehle se hi khali (empty) hai."
+
+            file_count = 0
+            dir_count = 0
+            for item in items:
+                item_path = os.path.join(target_dir, item)
+                try:
+                    if os.path.isfile(item_path) or os.path.islink(item_path):
+                        if secure_shred:
+                            self.shred_file(item_path)
+                        else:
+                            os.remove(item_path)
+                        file_count += 1
+                    elif os.path.isdir(item_path):
+                        shutil.rmtree(item_path)
+                        dir_count += 1
+                except Exception as item_err:
+                    logger.warning(f"Could not remove {item_path}: {item_err}")
+
+            return (
+                f"Sir, '{folder_name}' folder ke andar ki saari {file_count} files "
+                f"{'aur ' + str(dir_count) + ' subfolders ' if dir_count > 0 else ''}"
+                f"successfully delete kar di hain!"
+            )
+        except Exception as e:
+            return f"Failed to clean folder contents: {e}"

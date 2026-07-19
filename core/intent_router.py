@@ -1013,6 +1013,23 @@ class IntentRouter:
             if any(w in cmd for w in ["folder", "directory", "file", "downloads", "documents", "desktop", "pictures", "photos", "videos", "music", "kholo", "dikhao"]):
                 return {"skill": "file_manager", "params": {"action": "find_and_open", "target": target_str}, "domain": "general"}
 
+        # Subfolder Inspection & Purging (e.g. "pictures ke andar screenshots check karo", "delete all files in screenshots folder")
+        inspect_sub_match = re.search(r"(?:check|inspect|count|how many files|kitni files)\s+(?:in\s+)?([a-zA-Z0-9_\-\s]+?)\s+(?:folder\s+)?(?:in|ke andar)\s+(pictures|downloads|desktop|documents|photos)", cmd)
+        if inspect_sub_match:
+            return {"skill": "file_manager", "params": {"action": "inspect_folder", "target": inspect_sub_match.group(1).strip(), "location": inspect_sub_match.group(2).strip()}, "domain": "general"}
+
+        inspect_sub_match2 = re.search(r"(pictures|downloads|desktop|documents|photos)\s+(?:ke andar\s+)?([a-zA-Z0-9_\-\s]+?)\s+(?:folder\s+)?(?:check karo|inspect karo|chck karo|mein kitni files hai|check)", cmd)
+        if inspect_sub_match2:
+            return {"skill": "file_manager", "params": {"action": "inspect_folder", "target": inspect_sub_match2.group(2).strip(), "location": inspect_sub_match2.group(1).strip()}, "domain": "general"}
+
+        purge_sub_match = re.search(r"(?:delete|remove|clean|purge|clear|shred)\s+(?:all\s+files\s+in|everything\s+in|saari\s+files\s+in)?\s*([a-zA-Z0-9_\-\s]+?)\s+(?:folder\s+)?(?:in|ke andar)\s+(pictures|downloads|desktop|documents|photos)", cmd)
+        if purge_sub_match:
+            return {"skill": "file_manager", "params": {"action": "purge_folder", "target": purge_sub_match.group(1).strip(), "location": purge_sub_match.group(2).strip()}, "domain": "general"}
+
+        purge_sub_match2 = re.search(r"([a-zA-Z0-9_\-\s]+?)\s+(?:folder\s+)?(?:ke andar ki saari files delete kardo|ke andar ki files delete karo|clean kardo|clear kardo|purge kardo|delete kardo)", cmd)
+        if purge_sub_match2:
+            return {"skill": "file_manager", "params": {"action": "purge_folder", "target": purge_sub_match2.group(1).strip()}, "domain": "general"}
+
         # --- Data Analyzer ---
         if cmd.startswith("read document ") or cmd.startswith("parse document ") or cmd.startswith("read file "):
             fp = cmd.replace("read document ", "").replace("parse document ", "").replace("read file ", "").strip()

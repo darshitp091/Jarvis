@@ -3066,6 +3066,10 @@ class JARVIS:
                         response = self.file_manager.backup_to_local_cloud(path, params.get("cloud_provider", "onedrive"))
                     elif action == "find_and_open":
                         response = self.file_manager.find_and_open_target(params.get("target", path), specific_location=params.get("location"))
+                    elif action == "inspect_folder":
+                        response = self.file_manager.inspect_folder_contents(params.get("target", path), parent_location=params.get("location"))
+                    elif action == "purge_folder":
+                        response = self.file_manager.purge_folder_contents(params.get("target", path), parent_location=params.get("location"))
                     else:
                         response = "File action not supported, sir."
 
