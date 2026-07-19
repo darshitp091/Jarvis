@@ -1007,6 +1007,13 @@ class IntentRouter:
             path = cmd.replace("delete directory ", "").replace("delete folder ", "").strip()
             return {"skill": "file_manager", "params": {"action": "delete_directory", "path": path}, "domain": "general"}
 
+        # Open folder / file matcher (matches "pictures folder kholo", "ek kaam karo pictures folder kholo", "DOWNLOAD FOLDER kholo to")
+        if any(w in cmd for w in ["kholo", "open", "launch", "show folder", "open folder", "folder kholo", "khol do"]):
+            for loc in ["downloads", "download", "pictures", "photos", "documents", "desktop", "videos", "music", "jarvis", "workspace"]:
+                if loc in cmd:
+                    target_name = "downloads" if loc in ["download", "downloads"] else ("pictures" if loc in ["pictures", "photos"] else loc)
+                    return {"skill": "file_manager", "params": {"action": "find_and_open", "target": target_name}, "domain": "general"}
+
         open_target_match = re.search(r"^(?:open|show|find|launch)\s+(?:folder|directory|file)?\s*([a-zA-Z0-9_\-\.\s]+?)(?:\s+folder|\s+directory)?$", cmd)
         if open_target_match:
             target_str = open_target_match.group(1).strip()

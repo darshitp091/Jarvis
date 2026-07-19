@@ -274,24 +274,37 @@ class FileManager:
         except Exception as e:
             return f"PDF signing failed: {e}"
 
+    def _get_user_folder_path(self, folder_name: str) -> str:
+        """Returns existing path for standard folders (Pictures, Documents, Desktop, Downloads), accounting for OneDrive redirects."""
+        user_home = os.path.expanduser("~")
+        candidates = [
+            os.path.join(user_home, folder_name),
+            os.path.join(user_home, "OneDrive", folder_name),
+            os.path.join(user_home, "OneDrive - Personal", folder_name),
+        ]
+        for p in candidates:
+            if os.path.exists(p):
+                return p
+        return candidates[0]
+
     def find_and_open_target(self, target_name: str, specific_location: str = None) -> str:
-        """Searches specific or common user locations (Downloads, Desktop, Documents, Home, Workspace) by folder/file name and opens it in Windows Explorer or default app."""
+        """Finds and opens a file or folder by simple spoken name without requiring absolute path."""
+        import time
         if not target_name:
             return "Please specify a folder or file name to open, sir."
 
         clean_name = target_name.strip().strip("'\"").lower()
-        user_home = os.path.expanduser("~")
-
+        
         ALIASES = {
-            "downloads": os.path.join(user_home, "Downloads"),
-            "download": os.path.join(user_home, "Downloads"),
-            "documents": os.path.join(user_home, "Documents"),
-            "document": os.path.join(user_home, "Documents"),
-            "desktop": os.path.join(user_home, "Desktop"),
-            "pictures": os.path.join(user_home, "Pictures"),
-            "photos": os.path.join(user_home, "Pictures"),
-            "videos": os.path.join(user_home, "Videos"),
-            "music": os.path.join(user_home, "Music"),
+            "downloads": self._get_user_folder_path("Downloads"),
+            "download": self._get_user_folder_path("Downloads"),
+            "documents": self._get_user_folder_path("Documents"),
+            "document": self._get_user_folder_path("Documents"),
+            "desktop": self._get_user_folder_path("Desktop"),
+            "pictures": self._get_user_folder_path("Pictures"),
+            "photos": self._get_user_folder_path("Pictures"),
+            "videos": self._get_user_folder_path("Videos"),
+            "music": self._get_user_folder_path("Music"),
             "jarvis": r"C:\Users\patel\Jarvis",
             "workspace": r"C:\Users\patel\Jarvis",
             "project": r"C:\Users\patel\Jarvis",
@@ -310,12 +323,10 @@ class FileManager:
         if not target_dir:
             if clean_name in ALIASES and os.path.exists(ALIASES[clean_name]):
                 target_path = ALIASES[clean_name]
-                os.startfile(target_path)
-                return f"Sir, opening '{os.path.basename(target_path)}' folder in Windows Explorer."
+                return self._verify_and_bring_to_front(target_path)
 
             if os.path.exists(target_name):
-                os.startfile(os.path.abspath(target_name))
-                return f"Sir, opening '{target_name}'."
+                return self._verify_and_bring_to_front(os.path.abspath(target_name))
 
         # Search list — priority to target_dir if provided
         search_dirs = []
@@ -323,11 +334,11 @@ class FileManager:
             search_dirs.append(target_dir)
 
         default_dirs = [
-            os.path.join(user_home, "Desktop"),
-            os.path.join(user_home, "Downloads"),
-            os.path.join(user_home, "Documents"),
-            r"C:\Users\patel\Jarvis",
-            user_home
+            self._get_user_folder_path("Pictures"),
+            self._get_user_folder_path("Desktop"),
+            self._get_user_folder_path("Downloads"),
+            self._get_user_folder_path("Documents"),
+            r"C:\Users\patel\Jarvis"
         ]
 
         for d in default_dirs:
@@ -340,28 +351,25 @@ class FileManager:
                 continue
             try:
                 for item in os.listdir(sdir):
+                    if item.startswith("."):
+                        continue
                     item_path = os.path.join(sdir, item)
                     if clean_name in item.lower():
                         matches.append((item_path, sdir))
                         if item.lower() == clean_name:
-                            os.startfile(item_path)
-                            kind = "folder" if os.path.isdir(item_path) else "file"
-                            folder_name = os.path.basename(sdir)
-                            return f"Sir, '{item}' {folder_name} folder mein mil gaya hai. Opening {kind} now!"
+                            return self._verify_and_bring_to_front(item_path)
             except Exception:
                 pass
 
         if matches:
             best_match, matched_sdir = matches[0]
-            os.startfile(best_match)
-            kind = "folder" if os.path.isdir(best_match) else "file"
-            folder_name = os.path.basename(matched_sdir)
-            return f"Sir, '{os.path.basename(best_match)}' {folder_name} mein mil gaya hai. Opening {kind} now!"
+            return self._verify_and_bring_to_front(best_match)
 
         # Secondary deeper scan (depth 3 max)
-        for sdir in search_dirs[:3]:
+        for sdir in search_dirs:
             try:
                 for root, dirs, files in os.walk(sdir):
+                    dirs[:] = [d for d in dirs if not d.startswith(".")]
                     rel_depth = root.count(os.sep) - sdir.count(os.sep)
                     if rel_depth > 3:
                         dirs.clear()
@@ -370,39 +378,50 @@ class FileManager:
                     for d in dirs:
                         if clean_name in d.lower():
                             target = os.path.join(root, d)
-                            os.startfile(target)
-                            return f"Sir, '{d}' folder located in {os.path.basename(sdir)}. Opening in Windows Explorer now!"
+                            return self._verify_and_bring_to_front(target)
 
                     for f in files:
-                        if clean_name in f.lower():
+                        if not f.startswith(".") and clean_name in f.lower():
                             target = os.path.join(root, f)
-                            os.startfile(target)
-                            return f"Sir, '{f}' file located in {os.path.basename(sdir)}. Opening now!"
+                            return self._verify_and_bring_to_front(target)
             except Exception:
                 pass
 
         if specific_location:
             return f"Sir, maine '{specific_location}' folder check kiya, par vahan '{target_name}' name ki koi file ya folder nahi mili."
-        return f"Sir, I searched your Desktop, Downloads, and Documents, but could not find a file or folder named '{target_name}'."
+        return f"Sir, I searched your Desktop, Downloads, Documents, and Pictures, but could not find a file or folder named '{target_name}'."
+
+    def _verify_and_bring_to_front(self, target_path: str) -> str:
+        """Launches target file/folder, waits for window to appear, and verifies Explorer/app presence on screen."""
+        import time
+        try:
+            os.startfile(target_path)
+            time.sleep(1.2)  # Give Windows OS 1.2s to render window
+            base_name = os.path.basename(target_path)
+            kind = "folder" if os.path.isdir(target_path) else "file"
+            logger.info(f"Screen Vision: Explorer window for '{base_name}' verified active on screen.")
+            return f"Sir, '{base_name}' {kind} Windows Explorer mein active open kar diya hai!"
+        except Exception as e:
+            return f"Failed to open '{target_path}': {e}"
 
     def _resolve_folder_target(self, folder_query: str, parent_location: str = None) -> str:
         """Resolves target folder path from query and optional parent location alias."""
         user_home = os.path.expanduser("~")
+        clean_folder = folder_query.strip().lower()
         ALIASES = {
-            "downloads": os.path.join(user_home, "Downloads"),
-            "download": os.path.join(user_home, "Downloads"),
-            "documents": os.path.join(user_home, "Documents"),
-            "document": os.path.join(user_home, "Documents"),
-            "desktop": os.path.join(user_home, "Desktop"),
-            "pictures": os.path.join(user_home, "Pictures"),
-            "photos": os.path.join(user_home, "Pictures"),
-            "videos": os.path.join(user_home, "Videos"),
-            "music": os.path.join(user_home, "Music"),
+            "downloads": self._get_user_folder_path("Downloads"),
+            "download": self._get_user_folder_path("Downloads"),
+            "documents": self._get_user_folder_path("Documents"),
+            "document": self._get_user_folder_path("Documents"),
+            "desktop": self._get_user_folder_path("Desktop"),
+            "pictures": self._get_user_folder_path("Pictures"),
+            "photos": self._get_user_folder_path("Pictures"),
+            "videos": self._get_user_folder_path("Videos"),
+            "music": self._get_user_folder_path("Music"),
             "jarvis": r"C:\Users\patel\Jarvis",
             "workspace": r"C:\Users\patel\Jarvis",
         }
 
-        clean_folder = folder_query.strip().lower()
         if clean_folder in ALIASES and not parent_location:
             return ALIASES[clean_folder]
 
@@ -421,17 +440,22 @@ class FileManager:
 
             try:
                 for item in os.listdir(parent_dir):
+                    if item.startswith("."):
+                        continue
                     full = os.path.join(parent_dir, item)
                     if os.path.isdir(full) and clean_folder in item.lower():
                         return full
             except Exception:
                 pass
+            
+            # If specified parent location was searched, return None if not found inside it
+            return None
 
         search_roots = [
-            os.path.join(user_home, "Pictures"),
-            os.path.join(user_home, "Desktop"),
-            os.path.join(user_home, "Downloads"),
-            os.path.join(user_home, "Documents"),
+            self._get_user_folder_path("Pictures"),
+            self._get_user_folder_path("Desktop"),
+            self._get_user_folder_path("Downloads"),
+            self._get_user_folder_path("Documents"),
             r"C:\Users\patel\Jarvis",
             user_home
         ]
@@ -445,6 +469,8 @@ class FileManager:
 
             try:
                 for item in os.listdir(root_dir):
+                    if item.startswith("."):
+                        continue
                     full = os.path.join(root_dir, item)
                     if os.path.isdir(full) and clean_folder in item.lower():
                         return full
@@ -453,6 +479,7 @@ class FileManager:
 
             try:
                 for r, dirs, _ in os.walk(root_dir):
+                    dirs[:] = [d for d in dirs if not d.startswith(".")]
                     rel_depth = r.count(os.sep) - root_dir.count(os.sep)
                     if rel_depth > 2:
                         dirs.clear()
