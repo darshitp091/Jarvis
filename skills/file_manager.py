@@ -513,7 +513,7 @@ class FileManager:
         # Safety Guard: Protect Root, Windows, User Home root directories
         user_home = os.path.expanduser("~")
         protected_paths = [
-            r"C:\", r"C:\Windows", r"C:\Program Files", r"C:\Program Files (x86)",
+            "C:\\", "C:\\Windows", "C:\\Program Files", "C:\\Program Files (x86)",
             user_home, os.path.join(user_home, "Desktop"), os.path.join(user_home, "Documents")
         ]
         if os.path.abspath(target_dir) in [os.path.abspath(p) for p in protected_paths]:
