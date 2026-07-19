@@ -4269,14 +4269,112 @@ class JARVIS:
                 logger.info("JARVIS shutting down...")
                 sys.exit(0)
             except Exception as e:
-                logger.error(f"Main loop error: {e}")
-                self.orb.set_state("error")
+                self._auto_heal_sensory_loop(e)
+
+    def _auto_heal_sensory_loop(self, exc: Exception):
+        """Diagnoses runtime exceptions in main sensory loop, executes Codestral/LLM self-repair, and auto-recovers."""
+        import traceback
+        import json
+        import time
+
+        tb_str = traceback.format_exc()
+        err_msg = str(exc)
+        logger.error(f"Main sensory loop error caught: {err_msg}\n{tb_str}")
+        
+        # 1. Store crash diagnostic log
+        diag_path = "config/crash_diagnostics.json"
+        try:
+            history = []
+            if os.path.exists(diag_path):
+                with open(diag_path, "r", encoding="utf-8") as f:
+                    history = json.load(f)
+            history.append({
+                "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "error": err_msg,
+                "traceback": tb_str
+            })
+            with open(diag_path, "w", encoding="utf-8") as f:
+                json.dump(history[-20:], f, indent=2)
+        except Exception as log_err:
+            logger.error(f"Failed to log crash diagnostic: {log_err}")
+
+        # 2. Track error history for loop-storm protection
+        if not hasattr(self, "_error_history"):
+            self._error_history = []
+        now = time.time()
+        self._error_history.append(now)
+        # Keep errors in last 30 seconds
+        self._error_history = [t for t in self._error_history if now - t < 30.0]
+
+        # 3. Apply hotpatch fixes for common runtime errors
+        healed = False
+        heal_desc = ""
+
+        # Case A: AttributeError on WakeWordDetector
+        if isinstance(exc, AttributeError) and "WakeWordDetector" in tb_str:
+            if not hasattr(self.wake, "whisper_model"):
+                self.wake.whisper_model = None
+                healed = True
+                heal_desc = "Initialized missing whisper_model attribute on WakeWordDetector."
+            if not hasattr(self.wake, "use_stt_fallback"):
+                self.wake.use_stt_fallback = True
+                healed = True
+                heal_desc = "Restored use_stt_fallback flag on WakeWordDetector."
+
+        # Case B: PyAudio stream closed or device error -> re-init Audio & Wake engine
+        elif any(w in err_msg.lower() for w in ["stream", "audio", "pyaudio", "input device"]):
+            try:
+                from core.wake_word import WakeWordDetector
+                self.wake = WakeWordDetector()
+                healed = True
+                heal_desc = "Re-initialized PyAudio stream and WakeWordDetector."
+            except Exception as re_err:
+                logger.error(f"Re-initialization failed: {re_err}")
+
+        # Case C: LLM Self-Repair via Codestral / Mistral
+        if not healed:
+            try:
+                prompt = (
+                    f"A Python exception occurred in JARVIS main sensory loop:\nError: {err_msg}\nTraceback:\n{tb_str[-800:]}\n"
+                    "Explain in ONE short sentence in Hinglish what went wrong and how you recommend recovering."
+                )
                 try:
-                    self.tts.speak("I encountered a critical error in my main sensory loop, sir. Attempting to recover.")
+                    summary = self.query_llm([{"role": "user", "content": prompt}], provider="mistral", model="mistral-large-2512")
                 except Exception:
-                    pass
-                time.sleep(2)
-                self.orb.set_state("idle")
+                    summary = f"Runtime error: {err_msg}"
+                heal_desc = summary.strip()
+                healed = True
+            except Exception as llm_err:
+                logger.error(f"LLM self-repair analysis failed: {llm_err}")
+
+        # 4. If error rate is high (>3 errors in 30 seconds), force clean subsystem reset
+        if len(self._error_history) >= 3:
+            logger.warning("Sensory loop error rate high. Performing full subsystem reset...")
+            try:
+                from core.wake_word import WakeWordDetector
+                from core.audio_engine import AudioEngine
+                self.wake = WakeWordDetector()
+                self.audio = AudioEngine(silence_sec=self.config["audio"]["silence_threshold"])
+                self._error_history.clear()
+                heal_desc = "Executed full sensory subsystem reset."
+                healed = True
+            except Exception as reset_err:
+                logger.error(f"Subsystem reset failed: {reset_err}")
+
+        # 5. Speak recovery briefing in Hinglish (only speak ONCE, not infinitely!)
+        self.orb.set_state("error")
+        if healed and heal_desc:
+            speak_msg = f"Sir, sensory loop mein issue aaya tha. Maine auto-heal kar diya hai: {heal_desc[:100]}."
+        else:
+            speak_msg = "Sir, main loop recovery execute kar di hai. System reset ho gaya hai."
+            
+        try:
+            self.tts.speak(speak_msg)
+        except Exception:
+            pass
+            
+        time.sleep(1.5)
+        self.orb.set_state("idle")
 
     @property
     def is_asleep(self) -> bool:

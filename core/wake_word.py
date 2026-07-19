@@ -123,6 +123,7 @@ class WakeWordDetector:
         self.wake_word = self.jarvis_config.get("wake_word", "hey jarvis").lower().replace(" ", "_")
         self.sensitivity = self.audio_config.get("wake_word_sensitivity", 0.5)
         self.oww_model = None
+        self.whisper_model = None
         # Always enable STT engine for rich Hinglish wake word detection
         self.use_stt_fallback = True
         logger.info(f"Hinglish Wake Engine active for '{self.wake_word}'. Listening for all Hinglish wake phrases.")
