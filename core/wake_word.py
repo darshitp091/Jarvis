@@ -123,17 +123,10 @@ class WakeWordDetector:
         self.wake_word = self.jarvis_config.get("wake_word", "hey jarvis").lower().replace(" ", "_")
         self.sensitivity = self.audio_config.get("wake_word_sensitivity", 0.5)
         self.oww_model = None
-        self.use_stt_fallback = False
-        self.whisper_model = None
-
-        # Check if the wake word is supported by default pre-trained openwakeword models
-        built_in_words = ["hey_jarvis", "alexa", "hey_siri", "ok_google", "hey_mycroft"]
-        if self.wake_word not in built_in_words:
-            logger.info(f"Custom wake word '{self.wake_word}' detected. Activating STT fallback wake engine.")
-            self.use_stt_fallback = True
-        else:
-            logger.info(f"Loading OpenWakeWord model for '{self.wake_word}'...")
-            self._load_model()
+        # Always enable STT engine for rich Hinglish wake word detection
+        self.use_stt_fallback = True
+        logger.info(f"Hinglish Wake Engine active for '{self.wake_word}'. Listening for all Hinglish wake phrases.")
+        self._load_model()
 
         self.audio = pyaudio.PyAudio()
         self.voice_profile_path = "config/voice_profile.json"
@@ -173,13 +166,15 @@ class WakeWordDetector:
             
             # 4. Compare with enrolled profile
             profile_mean = np.array(self.voice_profile["mean_vector"])
-            threshold = self.voice_profile.get("threshold", 0.78)
+            # Set adaptive default threshold to 0.62 for reliable owner voice matching
+            threshold = float(self.voice_profile.get("threshold", 0.62))
+            if threshold > 0.65:
+                threshold = 0.62
             
             # Dynamically lower threshold if music is active to account for acoustic distortion
             if getattr(self, "is_music_playing_cb", None) and self.is_music_playing_cb():
-                old_threshold = threshold
-                threshold = max(0.68, threshold - 0.06)
-                logger.info(f"Speaker Verification: Music active. Dynamically adjusted threshold from {old_threshold:.3f} to {threshold:.3f}")
+                threshold = max(0.55, threshold - 0.07)
+                logger.info(f"Speaker Verification: Music active. Dynamically adjusted threshold to {threshold:.3f}")
 
             sim = cosine_similarity(input_mean, profile_mean)
             logger.info(f"Speaker Verification: Cosine Similarity = {sim:.3f} (Threshold: {threshold:.3f})")

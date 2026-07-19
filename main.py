@@ -297,8 +297,9 @@ class JARVIS:
         threading.Thread(target=self._phone_monitor, daemon=True).start()
         threading.Thread(target=self._interruption_monitor, daemon=True).start()
 
-        # Proactive alerting
+        # Proactive alerting & Unread Message Queue
         self.alert_queue = []
+        self.unread_whatsapp_messages = []
 
         # Presentation state tracking
         self.active_presentation_topic = None
@@ -701,13 +702,21 @@ class JARVIS:
                     logger.info(f"Setting active_context for incoming message from: {sender}")
                     
                     if self.is_authenticated and not self.is_asleep and self.orb.state == "idle":
+                        # Real-time alert when JARVIS is awake & idle
+                        alert_with_ask = f"{spoken_text} [pause] Kya main reply bhej doon?"
                         self.orb.set_state("speaking")
-                        self.orb.notification_signal.emit("PROACTIVE ALERT", spoken_text)
-                        self.tts.speak(spoken_text)
+                        self.orb.notification_signal.emit("PROACTIVE ALERT", alert_with_ask)
+                        self.tts.speak(alert_with_ask)
                         self.orb.set_state("idle")
                     else:
+                        # Asleep or busy: save quietly to unread queue without interrupting sleep
                         with self.alert_lock:
-                            self.alert_queue.append(spoken_text)
+                            self.unread_whatsapp_messages.append({
+                                "sender": sender,
+                                "channel": channel,
+                                "message": data["message"],
+                                "spoken_text": spoken_text
+                            })
                     return
             except Exception as e:
                 logger.error(f"Error parsing proactive JSON alert: {e}")
@@ -2035,6 +2044,31 @@ class JARVIS:
             self.busy_state = "awaiting_youtube_suggestion"
             
             response = f"{roast} [pause] Kya main aapke liye YouTube par '{yt_query}' khol doon?"
+            self.orb.set_state("speaking")
+            self.tts.speak(response)
+            self.orb.set_state("idle")
+            self.brain.store(response, role="assistant")
+            return
+
+        # Check for unread message request (e.g. "unread messages batao", "whatsapp par kya aaya", "messages read karo")
+        text_lower = text.lower().strip()
+        read_msg_cues = ["unread message", "unread messages", "whatsapp message", "message sunao", "kya message aaya", "unread message batao", "messages batao", "read message", "read messages"]
+        if any(c in text_lower for c in read_msg_cues):
+            with self.alert_lock:
+                if self.unread_whatsapp_messages:
+                    msgs = list(self.unread_whatsapp_messages)
+                    self.unread_whatsapp_messages.clear()
+                    briefs = [m["spoken_text"] for m in msgs]
+                    last = msgs[-1]
+                    self.active_context = {
+                        "type": "incoming_message",
+                        "sender": last["sender"],
+                        "channel": last["channel"],
+                        "message": last["message"]
+                    }
+                    response = "Sir, " + ". ".join(briefs) + " [pause] Kya main aakhri message ka reply bhej doon?"
+                else:
+                    response = "Sir, abhi koi unread WhatsApp messages nahi hain."
             self.orb.set_state("speaking")
             self.tts.speak(response)
             self.orb.set_state("idle")
@@ -3831,11 +3865,14 @@ class JARVIS:
                                 pass
                         threading.Thread(target=apply_night_mode, daemon=True).start()
 
-                    if alerts_to_speak:
-                        alert_msg = ". Aur ".join(alerts_to_speak)
-                        self.tts.speak(f"{greeting} Aur haan sir, {alert_msg}")
-                    else:
-                        self.tts.speak(greeting)
+                    # Check unread messages notice (do not blurt out full text automatically)
+                    unread_notice = ""
+                    with self.alert_lock:
+                        if self.unread_whatsapp_messages:
+                            count = len(self.unread_whatsapp_messages)
+                            unread_notice = f" Waise sir, aapke {count} naye WhatsApp messages aaye hain."
+
+                    self.tts.speak(f"{greeting}{unread_notice}")
                         
                     self.is_asleep = False
                     self.last_command_time = time.time()
@@ -3850,6 +3887,7 @@ class JARVIS:
                 text = self.audio.listen(timeout_sec=5.0)
                 if text:
                     text = self.transliterate_devanagari_to_roman(text)
+                    self.last_command_time = time.time() # Refresh command activity timer
                 
                 # Check owner presence via face recognition to refresh timer
                 if self.camera.has_face_model and self.camera.latest_frame is not None:
@@ -3867,23 +3905,21 @@ class JARVIS:
                         self._auto_resume_music()
                         continue
 
-                    # Resume music on silence timeout
-                    self._auto_resume_music()
-
-                    # Return to standby if music is active to prevent feedback loop
-                    is_music_active = (
+                    # Only force sleep on silence IF music is actively playing right now
+                    is_music_actively_playing = (
                         (self.youtube_music.process is not None and not self.youtube_music.is_paused) or
                         getattr(self, "is_spotify_playing", False)
                     )
-                    if is_music_active:
-                        logger.info("Music is active. Forcing sleep state on silence to avoid feedback.")
+                    if is_music_actively_playing:
+                        logger.info("Background music actively playing. Returning to standby on silence to avoid feedback.")
+                        self._auto_resume_music()
                         self.is_asleep = True
                         self.orb.set_state("idle")
                         continue
 
                     time_since_cmd = time.time() - getattr(self, "last_command_time", 0.0)
                     if time_since_cmd < 360.0:
-                        logger.info(f"No speech, but wake lock timer active ({time_since_cmd:.1f}s / 360s). Staying awake.")
+                        logger.info(f"No speech, but 6-minute wake lock timer active ({time_since_cmd:.1f}s / 360s). Staying awake.")
                         continue
                     else:
                         logger.info(f"No speech and wake lock timer expired after {time_since_cmd:.1f}s. Returning to standby.")
