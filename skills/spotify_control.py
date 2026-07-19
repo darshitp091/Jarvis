@@ -7,6 +7,8 @@ import ctypes
 from loguru import logger
 from pywinauto import Desktop
 
+pyautogui.FAILSAFE = False
+
 # Ensure DPI Awareness on Windows to align PyAutoGUI coordinates correctly on scaled screens
 if platform.system() == "Windows":
     try:
@@ -154,15 +156,14 @@ class SpotifyControl:
         import re
 
         # Filler tokens that should be stripped (Hinglish + English)
-        # NOTE: 'tum', 'ho', 'hai' etc. are intentionally excluded because they appear in real song titles
         FILLER_TOKENS = {
             "agar", "toh", "fir", "kuch", "ka", "ke", "ki", "gaane", "gaana",
             "bajao", "baza", "baja", "do", "play", "chalao", "laga", "lagao", "wala",
             "type", "songs", "song", "music", "karo", "de", "na", "please", "zara",
-            "yaar", "sun", "sunao", "bana", "ek", "aur", "suno", "ab",
-            "chalo", "chala", "abhi", "mujhe", "some", "a", "an", "the",
+            "yaar", "sun", "sunao", "bana", "ek", "aur", "suno", "ab", "tum", "bas",
+            "chalo", "chala", "abhi", "mujhe", "some", "a", "an", "the", "par",
             "ready", "track", "focus", "koi", "acche", "acchi", "ache", "se",
-            "raha", "rahi", "main", "mein", "latest", "new", "best",
+            "raha", "rahi", "main", "mein", "latest", "new", "best", "listen", "to"
         }
 
         # Common artist patterns — if we detect these, keep the full name
@@ -177,30 +178,38 @@ class SpotifyControl:
 
         query_lower = raw_query.lower().strip()
 
+        # Remove common spoken multi-word phrases first
+        phrases_to_remove = [
+            "can you play the song", "can you play song", "can you play",
+            "play the song", "play song", "play music", "play track",
+            "gaana chalao", "gaana bajao", "song chalao", "song bajao",
+            "gaane chalao", "gaane bajao", "sunao na", "baja do na",
+            "chala do na", "laga do na", "ko play karo", "ko play kar do",
+            "mujhe sunna hai", "listening to", "play some", "song of", "gaana of"
+        ]
+        for p in phrases_to_remove:
+            query_lower = query_lower.replace(p, " ")
+
         # Check for known artist names first — return them directly
         for artist in KNOWN_ARTISTS:
             if artist in query_lower:
-                # Capitalize properly
                 return " ".join(w.capitalize() for w in artist.split())
 
         # Tokenize and strip ONLY leading and trailing filler words
-        # (preserve middle words that may be part of a song/album title like "Tum Hi Ho")
-        words = re.findall(r"[a-zA-Z']+", raw_query)
-        # Strip leading fillers
+        words = re.findall(r"[a-zA-Z0-9']+", query_lower)
         while words and words[0].lower() in FILLER_TOKENS:
             words.pop(0)
-        # Strip trailing fillers
         while words and words[-1].lower() in FILLER_TOKENS:
             words.pop()
 
         if words:
             extracted = " ".join(words)
-            # If still too long (>5 words), keep first 4 meaningful words
             extracted_words = extracted.split()
-            if len(extracted_words) > 4:
-                extracted = " ".join(extracted_words[:4])
-            logger.debug(f"Extracted search query: '{extracted}' from raw: '{raw_query}'")
-            return extracted
+            if len(extracted_words) > 5:
+                extracted = " ".join(extracted_words[:5])
+            extracted_clean = " ".join(w.capitalize() for w in extracted.split())
+            logger.info(f"Extracted clean Spotify search query: '{extracted_clean}' from raw: '{raw_query}'")
+            return extracted_clean
 
         # Fallback: return raw query trimmed
         return raw_query.strip()
