@@ -34,7 +34,49 @@ class JarvisOrb(QWidget):
         self.toggle_callback = None
         self.set_state_signal.connect(self._set_state_internal)
         self._setup_window()
+        self._setup_system_tray()
         self._start_pulse_timer()
+
+    def _setup_system_tray(self):
+        """Creates a Windows System Tray Icon in taskbar showing live status & controls."""
+        try:
+            from PyQt6.QtWidgets import QSystemTrayIcon, QMenu
+            from PyQt6.QtGui import QIcon, QPixmap, QColor, QPainter
+
+            pixmap = QPixmap(32, 32)
+            pixmap.fill(Qt.GlobalColor.transparent)
+            painter = QPainter(pixmap)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            painter.setBrush(QColor(0, 220, 255))
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.drawEllipse(4, 4, 24, 24)
+            painter.end()
+
+            self.tray_icon = QSystemTrayIcon(QIcon(pixmap), self)
+            self.tray_icon.setToolTip("🎙️ JARVIS — AI Assistant Active & Listening")
+
+            tray_menu = QMenu()
+            show_action = QAction("🖥️ Show/Hide Dashboard", self)
+            show_action.triggered.connect(lambda: self.dashboard_toggle_signal.emit(True))
+            tray_menu.addAction(show_action)
+
+            hologram_action = QAction("🌌 Toggle Hologram Sim", self)
+            hologram_action.triggered.connect(lambda: self.hologram_toggle_signal.emit(True))
+            tray_menu.addAction(hologram_action)
+
+            eyecare_action = QAction("👁️ Toggle EyeCare Overlay", self)
+            eyecare_action.triggered.connect(lambda: self.eyecare_toggle_signal.emit(True))
+            tray_menu.addAction(eyecare_action)
+
+            tray_menu.addSeparator()
+            exit_action = QAction("❌ Exit JARVIS", self)
+            exit_action.triggered.connect(QApplication.instance().quit)
+            tray_menu.addAction(exit_action)
+
+            self.tray_icon.setContextMenu(tray_menu)
+            self.tray_icon.show()
+        except Exception as e:
+            pass
 
     def _setup_window(self):
         self.setWindowFlags(
@@ -76,6 +118,15 @@ class JarvisOrb(QWidget):
             self.state = state
             self.update()
             self.state_changed.emit(state)
+            if hasattr(self, "tray_icon") and self.tray_icon:
+                tooltips = {
+                    "idle": "⚡ JARVIS — Idle & Ready (Say 'Hey Jarvis')",
+                    "listening": "🎙️ JARVIS — Listening to your voice...",
+                    "thinking": "🧠 JARVIS — Processing command...",
+                    "speaking": "🗣️ JARVIS — Speaking...",
+                    "error": "⚠️ JARVIS — System Warning",
+                }
+                self.tray_icon.setToolTip(tooltips.get(state, "🎙️ JARVIS Active"))
 
     def paintEvent(self, event):
         painter = QPainter(self)
