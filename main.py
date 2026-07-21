@@ -1725,13 +1725,31 @@ class JARVIS:
                 return " ".join(words[:5]) + "..."
             return text
 
+    def _detect_language(self, text: str) -> str:
+        """Detects whether user input is predominantly English or Hinglish/Hindi."""
+        has_devanagari = any('\u0900' <= c <= '\u097F' for c in text)
+        if has_devanagari:
+            return "hinglish"
+        text_clean = text.lower().strip()
+        words = set(text_clean.split())
+        hinglish_keywords = {
+            "karo", "kardo", "khol", "kholo", "kholna", "kholne", "hai", "hain", "nhi", "nahi",
+            "par", "pe", "mein", "me", "ke", "ki", "ka", "ko", "se", "andar", "bahar",
+            "saari", "saariya", "sab", "sub", "kuch", "kuchh", "batayein", "batao", "bata",
+            "sunao", "chalao", "bajao", "raha", "rahi", "hu", "hoon", "thi", "tha",
+            "kya", "kaise", "kyun", "kab", "kahan", "konsa", "so", "jao", "jaao",
+            "rehne", "chhod", "hatao", "dekho", "dikhao", "madad", "chahiye", "banana", "karna",
+            "khi", "khali", "uske", "baad", "phir", "fir", "unko", "usko", "unse", "isse"
+        }
+        match_count = len(words.intersection(hinglish_keywords))
+        return "hinglish" if match_count >= 1 else "english"
+
     def process_command(self, text: str):
         """Processes a single command, or splits and executes a chain of sequential commands with human-like transitions."""
         import re
-        
-        has_devanagari = any('\u0900' <= c <= '\u097F' for c in text)
-        hindi_cues = ["karo", "karna", "dikhao", "de", "kar", "bhej", "kholo", "chalao", "batao", "sunao", "hai", "hoon", "tha", "thi", "yaar", "sir", "kaise", "kya", "tum", "main", "aap", "pehle", "kuch", "bhajao", "bajado", "gaana", "gana", "song", "play", "so", "sojao", "so jao", "so jaao"]
-        is_hinglish = has_devanagari or any(w in text.lower() for w in hindi_cues)
+        self.user_lang = self._detect_language(text)
+        is_hinglish = (self.user_lang == "hinglish")
+        logger.info(f"Dynamic Language Detected: {self.user_lang.upper()} (Command: '{text}')")
 
         commands = self.split_chained_commands(text)
         cleaned_cmds = []
@@ -3058,11 +3076,11 @@ class JARVIS:
                     elif action == "backup_to_local_cloud":
                         response = self.file_manager.backup_to_local_cloud(path, params.get("cloud_provider", "onedrive"))
                     elif action == "find_and_open":
-                        response = self.file_manager.find_and_open_target(params.get("target", path), specific_location=params.get("location"))
+                        response = self.file_manager.find_and_open_target(params.get("target", path), specific_location=params.get("location"), lang=getattr(self, "user_lang", "hinglish"))
                     elif action == "inspect_folder":
-                        response = self.file_manager.inspect_folder_contents(params.get("target", path), parent_location=params.get("location"))
+                        response = self.file_manager.inspect_folder_contents(params.get("target", path), parent_location=params.get("location"), lang=getattr(self, "user_lang", "hinglish"))
                     elif action == "purge_folder":
-                        response = self.file_manager.purge_folder_contents(params.get("target", path), parent_location=params.get("location"))
+                        response = self.file_manager.purge_folder_contents(params.get("target", path), parent_location=params.get("location"), lang=getattr(self, "user_lang", "hinglish"))
                         if params.get("also_empty_bin"):
                             bin_res = self.os_ctrl.empty_recycle_bin()
                             response = f"{response} {bin_res}"

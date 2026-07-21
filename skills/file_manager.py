@@ -391,7 +391,7 @@ class FileManager:
             return f"Sir, maine '{specific_location}' folder check kiya, par vahan '{target_name}' name ki koi file ya folder nahi mili."
         return f"Sir, I searched your Desktop, Downloads, Documents, and Pictures, but could not find a file or folder named '{target_name}'."
 
-    def _verify_and_bring_to_front(self, target_path: str) -> str:
+    def _verify_and_bring_to_front(self, target_path: str, lang: str = "hinglish") -> str:
         """Launches target file/folder, waits for window to appear, and verifies Explorer/app presence on screen."""
         import time
         try:
@@ -400,6 +400,8 @@ class FileManager:
             base_name = os.path.basename(target_path)
             kind = "folder" if os.path.isdir(target_path) else "file"
             logger.info(f"Screen Vision: Explorer window for '{base_name}' verified active on screen.")
+            if lang == "english":
+                return f"Sir, opening the '{base_name}' {kind} in Windows Explorer for you now!"
             return f"Sir, '{base_name}' {kind} Windows Explorer mein active open kar diya hai!"
         except Exception as e:
             return f"Failed to open '{target_path}': {e}"
@@ -495,11 +497,13 @@ class FileManager:
 
         return None
 
-    def inspect_folder_contents(self, folder_query: str, parent_location: str = None) -> str:
+    def inspect_folder_contents(self, folder_query: str, parent_location: str = None, lang: str = "hinglish") -> str:
         """Inspects target folder, counts files/subfolders, and calculates total size."""
         target_dir = self._resolve_folder_target(folder_query, parent_location)
         if not target_dir or not os.path.exists(target_dir):
             loc_str = f" in '{parent_location}'" if parent_location else ""
+            if lang == "english":
+                return f"Sir, I could not find a folder named '{folder_query}'{loc_str}."
             return f"Sir, I could not find a folder named '{folder_query}'{loc_str}."
 
         folder_name = os.path.basename(target_dir)
@@ -521,6 +525,11 @@ class FileManager:
             size_mb = total_size_bytes / (1024 * 1024)
             size_str = f"{size_mb:.1f} MB" if size_mb < 1024 else f"{size_mb / 1024:.2f} GB"
 
+            if lang == "english":
+                return (
+                    f"Sir, I inspected the '{parent_name}' directory and located the '{folder_name}' folder. "
+                    f"It contains a total of {len(files)} files and {len(subdirs)} subfolders (Total size: {size_str})."
+                )
             return (
                 f"Sir, {parent_name} folder ke andar '{folder_name}' folder mila. "
                 f"Isme total {len(files)} files aur {len(subdirs)} subfolders hain (Total size: {size_str})."
@@ -528,11 +537,13 @@ class FileManager:
         except Exception as e:
             return f"Failed to inspect folder contents: {e}"
 
-    def purge_folder_contents(self, folder_query: str, parent_location: str = None, secure_shred: bool = False) -> str:
+    def purge_folder_contents(self, folder_query: str, parent_location: str = None, secure_shred: bool = False, lang: str = "hinglish") -> str:
         """Deletes all files and contents inside the specified subfolder while preserving the folder itself."""
         target_dir = self._resolve_folder_target(folder_query, parent_location)
         if not target_dir or not os.path.exists(target_dir):
             loc_str = f" in '{parent_location}'" if parent_location else ""
+            if lang == "english":
+                return f"Sir, I could not find a folder named '{folder_query}'{loc_str}."
             return f"Sir, I could not find a folder named '{folder_query}'{loc_str}."
 
         folder_name = os.path.basename(target_dir)
@@ -549,6 +560,8 @@ class FileManager:
         try:
             items = os.listdir(target_dir)
             if not items:
+                if lang == "english":
+                    return f"Sir, the '{folder_name}' folder is already empty."
                 return f"Sir, '{folder_name}' folder pehle se hi khali (empty) hai."
 
             file_count = 0
@@ -568,6 +581,12 @@ class FileManager:
                 except Exception as item_err:
                     logger.warning(f"Could not remove {item_path}: {item_err}")
 
+            if lang == "english":
+                return (
+                    f"Sir, successfully deleted all {file_count} files "
+                    f"{'and ' + str(dir_count) + ' subfolders ' if dir_count > 0 else ''}"
+                    f"inside the '{folder_name}' folder!"
+                )
             return (
                 f"Sir, '{folder_name}' folder ke andar ki saari {file_count} files "
                 f"{'aur ' + str(dir_count) + ' subfolders ' if dir_count > 0 else ''}"
