@@ -729,6 +729,31 @@ class IntentRouter:
         if youtube_match:
             return {"skill": "media_summarize", "params": {"url": youtube_match.group(1)}, "domain": "general"}
 
+        # 4b. Web Research & YouTube Video Player (Early intercept)
+        is_video_request = any(w in cmd for w in ["play video", "watch video", "open video", "youtube video", "recipe video", "search youtube", "youtube par", "youtube mein", "youtube pe", "video", "youtube", "yutub", "yt", "वीडियो", "यूट्यूब"]) and not any(w in cmd for w in ["spotify", "music only", "audio only", "mpv", "background"])
+        if is_video_request:
+            q = cmd
+            q = re.sub(r'[,\?\!\.\"\']', '', q).strip()
+            clean_words = [
+                'please', 'plz', 'pehle', 'ek', 'kaam', 'karo', 'so', 'ae', 'tum', 'bas', 'yaar', 'ab', 'toh', 'to', 'jo', 'mere', 'liye',
+                'play', 'watch', 'open', 'show', 'run', 'kholo', 'chalao', 'chalado', 'chala', 'bajao', 'bajado', 'bhajadu', 'bhajado', 'bhaja',
+                'baja', 'in', 'on', 'at', 'par', 'pe', 'mein', 'ko', 'se', 'do', 'de', 'video', 'youtube', 'yutub', 'yt', 'song', 'songs',
+                'gane', 'gaane', 'gana', 'gaana', 'music', 'track', 'tracks', 'playlist', 'audio', 'गाने', 'गाना', 'वीडियो', 'यूट्यूब'
+            ]
+            pat = r'\b(?:' + '|'.join(clean_words) + r')\b'
+            q = re.sub(pat, '', q)
+            q = re.sub(r'\s+', ' ', q).strip()
+            preps = ['of', 'by', 'for', 'about', 'ka', 'na', 'ki', 'ke', 'ko', 'se']
+            words = q.split()
+            while words and words[0] in preps:
+                words.pop(0)
+            while words and words[1:] and words[-1] in preps:
+                words.pop()
+            video_query = ' '.join(words).strip()
+            if not video_query:
+                video_query = "trending"
+            return {"skill": "web_research", "params": {"action": "open_youtube_video", "query": video_query}, "domain": "general"}
+
         # 5. Spotify / Playback Controls
         # Stop / Pause / Resume (Supporting English, Hinglish, and Devanagari)
         # Stop / Pause / Resume (Supporting English, Hinglish, and Devanagari)
@@ -1106,13 +1131,7 @@ class IntentRouter:
             dur = int(dur_match.group(1)) if dur_match else 60
             return {"skill": "productivity", "params": {"action": "record_meeting", "duration": dur}, "domain": "general"}
             
-        # --- Web Research & YouTube Video Player ---
-        if any(v in cmd for v in ["play video", "watch video", "open video", "youtube video", "recipe video", "search youtube", "youtube par"]):
-            q = cmd
-            for prefix in ["play video on ", "play video ", "watch video on ", "watch video ", "open video ", "youtube video on ", "youtube video ", "search youtube for ", "youtube par ", "recipe video "]:
-                q = q.replace(prefix, "")
-            q = q.replace("kholo", "").replace("open", "").replace("search", "").replace("play", "").replace("show", "").strip()
-            return {"skill": "web_research", "params": {"action": "open_youtube_video", "query": q}, "domain": "general"}
+        # (Handled early in _regex_route)
         if cmd.startswith("search google for ") or "google search " in cmd or "google par " in cmd or "google check" in cmd:
             q = cmd.replace("search google for ", "").replace("google search ", "").replace("google par ", "").replace("search ", "").strip()
             return {"skill": "web_research", "params": {"action": "search_google", "query": q}, "domain": "general"}
