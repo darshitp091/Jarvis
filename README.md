@@ -24,12 +24,15 @@
 | Core Layer | Primary Engine | Status / Connectivity |
 | :--- | :--- | :--- |
 | 🧠 **Orchestrator** | PyQt6 Multi-threading | Local Event Loop |
+| 🐝 **Agent Swarm** | 57 specialist agents + message broker | Local (sync + background pool) |
 | 🗣️ **Speech Engine** | Whisper-small (fine-tuned Hinglish) + Edge-TTS | Hybrid (Auto Fallback) |
 | 🖐️ **Vision Sensor** | MediaPipe & OpenCV | Local (30 FPS Webcam Feed) |
 | 👁️ **Proactive Monitor** | ScreenVision + Tesseract OCR | Background Loop (Always-On) |
+| ⏰ **Reminders & Calendar** | SQLite scheduler + Hinglish time parser | Local, survives restarts |
 | ☁️ **Serverless Router** | Cloudflare Workers (Llama 3.1 8B) | Active / Connected |
 | 📂 **Workspace Database** | SQLite3 & Obsidian API | Local Vault Synchronized |
 | 📊 **Presentation Engine** | python-pptx + Bing Image Scraper | Online Research + Layout |
+| ✅ **Test Suite** | pytest (118 headless tests) | No mic, camera, or API keys needed |
 
 ---
 
@@ -89,6 +92,18 @@ As a complete hands-free computer controller, JARVIS executes operating system a
 - 📰 Summarize news, articles, and web pages in Hinglish
 - 💹 Get live stock/crypto prices and market trends
 - 🛒 Compare products and food items with pros/cons
+
+### ⏰ Reminders, Alarms & Calendar
+- ⏱️ Set reminders in natural Hinglish — _"remind me to call mom at 6 pm"_, _"yaad dila do 20 minutes mein"_
+- 🔔 Set alarms — _"set an alarm for 7 am"_, _"wake me up at 6"_
+- 🔁 Recurring reminders — _"remind me to stretch every day at 5 pm"_
+- 📋 List, cancel, or snooze — _"what are my reminders"_, _"cancel all reminders"_, _"snooze 15 minutes"_
+- 💾 Everything persists in SQLite, so reminders **survive a restart or shutdown**
+- ⚠️ A job that came due while JARVIS was closed is flagged as missed rather than fired late unexpectedly
+- 🗓️ Schedule events — _"schedule a meeting with Roshan tomorrow at 4 pm"_
+- 📅 Read your day — _"what's on my agenda today"_, _"next meeting"_
+- ⚡ Spot double-bookings and find gaps — _"any conflicts?"_, _"am I free for 60 minutes tomorrow"_
+- 📤 Import and export standard `.ics` files, so no cloud account or credentials are needed
 
 ### 📔 Notes & Memory
 - 📝 Dictate raw notes — JARVIS structures and saves them in **Obsidian** automatically
@@ -175,7 +190,31 @@ Control your mobile phone over an offline USB ADB connection:
 - **Episodic Memory Consolidator:** A background scheduler reads raw daily logs, extracts stable user preferences and coding styles, and stores them long-term.
 - **Stateful Conversation Tracking:** JARVIS tracks active tasks in memory (e.g., presentation topic, last file opened) and routes follow-up commands to the right skill automatically — no need to repeat context.
 
-### 9. 🛠️ Codestral & LLM Self-Healing Sensory Loop
+### 9. ⏰ Persistent Reminders, Alarms & Local Calendar
+A local-first scheduling layer backed by SQLite. No cloud account, no API key, and no network dependency.
+
+- **Hinglish Time Parser (`services/timeparse.py`):** Resolves natural phrasing into a concrete datetime plus a recurrence rule — _"at 6 pm"_, _"in 20 minutes"_, _"kal subah"_, _"every day at 5 pm"_. Returns the remaining subject separately, so _"remind me to call mom at 6 pm"_ stores the task as `call mom`.
+- **Asks Instead of Guessing:** When no time phrase is present, JARVIS asks for one rather than inventing a default and silently scheduling the wrong thing.
+- **Vague Time Acknowledgement:** If the hour was inferred rather than stated, JARVIS reads the assumption back so it can be corrected immediately.
+- **Persistent Scheduler (`services/scheduler.py`):** A background thread polls SQLite for due jobs. Reminders, alarms, and recurring briefings survive restarts and full shutdowns.
+- **Misfire Grace Window:** A job that came due while JARVIS was closed fires on the next start only if it is within the grace window (120 minutes by default); anything older is flagged as `missed` instead of firing unexpectedly late.
+- **Fault Isolation:** A handler that raises is recorded against its own job and never kills the scheduler thread.
+- **Unambiguous Cancellation:** With one reminder pending, _"cancel reminder"_ just works. With several, JARVIS asks which number rather than guessing.
+- **Local Calendar (`services/calendar_service.py`):** Agenda briefings, next event, overlap detection, and free-slot search across a working day. All timestamps are stored in UTC and converted to your configured timezone for display.
+- **Standard ICS Interchange:** Import and export plain `.ics` files, so events move between JARVIS and any calendar product without credentials.
+- **Thread-Safe Store (`services/db.py`):** WAL-mode SQLite so the voice thread, scheduler thread, and proactive monitor can read and write concurrently without blocking each other.
+
+### 10. 🐝 Multi-Agent Swarm & Message Broker
+JARVIS routes every voice intent through a swarm of **57 specialist agents**, each owning the action logic for exactly one capability. The `Agency` broker in `core/agency.py` is the single dispatch point.
+
+- **One source of truth:** each capability's logic lives in its agent, not duplicated across the orchestrator, so a fix cannot land in one copy and miss another.
+- **Synchronous requests:** `Agency.request()` returns the agent's response string so JARVIS can speak it. It runs **inline on the calling thread**, because handlers touch PyQt widgets and Qt requires that from the owning thread. Running inline also means a handler that itself calls `request()` cannot deadlock on an exhausted pool.
+- **Background dispatch:** `Agency.send_message()` submits to a 16-worker thread pool for proactive work nobody is waiting on. Failures there are logged, never raised, so a failing background agent cannot take down its caller.
+- **Loud failures:** the base `Agent.receive_message` raises `NotImplementedError`. An unimplemented agent fails visibly instead of silently doing nothing.
+- **Traceback fidelity:** `request()` lets exceptions propagate, so the existing retry and self-healing loop still receives the original traceback.
+- **Registered by class:** agents register via `agent_cls.__name__`, so the broker key can never drift away from the class name.
+
+### 11. 🛠️ Codestral & LLM Self-Healing Sensory Loop
 - **Active Crash Diagnostics:** Logs full stack tracebacks to `config/crash_diagnostics.json` whenever an unexpected runtime error occurs.
 - **Dynamic Hotpatching:** Instantly patches missing attributes, PyAudio stream drops, and parameter mismatches without crashing the application.
 - **Mistral / Codestral Diagnosis:** Calls Codestral / Mistral LLM to analyze stack traces and speak a concise Hinglish diagnosis and recovery briefing.
@@ -202,6 +241,14 @@ graph TD
     Loop --> Single[_process_single_command]
     Chained -- No --> Single
     Single --> Route{Route Intent}
+
+    %% Agent swarm dispatch
+    Route --> Agency["Agency.request()<br/>57 specialist agents"]
+    Agency --> RemAgent[ReminderAgent] --> Sched[(SQLite<br/>scheduled_jobs)]
+    Agency --> CalAgent[CalendarAgent] --> Cal[(SQLite<br/>calendar_events)]
+    Agency --> SkillAgents[Skill Agents<br/>files, phone, spotify, vision, ...]
+    SkillAgents --> Exec[Execute Action / Speak Response]
+
     Route --> Dev[Development Domain] --> Codestral[Mistral: codestral]
     Route --> Pres[Productivity Skill] --> ResearchCrawl[Web Research + Bing Images]
     ResearchCrawl --> PptxEngine[Premium PPTX Layout Engine]
@@ -214,7 +261,7 @@ graph TD
     Cloudflare -- Error --> Groq[Groq: llama-3.3-70b]
     MistralLarge -- Error --> Groq
     Groq -- Connection Failure --> Ollama[Local Ollama Fallback: Qwen2.5]
-    Ollama --> Exec[Execute Action / Speak Response]
+    Ollama --> Exec
     Exec --> TTS[Edge / Kokoro TTS Output]
 
     %% Proactive Loop
@@ -222,6 +269,14 @@ graph TD
     Screenshot --> OCR[Tesseract OCR]
     OCR --> LLM_Hint[LLM Context Hint]
     LLM_Hint --> TTS
+
+    %% Scheduler thread fires independently of voice
+    SchedLoop[Scheduler Thread<br/>polls every 20s] --> Due{Job due?}
+    Due -- Yes --> Fire[reminder / alarm / briefing handler]
+    Due -- Missed while offline --> Flag[Flag as missed, do not fire]
+    Fire --> Announce[_announce: speak now<br/>or queue if asleep]
+    Announce --> TTS
+    Sched --> SchedLoop
 ```
 
 ---
@@ -241,6 +296,9 @@ graph TD
 | **Local Model Sandbox** | Ollama | Qwen2.5-Coder-7B, Moondream2 (Offline fallback) |
 | **Whisper Fine-Tuning** | HuggingFace Transformers, Adafactor | Local fine-tune of Whisper-small on Hinglish dataset |
 | **Mobile Integration** | Android Debug Bridge (ADB) | Offline physical device control |
+| **Agent Swarm** | `concurrent.futures` ThreadPoolExecutor | 57 specialist agents behind a single message broker |
+| **Scheduling & Calendar** | SQLite3 (WAL mode), `zoneinfo` | Persistent reminders, alarms, events, and ICS interchange |
+| **Testing** | pytest | 118 headless tests, no hardware or API keys required |
 | **Data & Diagnostics** | Matplotlib, SQLite3 | Local trend charting and telemetry KPI databases |
 
 ---
@@ -297,7 +355,14 @@ graph TD
      ```
 
 ### Configuration
-1. Open `config/settings.yaml` and configure your API credentials:
+
+`config/settings.yaml` holds real credentials and is **gitignored**, exactly like a `.env` file. The repository tracks `config/settings.yaml.example` as the template. Never commit the real file.
+
+1. **Create your config from the template:**
+   ```powershell
+   Copy-Item config\settings.yaml.example config\settings.yaml
+   ```
+2. Open `config/settings.yaml` and fill in your API credentials:
    ```yaml
    groq:
      api_key: "YOUR_GROQ_API_KEY"
@@ -308,11 +373,51 @@ graph TD
      account_id: "YOUR_CLOUDFLARE_ACCOUNT_ID"
      api_token: "YOUR_CLOUDFLARE_API_TOKEN"
    ```
-2. Configure your Obsidian vault path:
+   > JARVIS runs fully offline with these left blank, falling back to local Ollama models.
+3. Configure your Obsidian vault path:
    ```yaml
    obsidian:
      vault_path: "C:\\Users\\<User>\\Documents\\Obsidian Vault"
    ```
+4. Set your timezone so spoken times resolve correctly:
+   ```yaml
+   scheduler:
+     enabled: true
+     poll_interval: 20          # seconds between due-job checks
+     misfire_grace_minutes: 120 # how late a missed job may still fire
+   calendar:
+     enabled: true
+     timezone: Asia/Kolkata     # IANA name; must match your local clock
+   ```
+   > The `calendar.timezone` value converts spoken wall-clock times into the UTC timestamps stored in SQLite. If it does not match your actual local timezone, reminders will fire at the wrong hour.
+
+5. **If you add a new setting**, add it to `config/settings.yaml.example` too (with a placeholder, never a real key) so the template stays complete.
+
+---
+
+## 🧪 Running the Tests
+
+The suite is fully headless — no microphone, camera, GPU, or API key required.
+
+```powershell
+.\jarvis_env\Scripts\Activate.ps1
+pytest
+```
+
+Expect **118 passing tests** in a few seconds. Coverage focuses on the logic that can be verified without hardware:
+
+| Test file | Tests | Covers |
+| :--- | :--- | :--- |
+| `tests/test_agents.py` | 46 | Agent broker semantics, reminders, calendar, skill delegation, and router/dispatch coverage guards |
+| `tests/test_services.py` | 33 | SQLite store, scheduler recurrence and misfire behaviour, calendar queries |
+| `tests/test_timeparse.py` | 39 | Hinglish and English time phrase parsing |
+
+Two guards are worth knowing about, because they protect against silent breakage rather than crashes:
+
+- `test_every_router_skill_has_a_handler` asserts every skill `intent_router` can emit has a matching dispatch branch in `main.py`. Without it, a routed intent falls through to the chat LLM, which replies as if it succeeded while doing nothing.
+- `test_agents_module_has_no_logging_only_handlers` fails if any agent regresses into a log-only stub that accepts a message and silently discards it.
+
+> `pytest.ini` pins collection to `tests/`. Without it, a bare `pytest` at the repo root also collects `scratch/test_*.py`, which import `main.py` and open the microphone and camera, making the run appear to hang.
 
 ---
 
@@ -328,6 +433,12 @@ graph TD
    - *Chained Action:* `"Pehle Spotify mein lofi music bajao, phir quantum physics ka presentation kholo"`
    - *Follow-up:* `"Slide 5 ki image badlo"` or `"Sahi hai, done kar do"`
    - *Music:* `"Play some coding music on Spotify."`
+   - *Reminder:* `"Remind me to call mom at 6 pm"` or `"Yaad dila do 20 minutes mein paani peena hai"`
+   - *Alarm:* `"Set an alarm for 7 am"`
+   - *Recurring:* `"Remind me to stretch every day at 5 pm"`
+   - *Calendar:* `"Schedule a meeting with Roshan tomorrow at 4 pm"`
+   - *Agenda:* `"What's on my agenda today"` or `"Next meeting"`
+   - *Review reminders:* `"What are my reminders"`, `"Cancel all reminders"`, `"Snooze 15 minutes"`
 4. **Engage Gesture Control:** Raise your hand in front of the webcam. Move your index finger to control the mouse cursor.
 5. **Proactive Monitor:** JARVIS continuously watches your screen and will proactively suggest relevant tips without being asked.
 
@@ -337,18 +448,26 @@ graph TD
 
 ```
 Jarvis/
-├── core/                        # Core engine modules
+├── core/                        # Core engine modules (20 files)
 │   ├── intent_router.py         # Hinglish intent router & parameter extractor
-│   ├── audio_engine.py          # STT/TTS pipeline (Whisper + VAD + Edge-TTS)
+│   ├── agency.py                # Agent message broker (sync request + background pool)
+│   ├── agents.py                # 57 specialist agents owning per-skill action logic
+│   ├── audio_engine.py          # STT pipeline (Whisper + ONNX Silero VAD)
 │   ├── tts_engine.py            # Kokoro ONNX TTS engine
 │   ├── wake_word.py             # Wake word detector
 │   ├── proactive_monitor.py     # Always-on screen screenshot & suggestion loop
 │   ├── brain.py                 # Memory, episodic logs & context manager
 │   └── vision_engine.py         # ScreenVision OCR & active window reader
-├── skills/                      # Domain skill modules
+├── services/                    # Local-first service layer (SQLite backed)
+│   ├── db.py                    # WAL-mode SQLite store, migrations & audit log
+│   ├── scheduler.py             # Persistent reminders/alarms with misfire handling
+│   ├── calendar_service.py      # Events, conflicts, free slots, ICS import/export
+│   └── timeparse.py             # Hinglish/English time & recurrence parser
+├── skills/                      # Capability modules (33 files)
 │   ├── productivity.py          # Professional Presentation Generator (PPTX)
 │   ├── spotify_control.py       # Spotify API music controller
 │   ├── os_control.py            # Windows OS automation & file operations
+│   ├── file_manager.py          # File/folder operations, purge, sync, backup
 │   ├── web_research.py          # Headless web crawler & summarizer
 │   ├── phone_controller.py      # Android ADB mobile bridge
 │   ├── gesture_control.py       # MediaPipe hand gesture controller
@@ -356,15 +475,23 @@ Jarvis/
 │   ├── market_analyzer.py       # Stock/crypto market analyzer
 │   ├── youtube_music.py         # YouTube audio streaming via MPV
 │   └── screen_vision.py         # LLM-powered screen analysis skill
-├── scratch/
+├── domains/                     # Domain expert prompt routers (7 files)
+├── tests/                       # 118 headless tests (no hardware needed)
+│   ├── test_agents.py           # Broker, reminders, calendar, dispatch guards
+│   ├── test_services.py         # DB, scheduler recurrence & misfire, calendar
+│   └── test_timeparse.py        # Hinglish/English time phrase parsing
+├── scratch/                     # Local experiments (gitignored)
 │   └── fine_tune_whisper_hinglish.py  # Whisper-small Hinglish fine-tuning script
 ├── whisper-small-hinglish-finetuned/  # Fine-tuned model checkpoint
 ├── config/
-│   ├── settings.yaml            # API keys & configuration (gitignored)
+│   ├── settings.yaml.example    # Tracked template — copy this to settings.yaml
+│   ├── settings.yaml            # Your real API keys (GITIGNORED, never commit)
+│   ├── productivity.db          # SQLite: jobs, events, todos, audit trail
 │   └── last_presentation.json   # Active presentation state (for follow-up edits)
-├── ui/                          # PyQt6 GUI overlays & widgets
+├── ui/                          # PyQt6 GUI overlays & widgets (9 files)
 ├── assets/                      # Logos, icons, and static assets
 ├── main.py                      # Main JARVIS orchestrator
+├── pytest.ini                   # Pins test collection to tests/
 └── requirements.txt
 ```
 
@@ -384,8 +511,12 @@ Jarvis/
 - `[x]` **Phase 10:** Research-driven Professional Presentation Generator with Bing image scraping, premium PPTX themes, and vision-based slide editing
 - `[x]` **Phase 11:** Always-on Proactive Visual Monitor (background screenshot + OCR + LLM suggestions)
 - `[x]` **Phase 12:** Stateful Conversation Memory & Topic Tracking (follow-up intents, finalization confirmation)
-- `[ ]` **Phase 13:** Local Voice-to-Voice offline streaming (F5-TTS & Whisper-streaming)
-- `[ ]` **Phase 14:** Multi-agent physical smart home integration
+- `[x]` **Phase 13:** Local-first service layer — WAL-mode SQLite store, persistent scheduler with misfire handling, calendar with ICS interchange, and a Hinglish time/recurrence parser
+- `[x]` **Phase 14:** Multi-agent swarm made functional — 57 specialist agents behind a message broker with synchronous request/response, plus voice-reachable reminders, alarms, and calendar
+- `[x]` **Phase 15:** Headless test suite (118 tests) with router-to-dispatch coverage guards that fail the build when an intent would silently fall through
+- `[ ]` **Phase 16:** Local Voice-to-Voice offline streaming (F5-TTS & Whisper-streaming)
+- `[ ]` **Phase 17:** Physical smart home integration over local MQTT
+- `[ ]` **Phase 18:** Extend test coverage to `intent_router` regex rules and the `main.py` dispatch bodies
 
 ---
 
@@ -394,9 +525,14 @@ Contributions are what make the open source community such an amazing place to l
 
 1. Fork the Project
 2. Create your Feature Branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your Changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the Branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
+3. Run `pytest` and make sure all 118 tests still pass
+4. Commit your Changes (`git commit -m 'Add some AmazingFeature'`)
+5. Push to the Branch (`git push origin feature/AmazingFeature`)
+6. Open a Pull Request
+
+**When adding a new skill or intent:**
+- Give the capability an agent in `core/agents.py` and add a dispatch branch in `main.py`. `test_every_router_skill_has_a_handler` fails if a router intent has nowhere to go.
+- Never commit `config/settings.yaml`. Add any new setting to `config/settings.yaml.example` with a placeholder value.
 
 ---
 
