@@ -95,6 +95,84 @@ class IntentRouter:
                 q = "under budget laptops"
             return {"skill": "os_control", "params": {"action": "open_browser", "query": q}, "domain": "general"}
 
+        # 0a. Reminders, alarms and calendar.
+        # Placed ahead of the note rules because "remind me ..." would otherwise
+        # be caught by the "remember"/"yaad rakhna" note trigger. The time phrase
+        # itself is parsed downstream by services.timeparse, so these rules only
+        # need to identify the intent and hand over the original text.
+        if re.search(r"\b(?:cancel|delete|remove|hata\s*do|band\s*karo)\b.*\b(?:reminder|reminders|alarm|alarms)\b", cmd) \
+           or re.search(r"\b(?:reminder|alarm)\b.*\b(?:cancel|delete|remove|hata\s*do|band\s*karo)\b", cmd):
+            num = re.search(r"\b(?:number|no|id)?\s*(\d+)\b", cmd)
+            return {
+                "skill": "reminder",
+                "params": {
+                    "action": "cancel",
+                    "job_id": int(num.group(1)) if num else None,
+                    "all": bool(re.search(r"\b(?:all|sab|sabhi|everything)\b", cmd)),
+                },
+                "domain": "general",
+            }
+
+        if re.search(r"\bsnooze\b|\b(?:thoda|kuch)\s+der\s+baad\b", cmd):
+            mins = re.search(r"(\d+)\s*(?:min|mins|minute|minutes)", cmd)
+            return {
+                "skill": "reminder",
+                "params": {"action": "snooze", "minutes": int(mins.group(1)) if mins else 10},
+                "domain": "general",
+            }
+
+        if re.search(r"\b(?:what|which|list|show|read|batao|dikhao|kaunse)\b.*\b(?:reminders|reminder|alarms|alarm)\b", cmd) \
+           or re.search(r"\b(?:my|mere)\s+(?:reminders|alarms)\b", cmd) \
+           or re.search(r"\b(?:pending|upcoming)\s+(?:reminders|alarms|jobs)\b", cmd):
+            return {"skill": "reminder", "params": {"action": "list"}, "domain": "general"}
+
+        is_reminder_verb = re.search(
+            r"\b(?:remind\s+me|remind|reminder|yaad\s+dila\s*(?:do|dena)?|"
+            r"wake\s+me\s+up|set\s+an?\s+alarm|alarm\s+(?:lagao|laga\s*do|set\s*karo))\b", cmd)
+        if is_reminder_verb:
+            is_alarm = bool(re.search(r"\balarm\b|\bwake\s+me\s+up\b", cmd))
+            return {
+                "skill": "reminder",
+                "params": {"action": "create", "kind": "alarm" if is_alarm else "reminder", "query": text},
+                "domain": "general",
+            }
+
+        # Calendar: agenda, next event, conflicts, free slots, scheduling.
+        if re.search(r"\b(?:agenda|schedule|calendar)\b.*\b(?:today|tomorrow|aaj|kal)\b", cmd) \
+           or re.search(r"\b(?:what(?:'s|s)?\s+(?:on\s+)?my|mera|meri)\s+(?:day|agenda|schedule|calendar)\b", cmd) \
+           or re.search(r"\b(?:brief\s+me|daily\s+briefing|din\s+ka\s+plan)\b", cmd):
+            day = "tomorrow" if re.search(r"\b(?:tomorrow|kal)\b", cmd) else "today"
+            return {"skill": "calendar", "params": {"action": "agenda", "day": day}, "domain": "general"}
+
+        if re.search(r"\bnext\s+(?:event|meeting|appointment)\b|\bagla\s+(?:meeting|event)\b", cmd):
+            return {"skill": "calendar", "params": {"action": "next_event"}, "domain": "general"}
+
+        if re.search(r"\b(?:conflicts?|clash(?:es|ing)?|double\s+booked)\b", cmd):
+            return {"skill": "calendar", "params": {"action": "conflicts"}, "domain": "general"}
+
+        if re.search(r"\b(?:free\s+(?:slots?|time)|am\s+i\s+free|khali\s+time)\b", cmd):
+            return {"skill": "calendar", "params": {"action": "free_slots", "query": text}, "domain": "general"}
+
+        if re.search(r"\b(?:import)\b.*\b(?:ics|calendar|icalendar)\b", cmd):
+            path = re.search(r"([a-z]:\\[^\s]+\.ics|[^\s]+\.ics)", text, re.IGNORECASE)
+            return {
+                "skill": "calendar",
+                "params": {"action": "import_ics", "path": path.group(1) if path else None},
+                "domain": "general",
+            }
+        if re.search(r"\b(?:export|backup)\b.*\b(?:ics|calendar|icalendar)\b", cmd):
+            path = re.search(r"([a-z]:\\[^\s]+\.ics|[^\s]+\.ics)", text, re.IGNORECASE)
+            return {
+                "skill": "calendar",
+                "params": {"action": "export_ics", "path": path.group(1) if path else None},
+                "domain": "general",
+            }
+
+        if re.search(r"\b(?:schedule|add|create|put|book|lagao|laga\s*do|daal\s*do)\b.*"
+                     r"\b(?:meeting|event|appointment|call|calendar|invite)\b", cmd) \
+           or re.search(r"\b(?:meeting|appointment)\b.*\b(?:schedule|calendar|book)\b", cmd):
+            return {"skill": "calendar", "params": {"action": "add_event", "query": text}, "domain": "general"}
+
         # 0. Smart Note Creation & Retrieval (English / Hindi / Hinglish)
         # Handles triggers like: "remember this: ...", "yaad rakhna ki ...", "likh le ..."
         note_create_match = re.search(r"\b(?:note|remember|keep|store|yaad\s+rakhna|likh\s+le|save\s+kar\s+lo)\s+(?:this|that|down|info)?\s*(?::|-)?\s*(.+)", cmd)
@@ -734,12 +812,47 @@ class IntentRouter:
         if is_video_request:
             q = cmd
             q = re.sub(r'[,\?\!\.\"\']', '', q).strip()
+
+            # Detect an explicit volume percentage, or a fuzzy volume hint (low/high),
+            # so playback can start at the loudness the user actually asked for.
+            volume_percent = None
+            volume_hint = None
+            vol_num = re.search(r'(?:volume|awaaz|awaz|sound)\s*(?:ko\s*|pe\s*|par\s*|to\s*|at\s*)?(\d{1,3})', q)
+            if not vol_num:
+                vol_num = re.search(r'(\d{1,3})\s*(?:percent|per cent|%|pct)', q)
+            if vol_num:
+                volume_percent = max(0, min(100, int(vol_num.group(1))))
+            elif any(w in q for w in ['low volume', 'dhime', 'dhima', 'dheeme', 'halka', 'halke', 'kam volume',
+                                      'low awaaz', 'low awaz', 'low sound', 'kam awaaz', 'slow volume']):
+                volume_hint = "low"
+            elif any(w in q for w in ['high volume', 'full volume', 'tez volume', 'zyada volume',
+                                      'full awaaz', 'tez awaaz', 'max volume', 'loud']):
+                volume_hint = "high"
+
+            # Strip volume phrasing out so it never leaks into the search query.
+            q = re.sub(r'\b(?:low|high|full|max|tez|kam|zyada|dhime|dhima|dheeme|halka|halke|slow)\b\s*'
+                       r'(?:volume|awaaz|awaz|sound)\b', '', q)
+            q = re.sub(r'\b(?:volume|awaaz|awaz|sound)\b\s*(?:ko|pe|par|to|at)?\s*\d{0,3}\s*'
+                       r'(?:percent|per cent|%|pct)?', '', q)
+            q = re.sub(r'\s+', ' ', q).strip()
+
             clean_words = [
+
                 'please', 'plz', 'pehle', 'ek', 'kaam', 'karo', 'so', 'ae', 'tum', 'bas', 'yaar', 'ab', 'toh', 'to', 'jo', 'mere', 'liye',
+                # "kaam kardo" style filler verbs (bare 'kar' is left alone so
+                # titles like "Kar Har Maidaan Fateh" survive)
+                'kardo', 'karde', 'kardu', 'kardena', 'krdo', 'krado',
                 'play', 'watch', 'open', 'show', 'run', 'kholo', 'chalao', 'chalado', 'chala', 'bajao', 'bajado', 'bhajadu', 'bhajado', 'bhaja',
                 'baja', 'in', 'on', 'at', 'par', 'pe', 'mein', 'ko', 'se', 'do', 'de', 'video', 'youtube', 'yutub', 'yt', 'song', 'songs',
-                'gane', 'gaane', 'gana', 'gaana', 'music', 'track', 'tracks', 'playlist', 'audio', 'गाने', 'गाना', 'वीडियो', 'यूट्यूब'
+                'gane', 'gaane', 'gana', 'gaana', 'music', 'track', 'tracks', 'playlist', 'audio', 'गाने', 'गाना', 'वीडियो', 'यूट्यूब',
+                # "show me" style verbs that must not leak into the search query
+                'dikha', 'dikhao', 'dikhado', 'dikha do', 'dekhna', 'dekhao', 'lagao', 'laga', 'lga', 'lagado',
+                'suna', 'sunao', 'sunado', 'search', 'karke', 'koi', 'kuch', 'kuchh', 'sa', 'si', 'wala', 'wali',
+                # leftover loudness adjectives (the phrase forms are stripped by regex above)
+                'volume', 'awaaz', 'awaz', 'sound', 'percent', 'pct', 'low', 'high', 'full', 'max',
+                'tez', 'kam', 'zyada', 'dhime', 'dhima', 'dheeme', 'halka', 'halke'
             ]
+
             pat = r'\b(?:' + '|'.join(clean_words) + r')\b'
             q = re.sub(pat, '', q)
             q = re.sub(r'\s+', ' ', q).strip()
@@ -750,9 +863,21 @@ class IntentRouter:
             while words and words[1:] and words[-1] in preps:
                 words.pop()
             video_query = ' '.join(words).strip()
-            if not video_query:
-                video_query = "trending"
-            return {"skill": "web_research", "params": {"action": "open_youtube_video", "query": video_query}, "domain": "general"}
+            # Do NOT silently play something random. Flag it so JARVIS can ask
+            # which song/video the user actually wants.
+            needs_song_name = not video_query
+            return {
+                "skill": "web_research",
+                "params": {
+                    "action": "open_youtube_video",
+                    "query": video_query,
+                    "needs_song_name": needs_song_name,
+                    "volume_percent": volume_percent,
+                    "volume_hint": volume_hint
+                },
+                "domain": "general"
+            }
+
 
         # 5. Spotify / Playback Controls
         # Stop / Pause / Resume (Supporting English, Hinglish, and Devanagari)

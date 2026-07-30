@@ -52,3 +52,4 @@ config/settings.yaml.bak
 models/
 obsidian_vault/
 *.mp3
+node_modules

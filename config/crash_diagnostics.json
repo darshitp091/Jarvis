@@ -1,0 +1,7 @@
+[
+  {
+    "timestamp": "2026-07-19 13:17:41",
+    "error": "'WakeWordDetector' object has no attribute 'whisper_model'",
+    "traceback": "Traceback (most recent call last):\n  File \"C:\\Users\\patel\\Jarvis\\scratch\\test_self_healing.py\", line 45, in test_self_healing_handler\n    val = j.wake.whisper_model\n          ^^^^^^^^^^^^^^^^^^^^\nAttributeError: 'WakeWordDetector' object has no attribute 'whisper_model'\n"
+  }
+]

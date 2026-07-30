@@ -1037,25 +1037,22 @@ class ProductivityPlanner:
         os.makedirs(out_dir, exist_ok=True)
         html_path = os.path.join(out_dir, f"{safe_name}_mindmap.html")
         
+        import html
+        clean_topic = html.escape(topic.strip() or "Untitled Topic")
+        words = [w.capitalize() for w in topic.replace("-", " ").split() if len(w) > 2][:4]
+        focus = words or ["Overview"]
+        branches = "\n".join(
+            f"    {name}\n      Fundamentals\n      Key Questions\n      Practical Applications"
+            for name in focus
+        )
         mermaid_code = f"""mindmap
-  root(({topic}))
-    Architecture
-      Core Logic
-      Sensory Loop
-      Vision Engine
-    Capabilities
-      Voice & STT
-      OS Control
-      E-Commerce
-    Integrations
-      WhatsApp & Phone
-      Obsidian Vault
-      Spotify & YouTube"""
+  root(({clean_topic}))
+{branches}"""
 
         html_content = f"""<!DOCTYPE html>
 <html>
 <head>
-    <title>Mind Map: {topic}</title>
+    <title>Mind Map: {clean_topic}</title>
     <script type="module">
         import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
         mermaid.initialize({{ startOnLoad: true, theme: 'dark' }});
@@ -1067,7 +1064,7 @@ class ProductivityPlanner:
     </style>
 </head>
 <body>
-    <h1>🧠 Mind Map: {topic}</h1>
+    <h1>🧠 Mind Map: {clean_topic}</h1>
     <div class="mermaid">
     {mermaid_code}
     </div>

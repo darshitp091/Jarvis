@@ -10,9 +10,7 @@ import re
 import time
 import urllib.parse
 import webbrowser
-import threading
 from loguru import logger
-import pyautogui
 
 from skills.product_comparator import ProductComparator
 
@@ -77,7 +75,7 @@ class ShoppingAssistant:
             return f"Sir, maine {self.last_platform} par '{query}' ki product page open kar di hai. Aap dekh sakte hain."
 
     def add_to_cart(self, query_or_url: str = None) -> str:
-        """Automates clicking 'Add to Cart' or 'Add to Bag' on active e-commerce page."""
+        """Opens the selected product for user-reviewed cart addition; never claims an unverified click."""
         target_url = self.last_product_url
         if query_or_url and query_or_url.startswith("http"):
             target_url = query_or_url
@@ -87,46 +85,22 @@ class ShoppingAssistant:
             target_url = self.last_product_url
 
         platform = self.last_platform or "Amazon"
-        logger.info(f"ShoppingAssistant: Automating Add to Cart for {platform}...")
+        logger.info(f"ShoppingAssistant: Preparing user-reviewed Add to Cart for {platform}...")
 
         # Open product page if not open
         if target_url:
             webbrowser.open(target_url)
-            time.sleep(3.0) # Wait for page load
-
-        # Trigger DOM keyboard/mouse shortcut for Add to Cart
-        def _execute_cart_click():
-            try:
-                # Scroll slightly down to bring Add to Cart button into view
-                pyautogui.scroll(-300)
-                time.sleep(1.0)
-                # Press 'a' or Tab+Enter shortcut on Amazon/Flipkart
-                pyautogui.press('tab')
-                pyautogui.press('enter')
-            except Exception as err:
-                logger.error(f"Cart automation error: {err}")
-
-        threading.Thread(target=_execute_cart_click, daemon=True).start()
-        
         prod_name = self.last_searched_product or "product"
-        return f"Sir, maine {platform} par '{prod_name}' ko cart mein add kar diya hai. Order placed confirmation ke liye boliye."
+        return f"Sir, {platform} par '{prod_name}' ka page khol diya hai. Product, seller aur price verify karke Add to Cart button click karein; main bina verification ke success claim nahi karunga."
 
     def buy_now_checkout(self, query_or_url: str = None) -> str:
-        """Automates opening checkout / Buy Now flow."""
+        """Opens the cart/checkout page but never submits payment or places an order."""
         platform = self.last_platform or "Amazon"
         prod_name = self.last_searched_product or "product"
-        
-        def _execute_buy_now():
-            try:
-                pyautogui.scroll(-400)
-                time.sleep(1.0)
-                # Tab navigation to Buy Now button
-                for _ in range(3):
-                    pyautogui.press('tab')
-                    time.sleep(0.2)
-                pyautogui.press('enter')
-            except Exception as err:
-                logger.error(f"Buy now automation error: {err}")
-
-        threading.Thread(target=_execute_buy_now, daemon=True).start()
-        return f"Sir, maine {platform} par '{prod_name}' ka Buy Now checkout open kar diya hai. Delivery address aur payment double check karke confirm kar lijiye."
+        cart_urls = {
+            "amazon": "https://www.amazon.in/gp/cart/view.html",
+            "flipkart": "https://www.flipkart.com/viewcart",
+            "myntra": "https://www.myntra.com/checkout/cart",
+        }
+        webbrowser.open(cart_urls.get(platform.lower(), self.last_product_url or "https://www.google.com"))
+        return f"Sir, {platform} ka cart/checkout page khol diya hai for '{prod_name}'. Final address, price, payment aur Place Order aapko manually verify aur confirm karna hoga."

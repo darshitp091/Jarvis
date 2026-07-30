@@ -556,14 +556,85 @@ class WebResearch:
         except Exception as e:
             return f"Failed to open tracking link: {str(e)}"
 
+    def resolve_youtube_video(self, query: str) -> dict | None:
+        """Resolves a search query to the top matching YouTube video.
+
+        Uses yt-dlp's search extractor (no API key required) to find the first
+        real video result. Returns a dict with 'id', 'title', 'url' and
+        'duration', or None if resolution fails.
+        """
+        try:
+            import yt_dlp
+        except ImportError:
+            logger.warning("yt-dlp not installed; cannot resolve YouTube video directly.")
+            return None
+
+        # ytsearch1 returns only the single best match, keeping this fast.
+        opts = {
+            "quiet": True,
+            "no_warnings": True,
+            "skip_download": True,
+            "extract_flat": True,
+            "default_search": "ytsearch",
+            "noplaylist": True,
+            "socket_timeout": 15,
+        }
+        try:
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(f"ytsearch1:{query}", download=False)
+
+            entries = (info or {}).get("entries") or []
+            if not entries:
+                logger.warning(f"No YouTube results resolved for query: {query}")
+                return None
+
+            entry = entries[0]
+            video_id = entry.get("id")
+            if not video_id:
+                return None
+
+            return {
+                "id": video_id,
+                "title": entry.get("title") or query,
+                "url": f"https://www.youtube.com/watch?v={video_id}",
+                "duration": entry.get("duration"),
+            }
+        except Exception as e:
+            logger.error(f"YouTube resolution failed for '{query}': {e}")
+            return None
+
     def open_youtube_video(self, query: str) -> str:
-        """Searches YouTube and opens the results directly in the browser."""
+        """Resolves the top YouTube result for a query and plays it in the browser.
+
+        Previously this only opened the search-results page, which meant the user
+        had to click the video manually. Now the first matching video is resolved
+        and its watch URL is opened with autoplay enabled, so playback actually
+        starts. Falls back to the results page if resolution fails.
+        """
         import urllib.parse
+
+        video = self.resolve_youtube_video(query)
+
+        if video:
+            # autoplay=1 makes the browser begin playback instead of waiting on a click.
+            watch_url = f"{video['url']}&autoplay=1"
+            try:
+                webbrowser.open(watch_url)
+                title = video["title"]
+                logger.info(f"Playing YouTube video '{title}' ({video['url']}) for query '{query}'.")
+                return f"YouTube par '{title}' chala rahi hu, sir. Enjoy kijiye!"
+            except Exception as e:
+                logger.error(f"Failed to open resolved YouTube video: {e}")
+
+        # Fallback: no result resolved (offline, yt-dlp missing, or blocked) — open search page.
         q_encoded = urllib.parse.quote(query)
         url = f"https://www.youtube.com/results?search_query={q_encoded}"
         try:
             webbrowser.open(url)
-            return f"YouTube par '{query}' search karke video results open kar diye hain, sir."
+            return (
+                f"Sir, '{query}' ka exact video resolve nahi kar payi, "
+                "isliye YouTube search results khol diye hain."
+            )
         except Exception as e:
             return f"Failed to open YouTube search: {str(e)}"
 

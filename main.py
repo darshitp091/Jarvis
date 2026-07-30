@@ -128,6 +128,12 @@ from skills.app_control import AppControl
 from core.profile_manager import ProfileManager
 from skills.obsidian_control import ObsidianControl; _p("DBG: obsidian ok")
 from skills.shopping_assistant import ShoppingAssistant; _p("DBG: shopping_assistant ok")
+from services.db import Database, utc_now; _p("DBG: services.db ok")
+from services.scheduler import Scheduler; _p("DBG: scheduler ok")
+from services.calendar_service import CalendarService; _p("DBG: calendar_service ok")
+from services import timeparse; _p("DBG: timeparse ok")
+
+
 
 
 class JARVIS:
@@ -265,6 +271,14 @@ class JARVIS:
         _p("INIT: PhoneController"); self.phone = PhoneController()
         self.awaiting_number_for = None
         self.is_spotify_playing = False
+        # True while a song/video is playing in the browser (YouTube tab).
+        # Needed so JARVIS goes back to wake-word standby and does not
+        # transcribe the song audio as if it were a command.
+        self.is_browser_media_playing = False
+        # Holds a half-finished YouTube request while JARVIS asks for the
+        # missing song name / volume level.
+        self.pending_youtube = None
+
         
         # New offline skills initializations
         _p("INIT: FileManager"); self.file_manager = FileManager()
@@ -484,12 +498,101 @@ class JARVIS:
         self.agency.register_agent("WorkspaceContextAgent", WorkspaceContextAgent("WorkspaceContextAgent", self))
         self.agency.register_agent("YoutubeMusicAgent", YoutubeMusicAgent("YoutubeMusicAgent", self))
 
+        self._init_services()
+
         self._prewarm_models()
 
         logger.info("JARVIS initialized successfully.")
         _p("INIT: starting background thread")
         threading.Thread(target=self._unlock_monitor, daemon=True).start()
         threading.Thread(target=self.run, daemon=True).start()
+
+    def _init_services(self):
+        """Bring up the local-first service layer: database, scheduler, calendar.
+
+        Kept non-fatal on purpose. A broken reminder store should degrade that
+        one feature, not stop JARVIS from booting.
+        """
+        self.db = None
+        self.scheduler = None
+        self.calendar = None
+
+        try:
+            _p("INIT: Database")
+            self.db = Database()
+
+            sched_cfg = self.config.get("scheduler", {}) or {}
+            cal_cfg = self.config.get("calendar", {}) or {}
+
+            _p("INIT: CalendarService")
+            self.calendar = CalendarService(
+                self.db, timezone_name=cal_cfg.get("timezone", "Asia/Kolkata")
+            )
+            # One-time move of any legacy config/calendar.json into SQLite.
+            try:
+                migrated = self.calendar.migrate_legacy_json()
+                if migrated:
+                    logger.info(f"Calendar: {migrated}")
+            except Exception as e:
+                logger.warning(f"Calendar legacy migration skipped: {e}")
+
+            _p("INIT: Scheduler")
+            self.scheduler = Scheduler(
+                self.db,
+                poll_interval=int(sched_cfg.get("poll_interval", 20)),
+                misfire_grace_minutes=int(sched_cfg.get("misfire_grace_minutes", 120)),
+            )
+            self.scheduler.register_handler("reminder", self._on_reminder_due)
+            self.scheduler.register_handler("alarm", self._on_alarm_due)
+            self.scheduler.register_handler("briefing", self._on_briefing_due)
+
+            if self.start_threads and sched_cfg.get("enabled", True):
+                self.scheduler.start()
+            logger.info("Service layer ready (db, scheduler, calendar).")
+        except Exception as e:
+            logger.error(f"Service layer failed to initialize: {e}")
+
+    def _announce(self, title: str, message: str, state: str = "speaking"):
+        """Speak something JARVIS decided to say on its own.
+
+        Queues the message instead of talking over the user if JARVIS is asleep,
+        locked, or already mid-conversation.
+        """
+        try:
+            if self.is_authenticated and not self.is_asleep and self.orb.state == "idle":
+                self.orb.set_state(state)
+                self.orb.notification_signal.emit(title, message)
+                self.tts.speak(message)
+                self.orb.set_state("idle")
+            else:
+                with self.alert_lock:
+                    self.alert_queue.append(message)
+        except Exception as e:
+            logger.error(f"Failed to announce '{title}': {e}")
+
+    def _on_reminder_due(self, payload: dict) -> str:
+        text = (payload or {}).get("text") or "your reminder"
+        spoken = f"Sir, reminder: {text}."
+        self._announce("REMINDER", spoken)
+        return f"spoke reminder: {text}"
+
+    def _on_alarm_due(self, payload: dict) -> str:
+        label = (payload or {}).get("text") or ""
+        spoken = f"Sir, your alarm is going off. {label}".strip()
+        self._announce("ALARM", spoken, state="error")
+        return f"spoke alarm: {label}"
+
+    def _on_briefing_due(self, payload: dict) -> str:
+        """Read the day's agenda. Used by a recurring daily briefing job."""
+        try:
+            summary = self.calendar.describe_agenda() if self.calendar else ""
+        except Exception as e:
+            logger.error(f"Briefing failed to build agenda: {e}")
+            return f"error: {e}"
+        if not summary:
+            return "no agenda"
+        self._announce("DAILY BRIEFING", f"Good morning sir. {summary}")
+        return "spoke briefing"
 
     def _run_memory_consolidation(self):
         """Periodically run memory consolidation in a background thread to extract facts."""
@@ -1204,7 +1307,7 @@ class JARVIS:
                 raw = self.query_llm([{"role": "user", "content": prompt}], provider="mistral", model="mistral-large-2512")
             except Exception as mistral_err:
                 logger.warning(f"Mistral LLM query failed: {mistral_err}. Falling back to local brain model...")
-                model_name = self.settings.get("models", {}).get("main_brain", "qwen2.5-coder:7b")
+                model_name = self.config.get("models", {}).get("main_brain", "qwen2.5-coder:7b")
                 raw = self.query_llm([{"role": "user", "content": prompt}], provider="local", model=model_name)
                 
             raw = raw.strip().replace("```json", "").replace("```", "").strip()
@@ -1306,7 +1409,7 @@ class JARVIS:
         try:
             import ollama
             response = ollama.chat(
-                model=self.settings["models"]["main_brain"],
+                model=self.models["main_brain"],
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
@@ -1979,7 +2082,120 @@ class JARVIS:
         cleaned = re.sub(r"\s+", " ", cleaned).strip(",. ")
         return cleaned if cleaned else text
 
+    def _speak_and_store(self, response: str):
+        """Speaks a response, updates the orb, and records it to memory."""
+        self.orb.set_state("speaking")
+        self.tts.speak(response)
+        self.orb.set_state("idle")
+        self.brain.store(response, role="assistant")
+
+    def _parse_volume_reply(self, text: str):
+        """Extracts a 0-100 volume level from a Hinglish/English reply. None if not understood."""
+        import re
+        t = re.sub(r'[,\?\!\.\"\']', '', text.lower()).strip()
+
+        num = re.search(r'(\d{1,3})', t)
+        if num:
+            return max(0, min(100, int(num.group(1))))
+
+        if any(w in t for w in ["mute", "silent", "band kar", "zero"]):
+            return 0
+        if any(w in t for w in ["bahut kam", "sabse kam", "very low", "lowest", "ekdum kam"]):
+            return 10
+        if any(w in t for w in ["kam", "low", "dhime", "dhima", "dheeme", "halka", "halke"]):
+            return 25
+        if any(w in t for w in ["medium", "normal", "thik", "theek", "aadha", "half", "beech"]):
+            return 50
+        if any(w in t for w in ["full", "max", "maximum", "poora", "pura", "tez", "loud", "high"]):
+            return 100
+        return None
+
+    def _clean_song_name_reply(self, text: str) -> str:
+        """Extracts just the song/video name out of a spoken reply."""
+        import re
+        t = re.sub(r'[,\?\!\.\"\']', '', text.lower()).strip()
+
+        # User leaves the choice to JARVIS.
+        if any(p in t for p in ["koi bhi", "kuch bhi", "jo bhi", "tumhari pasand", "tumhari marzi",
+                                "your choice", "anything", "tum decide"]):
+            return "trending songs this week"
+
+        t = re.sub(
+            r'\b(?:play|chalao|chalado|chala|bajao|bajado|baja|sunao|suna|dikhao|dikha|do|de|karo|'
+            r'please|plz|youtube|yt|pe|par|mein|ka|ki|ke|ko|gaana|gana|gaane|song|songs|video|'
+            r'naam|hai|wala|wali|sir)\b',
+            '', t
+        )
+        return re.sub(r'\s+', ' ', t).strip()
+
+    def _play_youtube_request(self, query: str, volume_percent=None) -> str:
+        """Sets the system volume (if asked for), resolves the video, and plays it."""
+        vol_note = ""
+        if volume_percent is not None:
+            try:
+                self.os_ctrl.set_volume(volume_percent)
+                vol_note = f" Volume {volume_percent} percent par set kar diya hai, sir."
+            except Exception as vol_err:
+                logger.error(f"Failed to set system volume to {volume_percent}: {vol_err}")
+                vol_note = " Volume set karne mein dikkat aa gayi, sir."
+
+        response = self.web.open_youtube_video(query)
+        # Browser is now producing audio: the main loop must drop back to
+        # wake-word standby so the song is not transcribed as a command.
+        self.is_browser_media_playing = True
+        return response + vol_note
+
+    def _continue_pending_youtube(self, text: str) -> bool:
+        """Handles the follow-up answer to 'which song?' / 'what volume?'. Returns True if consumed."""
+        pending = self.pending_youtube or {}
+        stage = pending.get("stage")
+        t = text.lower().strip()
+
+        if any(c in t for c in ["cancel", "rehne do", "chhod do", "chod do", "nahi chahiye",
+                                "mat chalao", "nevermind", "forget it"]):
+            self.pending_youtube = None
+            self._speak_and_store("Thik hai sir, cancel kar diya. Aur kuch kaam ho to bataiye.")
+            return True
+
+        if stage == "need_song":
+            song = self._clean_song_name_reply(text)
+            if not song:
+                self._speak_and_store("Sir, naam theek se sunai nahi diya. Gaane ka naam ek baar phir bataiye.")
+                return True
+
+            pending["query"] = song
+            # Name is known now; if a fuzzy loudness was requested, get the exact number.
+            if pending.get("volume_percent") is None and pending.get("volume_hint"):
+                pending["stage"] = "need_volume"
+                self.pending_youtube = pending
+                level = "low" if pending["volume_hint"] == "low" else "high"
+                self._speak_and_store(
+                    f"'{song}' chala deti hu, sir. Aapne {level} volume bola tha - kitne percent par set karu? "
+                    "Jaise 20, 30 ya 50 percent?"
+                )
+                return True
+
+            self.pending_youtube = None
+            self._speak_and_store(self._play_youtube_request(song, pending.get("volume_percent")))
+            return True
+
+        if stage == "need_volume":
+            vol = self._parse_volume_reply(text)
+            if vol is None:
+                self._speak_and_store(
+                    "Sir, volume percentage samajh nahi aaya. Ek number bataiye, jaise 20, 30 ya 50 percent."
+                )
+                return True
+            self.pending_youtube = None
+            self._speak_and_store(self._play_youtube_request(pending.get("query", ""), vol))
+            return True
+
+        # Unknown stage: drop the stale state and let normal routing continue.
+        self.pending_youtube = None
+        return False
+
     def _process_single_command(self, text: str, speak_filler: bool = True, is_chained: bool = False):
+
         """Full pipeline: route → execute → respond → speak"""
         text = self._clean_name_address(text)
         self.orb.set_state("thinking")
@@ -1991,7 +2207,13 @@ class JARVIS:
         # Store user input in memory
         self.brain.store(text, role="user")
 
+        # 0. State: a YouTube request is waiting on the song name or the volume level.
+        if getattr(self, "pending_youtube", None):
+            if self._continue_pending_youtube(text):
+                return
+
         # 1. State: awaiting_youtube_suggestion (User confirms or denies opening YouTube)
+
         if self.busy_state == "awaiting_youtube_suggestion":
             text_lower = text.lower().strip()
             yes_cues = ["haan", "yes", "kholo", "chalao", "sure", "play", "okay", "ok", "kar do", "bhej do"]
@@ -2001,13 +2223,13 @@ class JARVIS:
                 query = self.busy_suggested_query or "lofi beats study"
                 self.busy_state = None
                 self.busy_suggested_query = None
-                response = f"Ji sir, YouTube par '{query}' search karke chala rahi hu. Enjoy kijiye!"
+                # Resolve and play first, so we can announce the actual video title.
+                response = self._play_youtube_request(query)
                 self.orb.set_state("speaking")
+
                 self.tts.speak(response)
                 self.orb.set_state("idle")
                 self.brain.store(response, role="assistant")
-                # Open the video in browser
-                self.web.open_youtube_video(query)
                 return
             elif any(c in text_lower for c in no_cues):
                 self.busy_state = None
@@ -2025,7 +2247,12 @@ class JARVIS:
             prompt = (
                 f"User said they are busy with this activity: '{text}'.\n"
                 "Write a short, highly sarcastic, funny, and teasing roast in Hinglish (Latin script, WhatsApp style) about the user and this activity.\n"
-                "After the roast, suggest to open a relevant video on YouTube to help them focus or distract them (e.g. lofi beats for studying, memes for slacking off, programming tutorials for coding).\n"
+                "Then suggest a YouTube video that is DIRECTLY RELATED to the work they are doing, so it actually helps them "
+                "make progress instead of distracting them. The 'youtube_query' MUST be a specific, searchable video topic "
+                "tied to their activity - for example: if they are debugging Python, suggest a Python debugging tutorial; "
+                "if they are studying physics, suggest a lecture on that exact topic; if they are designing slides, "
+                "suggest a presentation-design masterclass. Prefer tutorials, lectures, walkthroughs and deep-dives. "
+                "Do NOT suggest memes, vlogs, or unrelated entertainment. Keep the roast playful but the video genuinely useful.\n"
                 "Output ONLY a raw JSON object containing these two fields:\n"
                 '{"roast": "...", "youtube_query": "..."}\n'
                 "Do not include any markdown code wrappers, quotes, or backticks. Output raw JSON only."
@@ -2035,8 +2262,8 @@ class JARVIS:
                 try:
                     raw = self.query_llm([{"role": "user", "content": prompt}], provider="mistral", model="mistral-large-2512")
                 except Exception:
-                    # Fallback to local brain
-                    model_name = self.settings.get("models", {}).get("main_brain", "qwen2.5-coder:7b")
+                    # Fallback to local brain (self.config is the loaded settings.yaml)
+                    model_name = self.config.get("models", {}).get("main_brain", "qwen2.5-coder:7b")
                     raw = self.query_llm([{"role": "user", "content": prompt}], provider="local", model=model_name)
                 
                 raw = raw.strip().replace("```json", "").replace("```", "").strip()
@@ -2806,7 +3033,34 @@ class JARVIS:
                     if action == "download":
                         response = self.web.download_file(url)
                     elif action == "open_youtube_video":
-                        response = self.web.open_youtube_video(params.get("query", query))
+                        yt_query = params.get("query", "") or ""
+                        vol_pct = params.get("volume_percent")
+                        vol_hint = params.get("volume_hint")
+
+                        if params.get("needs_song_name") or not yt_query.strip():
+                            # No song name was given: ask instead of playing something random.
+                            self.pending_youtube = {
+                                "stage": "need_song",
+                                "query": "",
+                                "volume_percent": vol_pct,
+                                "volume_hint": vol_hint
+                            }
+                            response = ("Sir, kaunsa gaana ya video chalau? Naam bata dijiye. "
+                                        "Ya 'koi bhi' bol dijiye to main trending chala deti hu.")
+                        elif vol_pct is None and vol_hint:
+                            # Loudness was vague ("low volume"): confirm the exact percentage.
+                            self.pending_youtube = {
+                                "stage": "need_volume",
+                                "query": yt_query,
+                                "volume_percent": None,
+                                "volume_hint": vol_hint
+                            }
+                            level = "low" if vol_hint == "low" else "high"
+                            response = (f"Sir, aapne {level} volume bola tha - kitne percent par set karu? "
+                                        "Jaise 20, 30 ya 50 percent?")
+                        else:
+                            response = self._play_youtube_request(yt_query, vol_pct)
+
                     elif action == "search_google":
                         response = self.web.search_google(params.get("query", query))
                     elif action == "daily_news":
@@ -3824,10 +4078,17 @@ class JARVIS:
             for phrase in ["stop", "pause", "shut up", "go to sleep", "sentry", "shutdown"]
         )
         
+        # A stop/pause request also ends browser (YouTube tab) playback as far as
+        # JARVIS is concerned, so clear the flag and resume normal awake listening.
+        if explicit_stop and getattr(self, "is_browser_media_playing", False):
+            logger.info("Explicit stop requested. Clearing browser media playing flag.")
+            self.is_browser_media_playing = False
+
         if self.youtube_music.process is not None:
             if explicit_stop:
                 logger.info("Command requested stop/pause. Pausing YouTube music...")
                 self.youtube_music.pause_song()
+
             else:
                 logger.info("Restoring YouTube music volume to original level...")
                 self.youtube_music.unduck()
@@ -3949,8 +4210,10 @@ class JARVIS:
                     # Only force sleep on silence IF music is actively playing right now
                     is_music_actively_playing = (
                         (self.youtube_music.process is not None and not self.youtube_music.is_paused) or
-                        getattr(self, "is_spotify_playing", False)
+                        getattr(self, "is_spotify_playing", False) or
+                        getattr(self, "is_browser_media_playing", False)
                     )
+
                     if is_music_actively_playing:
                         logger.info("Background music actively playing. Returning to standby on silence to avoid feedback.")
                         self._auto_resume_music()
@@ -4309,12 +4572,16 @@ class JARVIS:
                 # Return to standby if music is active to prevent feedback loop
                 is_music_active = (
                     (self.youtube_music.process is not None and not self.youtube_music.is_paused) or
-                    getattr(self, "is_spotify_playing", False)
+                    getattr(self, "is_spotify_playing", False) or
+                    getattr(self, "is_browser_media_playing", False)
                 )
-                if is_music_active:
+                # Never sleep while JARVIS is waiting on an answer (song name / volume),
+                # otherwise the user would have to say the wake word again mid-question.
+                if is_music_active and not getattr(self, "pending_youtube", None):
                     logger.info("Music is active. Returning to standby (asleep) state to prevent feedback loop.")
                     self.is_asleep = True
                     self.orb.set_state("idle")
+
                     
             except KeyboardInterrupt:
                 logger.info("JARVIS shutting down...")

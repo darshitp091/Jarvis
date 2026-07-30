@@ -1,10 +1,24 @@
 import os
 import shutil
-import random
+import hashlib
 from loguru import logger
 
 class FileManager:
-    """Manages files and directories on the system for JARVIS"""
+    """Manages files and directories on the system for JARVIS."""
+
+    @staticmethod
+    def _files_equal(first: str, second: str) -> bool:
+        if os.path.getsize(first) != os.path.getsize(second):
+            return False
+        for path in (first, second):
+            digest = hashlib.sha256()
+            with open(path, "rb") as stream:
+                for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                    digest.update(chunk)
+            if path == first:
+                first_digest = digest.digest()
+            else:
+                return first_digest == digest.digest()
 
     def create_file(self, path: str, content: str = "") -> str:
         try:
@@ -55,20 +69,7 @@ class FileManager:
                 return f"Sir, the file at {path} does not exist."
             
             if secure_shred:
-                # Overwrite file with random bytes before deleting
-                size = os.path.getsize(full_path)
-                if size > 0:
-                    with open(full_path, "wb") as f:
-                        # Write zeroes or random bytes in chunks
-                        chunk_size = 65536
-                        written = 0
-                        while written < size:
-                            chunk = bytearray(random.getrandbits(8) for _ in range(min(chunk_size, size - written)))
-                            f.write(chunk)
-                            written += len(chunk)
-                        f.flush()
-                        os.fsync(f.fileno())
-                logger.info(f"File shredded: {full_path}")
+                return self.shred_file(full_path)
             
             os.remove(full_path)
             logger.info(f"File deleted: {full_path}")
@@ -178,8 +179,8 @@ class FileManager:
         except Exception as e:
             return f"Failed to calculate folder size: {e}"
 
-    def sync_folders(self, src: str, dst: str) -> str:
-        """Copies modified or new files recursively from source directory to target destination."""
+    def sync_folders(self, src: str, dst: str, two_way: bool = True) -> str:
+        """Synchronize two folders without deleting data; newer files win and conflicts are preserved."""
         src_full = os.path.abspath(os.path.expanduser(src))
         dst_full = os.path.abspath(os.path.expanduser(dst))
         
@@ -188,23 +189,28 @@ class FileManager:
             
         try:
             copied = 0
-            created_dirs = 0
-            for root, dirs, files in os.walk(src_full):
-                rel_path = os.path.relpath(root, src_full)
-                target_dir = dst_full if rel_path == "." else os.path.join(dst_full, rel_path)
-                
-                if not os.path.exists(target_dir):
+            conflicts = 0
+            def sync_one(source, target):
+                nonlocal copied, conflicts
+                for root, _, files in os.walk(source):
+                    rel_path = os.path.relpath(root, source)
+                    target_dir = target if rel_path == "." else os.path.join(target, rel_path)
                     os.makedirs(target_dir, exist_ok=True)
-                    created_dirs += 1
-                    
-                for file in files:
-                    src_file = os.path.join(root, file)
-                    dst_file = os.path.join(target_dir, file)
-                    
-                    if not os.path.exists(dst_file) or os.path.getmtime(src_file) > os.path.getmtime(dst_file):
-                        shutil.copy2(src_file, dst_file)
-                        copied += 1
-            return f"Sync complete, sir. Copied {copied} files and created {created_dirs} directories in {dst}."
+                    for file in files:
+                        source_file = os.path.join(root, file)
+                        target_file = os.path.join(target_dir, file)
+                        if not os.path.exists(target_file):
+                            shutil.copy2(source_file, target_file); copied += 1
+                        elif not self._files_equal(source_file, target_file):
+                            if os.path.getmtime(source_file) > os.path.getmtime(target_file):
+                                backup = target_file + ".jarvis-conflict-" + str(int(os.path.getmtime(target_file)))
+                                shutil.copy2(target_file, backup); conflicts += 1
+                                shutil.copy2(source_file, target_file); copied += 1
+                            
+            sync_one(src_full, dst_full)
+            if two_way:
+                sync_one(dst_full, src_full)
+            return f"Two-way sync complete, sir. Copied {copied} files and preserved {conflicts} conflicts."
         except Exception as e:
             return f"Folder synchronization failed: {e}"
 
@@ -235,21 +241,28 @@ class FileManager:
         full_path = os.path.abspath(os.path.expanduser(file_path))
         if not os.path.exists(full_path) or not os.path.isfile(full_path):
             return f"File '{file_path}' does not exist or is not a valid file, sir."
+        protected_roots = {
+            os.path.abspath(os.environ.get("SystemRoot", r"C:\Windows")),
+            os.path.abspath(os.path.expanduser("~")),
+        }
+        if any(os.path.commonpath([full_path, root]) == root and full_path == root for root in protected_roots):
+            return "I cannot shred a protected system or home path, sir."
         
         try:
             length = os.path.getsize(full_path)
-            with open(full_path, "wb") as f:
-                # Pass 1: Zeroes
-                f.write(b"\x00" * length)
-                f.flush()
-                # Pass 2: Ones
-                f.seek(0)
-                f.write(b"\xFF" * length)
-                f.flush()
-                # Pass 3: Cryptographic Random
-                f.seek(0)
-                f.write(os.urandom(length))
-                f.flush()
+            with open(full_path, "r+b", buffering=0) as f:
+                for pass_number in range(3):
+                    f.seek(0)
+                    remaining = length
+                    while remaining:
+                        chunk_size = min(1024 * 1024, remaining)
+                        data = (b"\x00" * chunk_size if pass_number == 0 else
+                                b"\xFF" * chunk_size if pass_number == 1 else
+                                os.urandom(chunk_size))
+                        f.write(data)
+                        remaining -= chunk_size
+                    f.flush()
+                    os.fsync(f.fileno())
             os.remove(full_path)
             return f"Sir, file '{os.path.basename(file_path)}' has been securely shredded with 3-pass overwrite and permanently deleted."
         except Exception as e:
