@@ -426,6 +426,7 @@ class JARVIS:
         _p("INIT: Multi-Agent Swarm Agency")
         from core.agency import Agency
         from core.agents import (
+            ReminderAgent, CalendarAgent,
             AudioEngineAgent, TtsEngineAgent, WakeWordAgent, VoiceAuthAgent, IntentRouterAgent,
             BrainAgent, CognitiveAgent, ContextSentinelAgent, ProactiveMonitorAgent, FocusTrackerAgent,
             ProfileManagerAgent, VisionEngineAgent, SensoryHealthAgent, AirTypistAgent, P2PLinkAgent,
@@ -433,70 +434,43 @@ class JARVIS:
             MedicalDomainAgent, ScienceDomainAgent, SecurityDomainAgent,
             AppControlAgent, AppMapperAgent, CodeRunnerAgent, CodingSandboxAgent, DataAnalyzerAgent,
             EmergencySentinelAgent, FileManagerAgent, FoodComparatorAgent, GestureControlAgent,
-            GitSentinelAgent, MacroRecorderAgent, MarketAnalyzerAgent, MediaSummarizerAgent,
+            GitSentinelAgent, ImageEditorAgent, MacroRecorderAgent, MarketAnalyzerAgent, MediaSummarizerAgent,
             NetworkMapperAgent, ObsidianControlAgent, OsControlAgent, PhoneControllerAgent,
             PolyglotEngineerAgent, ProductivityAgent, ProductComparatorAgent, ResearchProdigyAgent,
             ScreenVisionAgent, SecurityAuditorAgent, SelfHealingVisionAgent, SentryFirewallAgent,
-            SpotifyControlAgent, VisionTrackerAgent, WebResearchAgent, WorkspaceContextAgent,
-            YoutubeMusicAgent
+            ShoppingAgent, SpotifyControlAgent, VisionTrackerAgent, WebResearchAgent, WorkspaceContextAgent,
+            YoutubeMusicAgent, CadGeneratorAgent
         )
         self.agency = Agency()
-        
-        # Instantiate and register all 52 agents
-        self.agency.register_agent("AudioEngineAgent", AudioEngineAgent("AudioEngineAgent", self))
-        self.agency.register_agent("TtsEngineAgent", TtsEngineAgent("TtsEngineAgent", self))
-        self.agency.register_agent("WakeWordAgent", WakeWordAgent("WakeWordAgent", self))
-        self.agency.register_agent("VoiceAuthAgent", VoiceAuthAgent("VoiceAuthAgent", self))
-        self.agency.register_agent("IntentRouterAgent", IntentRouterAgent("IntentRouterAgent", self))
-        self.agency.register_agent("BrainAgent", BrainAgent("BrainAgent", self))
-        self.agency.register_agent("CognitiveAgent", CognitiveAgent("CognitiveAgent", self))
-        self.agency.register_agent("ContextSentinelAgent", ContextSentinelAgent("ContextSentinelAgent", self))
-        self.agency.register_agent("ProactiveMonitorAgent", ProactiveMonitorAgent("ProactiveMonitorAgent", self))
-        self.agency.register_agent("FocusTrackerAgent", FocusTrackerAgent("FocusTrackerAgent", self))
-        self.agency.register_agent("ProfileManagerAgent", ProfileManagerAgent("ProfileManagerAgent", self))
-        self.agency.register_agent("VisionEngineAgent", VisionEngineAgent("VisionEngineAgent", self))
-        self.agency.register_agent("SensoryHealthAgent", SensoryHealthAgent("SensoryHealthAgent", self))
-        self.agency.register_agent("AirTypistAgent", AirTypistAgent("AirTypistAgent", self))
-        self.agency.register_agent("P2PLinkAgent", P2PLinkAgent("P2PLinkAgent", self))
-        
-        self.agency.register_agent("BusinessDomainAgent", BusinessDomainAgent("BusinessDomainAgent", self))
-        self.agency.register_agent("DevelopmentDomainAgent", DevelopmentDomainAgent("DevelopmentDomainAgent", self))
-        self.agency.register_agent("EngineeringDomainAgent", EngineeringDomainAgent("EngineeringDomainAgent", self))
-        self.agency.register_agent("FinanceDomainAgent", FinanceDomainAgent("FinanceDomainAgent", self))
-        self.agency.register_agent("MedicalDomainAgent", MedicalDomainAgent("MedicalDomainAgent", self))
-        self.agency.register_agent("ScienceDomainAgent", ScienceDomainAgent("ScienceDomainAgent", self))
-        self.agency.register_agent("SecurityDomainAgent", SecurityDomainAgent("SecurityDomainAgent", self))
-        
-        self.agency.register_agent("AppControlAgent", AppControlAgent("AppControlAgent", self))
-        self.agency.register_agent("AppMapperAgent", AppMapperAgent("AppMapperAgent", self))
-        self.agency.register_agent("CodeRunnerAgent", CodeRunnerAgent("CodeRunnerAgent", self))
-        self.agency.register_agent("CodingSandboxAgent", CodingSandboxAgent("CodingSandboxAgent", self))
-        self.agency.register_agent("DataAnalyzerAgent", DataAnalyzerAgent("DataAnalyzerAgent", self))
-        self.agency.register_agent("EmergencySentinelAgent", EmergencySentinelAgent("EmergencySentinelAgent", self))
-        self.agency.register_agent("FileManagerAgent", FileManagerAgent("FileManagerAgent", self))
-        self.agency.register_agent("FoodComparatorAgent", FoodComparatorAgent("FoodComparatorAgent", self))
-        self.agency.register_agent("GestureControlAgent", GestureControlAgent("GestureControlAgent", self))
-        self.agency.register_agent("GitSentinelAgent", GitSentinelAgent("GitSentinelAgent", self))
-        self.agency.register_agent("MacroRecorderAgent", MacroRecorderAgent("MacroRecorderAgent", self))
-        self.agency.register_agent("MarketAnalyzerAgent", MarketAnalyzerAgent("MarketAnalyzerAgent", self))
-        self.agency.register_agent("MediaSummarizerAgent", MediaSummarizerAgent("MediaSummarizerAgent", self))
-        self.agency.register_agent("NetworkMapperAgent", NetworkMapperAgent("NetworkMapperAgent", self))
-        self.agency.register_agent("ObsidianControlAgent", ObsidianControlAgent("ObsidianControlAgent", self))
-        self.agency.register_agent("OsControlAgent", OsControlAgent("OsControlAgent", self))
-        self.agency.register_agent("PhoneControllerAgent", PhoneControllerAgent("PhoneControllerAgent", self))
-        self.agency.register_agent("PolyglotEngineerAgent", PolyglotEngineerAgent("PolyglotEngineerAgent", self))
-        self.agency.register_agent("ProductivityAgent", ProductivityAgent("ProductivityAgent", self))
-        self.agency.register_agent("ProductComparatorAgent", ProductComparatorAgent("ProductComparatorAgent", self))
-        self.agency.register_agent("ResearchProdigyAgent", ResearchProdigyAgent("ResearchProdigyAgent", self))
-        self.agency.register_agent("ScreenVisionAgent", ScreenVisionAgent("ScreenVisionAgent", self))
-        self.agency.register_agent("SecurityAuditorAgent", SecurityAuditorAgent("SecurityAuditorAgent", self))
-        self.agency.register_agent("SelfHealingVisionAgent", SelfHealingVisionAgent("SelfHealingVisionAgent", self))
-        self.agency.register_agent("SentryFirewallAgent", SentryFirewallAgent("SentryFirewallAgent", self))
-        self.agency.register_agent("SpotifyControlAgent", SpotifyControlAgent("SpotifyControlAgent", self))
-        self.agency.register_agent("VisionTrackerAgent", VisionTrackerAgent("VisionTrackerAgent", self))
-        self.agency.register_agent("WebResearchAgent", WebResearchAgent("WebResearchAgent", self))
-        self.agency.register_agent("WorkspaceContextAgent", WorkspaceContextAgent("WorkspaceContextAgent", self))
-        self.agency.register_agent("YoutubeMusicAgent", YoutubeMusicAgent("YoutubeMusicAgent", self))
+
+        # Registered by class so the agency key and the class name can never drift
+        # apart. Each agent owns the action logic for its capability; the skill
+        # dispatch below calls them via self.agency.request(...).
+        for agent_cls in (
+            # Time and scheduling
+            ReminderAgent, CalendarAgent,
+            # Core engine
+            AudioEngineAgent, TtsEngineAgent, WakeWordAgent, VoiceAuthAgent, IntentRouterAgent,
+            BrainAgent, CognitiveAgent, ContextSentinelAgent, ProactiveMonitorAgent,
+            FocusTrackerAgent, ProfileManagerAgent, VisionEngineAgent, SensoryHealthAgent,
+            AirTypistAgent, P2PLinkAgent, EmergencySentinelAgent,
+            # Domain experts
+            BusinessDomainAgent, DevelopmentDomainAgent, EngineeringDomainAgent,
+            FinanceDomainAgent, MedicalDomainAgent, ScienceDomainAgent, SecurityDomainAgent,
+            # Action skills
+            AppControlAgent, AppMapperAgent, CodeRunnerAgent, CodingSandboxAgent,
+            DataAnalyzerAgent, FileManagerAgent, FoodComparatorAgent, GestureControlAgent,
+            GitSentinelAgent, ImageEditorAgent, MacroRecorderAgent, MarketAnalyzerAgent,
+            MediaSummarizerAgent, NetworkMapperAgent, ObsidianControlAgent, OsControlAgent,
+            PhoneControllerAgent, PolyglotEngineerAgent, ProductivityAgent,
+            ProductComparatorAgent, ResearchProdigyAgent, ScreenVisionAgent,
+            SecurityAuditorAgent, SelfHealingVisionAgent, SentryFirewallAgent, ShoppingAgent,
+            SpotifyControlAgent, VisionTrackerAgent, WebResearchAgent, WorkspaceContextAgent,
+            YoutubeMusicAgent, CadGeneratorAgent,
+        ):
+            name = agent_cls.__name__
+            self.agency.register_agent(name, agent_cls(name, self))
+        logger.info(f"Agency: {len(self.agency.agents)} agents registered and live.")
 
         self._init_services()
 
@@ -3768,6 +3742,20 @@ class JARVIS:
                         response = self.research_prodigy.execute_deep_research(topic)
                     else:
                         response = "Unsupported research prodigy action, sir."
+
+                elif skill == "reminder":
+                    # Persistent reminders and alarms via ReminderAgent -> Scheduler.
+                    response = self.agency.request(
+                        "ReminderAgent", params.get("action", ""),
+                        {"params": params, "text": text},
+                    )
+
+                elif skill == "calendar":
+                    # Agenda, conflicts, free slots, ICS import/export via CalendarAgent.
+                    response = self.agency.request(
+                        "CalendarAgent", params.get("action", ""),
+                        {"params": params, "text": text},
+                    )
 
                 else:
                     # Default: conversation with domain knowledge

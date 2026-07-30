@@ -45,7 +45,10 @@ bin/
 scratch/
 auth/.adb_wireless_config
 config/voice_profile.json
-config/settings.yaml        # Contains real API keys — never commit, use settings.yaml.example as template
+# Contains real API keys. Never commit; use config/settings.yaml.example as the
+# template. Git treats a trailing comment on a path line as part of the filename,
+# so the comment must live on its own line for this rule to actually match.
+config/settings.yaml
 config/settings.yaml.bak
 
 # Local user directories and media

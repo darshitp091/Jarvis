@@ -137,8 +137,19 @@ class IntentRouter:
                 "domain": "general",
             }
 
-        # Calendar: agenda, next event, conflicts, free slots, scheduling.
-        if re.search(r"\b(?:agenda|schedule|calendar)\b.*\b(?:today|tomorrow|aaj|kal)\b", cmd) \
+        # Calendar: creation first, then the read-only queries.
+        #
+        # Order matters here. "schedule a meeting tomorrow at 4 pm" contains both a
+        # creation verb and a day word, so the agenda rule below would otherwise
+        # claim it and silently read the calendar back instead of adding the event.
+        creates_event = re.search(
+            r"\b(?:schedule|add|create|put|book|set\s+up|lagao|laga\s*do|daal\s*do)\b", cmd)
+
+        if (creates_event and re.search(r"\b(?:meeting|event|appointment|call|calendar|invite)\b", cmd)) \
+           or re.search(r"\b(?:meeting|appointment)\b.*\b(?:schedule|calendar|book)\b", cmd):
+            return {"skill": "calendar", "params": {"action": "add_event", "query": text}, "domain": "general"}
+
+        if (not creates_event and re.search(r"\b(?:agenda|schedule|calendar)\b.*\b(?:today|tomorrow|aaj|kal)\b", cmd)) \
            or re.search(r"\b(?:what(?:'s|s)?\s+(?:on\s+)?my|mera|meri)\s+(?:day|agenda|schedule|calendar)\b", cmd) \
            or re.search(r"\b(?:brief\s+me|daily\s+briefing|din\s+ka\s+plan)\b", cmd):
             day = "tomorrow" if re.search(r"\b(?:tomorrow|kal)\b", cmd) else "today"
@@ -167,11 +178,6 @@ class IntentRouter:
                 "params": {"action": "export_ics", "path": path.group(1) if path else None},
                 "domain": "general",
             }
-
-        if re.search(r"\b(?:schedule|add|create|put|book|lagao|laga\s*do|daal\s*do)\b.*"
-                     r"\b(?:meeting|event|appointment|call|calendar|invite)\b", cmd) \
-           or re.search(r"\b(?:meeting|appointment)\b.*\b(?:schedule|calendar|book)\b", cmd):
-            return {"skill": "calendar", "params": {"action": "add_event", "query": text}, "domain": "general"}
 
         # 0. Smart Note Creation & Retrieval (English / Hindi / Hinglish)
         # Handles triggers like: "remember this: ...", "yaad rakhna ki ...", "likh le ..."
