@@ -10,8 +10,15 @@ venv/
 ENV/
 
 # Large Model Weights (Downloaded separately)
+# GitHub rejects any file over 100 MB. The fine-tuned Whisper checkpoint is
+# ~922 MB, so weights are never committed; see the README for how to obtain
+# or re-finetune them locally.
 *.onnx
 *.bin
+*.safetensors
+*.pt
+*.pth
+*.ckpt
 !voices.json
 
 # Caches and logs
