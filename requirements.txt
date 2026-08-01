@@ -18,6 +18,9 @@ crawl4ai
 sentence-transformers
 kokoro-onnx
 soundfile
+requests
+edge-tts
+pedalboard
 pywinauto
 psutil
 spotipy

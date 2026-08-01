@@ -22,8 +22,18 @@ audio:
   engine: local              # Options: groq, local, sarvam
 
 tts:
-  engine: edge                    # Edge TTS (online)
-  default_voice: hinglish         # Options: english, hinglish
+  engine: edge                    # Options: fish (Fish Audio S2.1 Pro), edge (Microsoft)
+  default_voice: hinglish         # Options: english, hinglish (Edge backend only)
+  fish_audio:
+    # Fish Audio S2.1 Pro via OpenRouter: far more expressive/human than Edge.
+    # Leave api_key blank to read OPENROUTER_API_KEY from the environment.
+    # With no key at all, JARVIS silently stays on Edge TTS.
+    model: "fish-audio/s2.1-pro-free:free"
+    api_key: ""
+    timeout: 30
+    use_for_fillers: false
+    http_referer: ""
+    app_title: "JARVIS"
   voices:
     english:
       ref_speaker: en-IN-NeerjaNeural
