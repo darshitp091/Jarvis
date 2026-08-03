@@ -305,12 +305,29 @@ graph TD
 
 ## ⚙️ Getting Started
 
+> **New to Python or hitting `ModuleNotFoundError`?**
+> Read **[SETUP.md](SETUP.md)** instead — a step-by-step guide written for
+> complete beginners, with a fix for every common error.
+>
+> **Fastest path — one command does everything:**
+> ```powershell
+> .\install.ps1
+> ```
+> Creates the virtual environment, installs all packages, pulls the AI models,
+> creates your config, and verifies the result.
+>
+> **Something broken?** Run `python doctor.py`. It checks every dependency,
+> external program, AI model and config file, then prints the exact command to
+> fix whatever is missing.
+
 ### Prerequisites
 - **OS:** Windows 10 / 11
-- **Python:** v3.10 or v3.11 (Python 3.12 is not recommended due to MediaPipe constraints)
+- **Python:** 3.10, 3.11 or 3.12. **Not 3.13** — mediapipe and torch have no
+  3.13 wheels yet, so installation fails with confusing compiler errors.
 - **Hardware:** A functional webcam and microphone
+- **FFmpeg:** Required. Without it JARVIS cannot speak at all (`winget install Gyan.FFmpeg`)
 - **Ollama:** Installed and running in the background
-- **Tesseract OCR:** Installed and added to your system `PATH`
+- **Tesseract OCR:** Optional, improves reading text on screen
 
 ### Installation
 1. **Clone the Repository:**
@@ -323,9 +340,22 @@ graph TD
    python -m venv jarvis_env
    .\jarvis_env\Scripts\Activate.ps1
    ```
+   If PowerShell blocks the script, run this once:
+   `Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned`
 3. **Fetch Dependencies:**
    ```powershell
    pip install -r requirements.txt
+   ```
+4. **Create your config file** — *do not skip this, it is the most common
+   cause of a startup crash:*
+   ```powershell
+   copy config\settings.yaml.example config\settings.yaml
+   ```
+   API keys inside are optional. Leave them blank and those specific features
+   stay switched off; everything else still works.
+5. **Verify before launching:**
+   ```powershell
+   python doctor.py
    ```
 
 ### Local Model Weights & Player Binaries
@@ -333,6 +363,7 @@ graph TD
    ```bash
    ollama pull qwen2.5-coder:7b
    ollama pull moondream:latest
+   ollama pull nomic-embed-text:latest
    ```
 2. **Download MPV Player Binary (for free YouTube audio streaming):**
    - Download the Windows build from [mpv.io](https://mpv.io/).

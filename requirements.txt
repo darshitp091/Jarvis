@@ -1,31 +1,102 @@
-faster-whisper
-pyaudio
-openwakeword
-ollama
-pyautogui
-PyQt6
-duckduckgo-search
-yt-dlp
+# JARVIS dependencies.
+#
+# Install with:   pip install -r requirements.txt
+#
+# If something fails, run `python doctor.py` — it checks every dependency
+# and tells you exactly what is missing and how to fix it.
+#
+# NOTE: Python 3.10-3.12 only. mediapipe and torch do not yet ship wheels
+# for 3.13, so installs on 3.13 will fail with confusing compiler errors.
+
+# ---------------------------------------------------------------- core runtime
 loguru
 pyyaml
-keyring
-pytesseract
-pillow
 numpy
-sounddevice
 scipy
-crawl4ai
-sentence-transformers
-kokoro-onnx
-soundfile
 requests
+psutil
+python-dateutil
+
+# ------------------------------------------------------------ speech: input
+# faster-whisper does the speech-to-text. openwakeword listens for "hey jarvis".
+faster-whisper
+openwakeword
+pyaudio
+sounddevice
+soundfile
+silero-vad
+
+# ----------------------------------------------------------- speech: output
+# edge-tts is the default voice. pedalboard applies the audio effects.
 edge-tts
 pedalboard
+kokoro-onnx
+
+# ------------------------------------------------------------------- the brain
+# ollama runs the local models. openai is used for OpenRouter-compatible APIs.
+ollama
+openai
+sentence-transformers
+lancedb
+
+# ------------------------------------------------------------- user interface
+PyQt6
+
+# ------------------------------------------------------- windows os control
+# pywin32 and pygetwindow drive window/registry control. Windows only.
+pyautogui
 pywinauto
-psutil
+pywin32
+pygetwindow
+pyperclip
+winsdk
+GPUtil
+
+# --------------------------------------------------------- vision and gestures
+# opencv reads the camera; mediapipe tracks hands and face.
+opencv-python
+mediapipe
+pytesseract
+pillow
+
+# ------------------------------------------------------- documents and reports
+python-pptx
+python-docx
+pypdf
+matplotlib
+networkx
+
+# ----------------------------------------------------------- web and research
+crawl4ai
+duckduckgo-search
+beautifulsoup4
+feedparser
+yt-dlp
+
+# ----------------------------------------------------------- data and finance
+pandas
+yfinance
+# NOTE: growwapi is deliberately NOT here. It requires protobuf>=5.29, but
+# mediapipe (hand gestures, face tracking) requires protobuf<5. Both cannot be
+# installed together. Gesture control is core, Groww is not, so protobuf stays
+# on 4.x. If you want Groww market data and do not need gestures:
+#     pip install growwapi
+# ...which will upgrade protobuf and break mediapipe. yfinance covers most
+# market needs without the conflict.
+
+# ------------------------------------------------------------------- services
 spotipy
+keyring
+sarvamai
+
+# ------------------------------------------------------------- gpu / runtime
+# Pinned deliberately: newer onnxruntime-gpu breaks CUDA on this stack, and
+# protobuf 5.x conflicts with mediapipe.
 onnxruntime-gpu==1.19.2
 nvidia-cuda-runtime-cu12
 nvidia-cublas-cu12
 nvidia-cudnn-cu12
 protobuf==4.25.8
+
+# ---------------------------------------------------------------------- tests
+pytest
