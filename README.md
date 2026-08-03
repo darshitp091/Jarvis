@@ -11,11 +11,55 @@
 <p align="center">
   <a href="https://github.com/darshitp091/Jarvis/actions/workflows/python-app.yml"><img src="https://img.shields.io/github/actions/workflow/status/darshitp091/Jarvis/python-app.yml?branch=main&label=JARVIS%20CI&logo=github" alt="JARVIS CI Status" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT" /></a>
-  <a href="https://www.python.org/"><img src="https://img.shields.io/badge/python-3.10%2B-blue.svg" alt="Python: 3.10+" /></a>
+  <a href="https://www.python.org/"><img src="https://img.shields.io/badge/python-3.10--3.12-blue.svg" alt="Python: 3.10-3.12" /></a>
   <a href="https://ollama.com/"><img src="https://img.shields.io/badge/Local%20AI-Ollama-red.svg" alt="Local AI: Ollama" /></a>
   <a href="https://github.com/hexgrad/kokoro"><img src="https://img.shields.io/badge/TTS-Edge%20%2F%20Kokoro-green.svg" alt="TTS: Edge & Kokoro" /></a>
   <a href="https://github.com/darshitp091/Jarvis"><img src="https://img.shields.io/github/stars/darshitp091/Jarvis.svg?style=social&label=Star" alt="GitHub stars" /></a>
 </p>
+
+<p align="center">
+  <a href="SETUP.md"><img src="https://img.shields.io/badge/New_here%3F-Read_the_Setup_Guide-brightgreen?style=for-the-badge" alt="Setup Guide" /></a>
+</p>
+
+---
+
+## 🚀 Installation — Start Here
+
+> **New to Python, or seeing `ModuleNotFoundError`?**
+> Read **[SETUP.md](SETUP.md)** — a step-by-step guide written for complete
+> beginners, with a fix for every error people actually hit.
+
+### One command installs everything
+
+```powershell
+git clone https://github.com/darshitp091/Jarvis.git
+cd Jarvis
+.\install.ps1
+```
+
+That creates the virtual environment, installs all ~51 packages, downloads the
+AI models, creates your config file, and verifies the result. Budget 30–45
+minutes — almost all of it is just downloads.
+
+### Something not working?
+
+```powershell
+python doctor.py
+```
+
+It checks every Python package, every external program (FFmpeg, Ollama), the AI
+models and your config, then prints the **exact command** to fix whatever is
+missing. It uses only the standard library, so it still works when nothing else
+is installed.
+
+| Resource | What it gives you |
+| :--- | :--- |
+| **[SETUP.md](SETUP.md)** | Full beginner walkthrough — 10 steps, plus every common error and its fix |
+| **`install.ps1`** | One-command automated installer (safe to re-run) |
+| **`doctor.py`** | Tells you what is missing and exactly how to fix it |
+
+**Requirements:** Windows 10/11 · Python 3.10–3.12 (**not 3.13**) · FFmpeg ·
+Ollama · webcam + microphone · ~15 GB free space
 
 ---
 
@@ -32,7 +76,7 @@
 | ☁️ **Serverless Router** | Cloudflare Workers (Llama 3.1 8B) | Active / Connected |
 | 📂 **Workspace Database** | SQLite3 & Obsidian API | Local Vault Synchronized |
 | 📊 **Presentation Engine** | python-pptx + Bing Image Scraper | Online Research + Layout |
-| ✅ **Test Suite** | pytest (118 headless tests) | No mic, camera, or API keys needed |
+| ✅ **Test Suite** | pytest (154 headless tests) | No mic, camera, or API keys needed |
 
 ---
 
@@ -285,7 +329,7 @@ graph TD
 
 | Category | Technology / Library | Purpose |
 | :--- | :--- | :--- |
-| **Core GUI & Orchestration** | Python 3.10+, PyQt6 | Interface layouts, window overlays, and event loop threads |
+| **Core GUI & Orchestration** | Python 3.10-3.12, PyQt6 | Interface layouts, window overlays, and event loop threads |
 | **Bilingual Hinglish STT** | `faster-whisper` (whisper-small fine-tuned) | Real-time Hinglish/English/Hindi transcription with ONNX Silero VAD |
 | **Neural TTS Engine** | Edge-TTS, Kokoro ONNX | Natural speech generation with Indian & British voice streams |
 | **Spatial Computer Vision** | OpenCV, MediaPipe | Face tracking, eye-gaze tracking, and hand landmarks |
@@ -298,27 +342,16 @@ graph TD
 | **Mobile Integration** | Android Debug Bridge (ADB) | Offline physical device control |
 | **Agent Swarm** | `concurrent.futures` ThreadPoolExecutor | 57 specialist agents behind a single message broker |
 | **Scheduling & Calendar** | SQLite3 (WAL mode), `zoneinfo` | Persistent reminders, alarms, events, and ICS interchange |
-| **Testing** | pytest | 118 headless tests, no hardware or API keys required |
+| **Testing** | pytest | 154 headless tests, no hardware or API keys required |
 | **Data & Diagnostics** | Matplotlib, SQLite3 | Local trend charting and telemetry KPI databases |
 
 ---
 
 ## ⚙️ Getting Started
 
-> **New to Python or hitting `ModuleNotFoundError`?**
-> Read **[SETUP.md](SETUP.md)** instead — a step-by-step guide written for
-> complete beginners, with a fix for every common error.
->
-> **Fastest path — one command does everything:**
-> ```powershell
-> .\install.ps1
-> ```
-> Creates the virtual environment, installs all packages, pulls the AI models,
-> creates your config, and verifies the result.
->
-> **Something broken?** Run `python doctor.py`. It checks every dependency,
-> external program, AI model and config file, then prints the exact command to
-> fix whatever is missing.
+> **Beginner?** Use **[SETUP.md](SETUP.md)** or just run `.\install.ps1` —
+> see [Installation](#-installation-start-here) at the top.
+> The steps below are the manual equivalent.
 
 ### Prerequisites
 - **OS:** Windows 10 / 11
@@ -507,7 +540,7 @@ Jarvis/
 │   ├── youtube_music.py         # YouTube audio streaming via MPV
 │   └── screen_vision.py         # LLM-powered screen analysis skill
 ├── domains/                     # Domain expert prompt routers (7 files)
-├── tests/                       # 118 headless tests (no hardware needed)
+├── tests/                       # 154 headless tests (no hardware needed)
 │   ├── test_agents.py           # Broker, reminders, calendar, dispatch guards
 │   ├── test_services.py         # DB, scheduler recurrence & misfire, calendar
 │   └── test_timeparse.py        # Hinglish/English time phrase parsing
