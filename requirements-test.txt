@@ -1,0 +1,27 @@
+# Dependencies required to run `pytest`, and nothing more.
+#
+# requirements.txt carries the full desktop application: PyQt6, MediaPipe,
+# OpenCV, pywin32, ADB tooling. The test suite needs none of it. Installing
+# only this file is what proves the suite has no Windows, GPU, or hardware
+# dependency -- CI does exactly that on ubuntu-latest.
+#
+# Floors are the versions this suite is verified against, not arbitrary minima.
+# Phase 5 adds requirements.lock with exact pins for reproducible installs.
+
+pytest>=8.3
+numpy>=2.0
+loguru>=0.7
+
+# requests is not in any module-level import of the code under test --
+# core/tts_engine.py imports it lazily inside a function. It is still required:
+# tests/test_tts_engine.py calls monkeypatch.setattr("requests.post", ...), and
+# that string form makes pytest import requests itself.
+requests>=2.32
+
+# sounddevice and soundfile load PortAudio / libsndfile at import time, so
+# `import core.tts_engine` needs the shared libraries present. No audio device
+# is ever opened: tests/test_tts_engine.py monkeypatches every playback call
+# and every requests.post. On Debian/Ubuntu the libraries are
+# `libportaudio2` and `libsndfile1`.
+sounddevice>=0.5
+soundfile>=0.13
