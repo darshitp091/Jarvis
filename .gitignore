@@ -27,6 +27,13 @@ ENV/
 # in the public remote from 31daa7d (2026-07-30) onward.
 .cache*
 .pytest_cache/
+# Coverage artifacts. `.coverage` is a SQLite database of line hits, rewritten
+# on every run; `.cache*` does not match it. Rules live here rather than in
+# .coveragerc, which controls what is measured, not what git tracks.
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
 *.log
 error.log
 error2.log
