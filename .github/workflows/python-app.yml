@@ -38,3 +38,47 @@ jobs:
     - name: Verify File Manager & OneDrive Resolver Engine
       run: |
         python -X utf8 -c "from skills.file_manager import FileManager; fm = FileManager(); print('✅ FileManager & OneDrive Resolver initialized successfully!')"
+
+  # Proves the suite has no Windows, GPU, or hardware dependency: this job
+  # installs requirements-test.txt and nothing else. The Windows job above is
+  # what covers the pywin32-dependent skill imports; the two are complementary
+  # and neither replaces the other.
+  test-linux:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: Set up Python 3.12
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+        cache: "pip"
+
+    - name: Install Audio Shared Libraries
+      # sounddevice and soundfile dlopen PortAudio and libsndfile at import
+      # time, so `import core.tts_engine` fails without them. No audio device is
+      # opened -- the TTS tests monkeypatch every playback call -- so no sound
+      # server is needed, only the shared objects.
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends libportaudio2 libsndfile1
+
+    - name: Install Test Dependencies Only
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements-test.txt
+
+    - name: Run Test Suite With Coverage Gate
+      # 15, not the 40 the audit suggested: coverage measured 20.45% here, so 40
+      # would have failed this job on its first run. It is also not 20, which the
+      # round-down-to-5 rule literally gives -- that leaves 0.45pp of headroom and
+      # defeats the point of rounding down. Two things move this number in ways
+      # not measurable from a Windows dev box: the denominator grows whenever a
+      # test imports a previously undiscovered module (see .coveragerc), and this
+      # figure has never been measured on Linux.
+      #
+      # Ratchet it upward once CI reports a real Linux number; never lower it to
+      # make a red build pass.
+      run: pytest --cov=. --cov-report=term-missing --cov-fail-under=15
