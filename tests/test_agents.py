@@ -495,6 +495,45 @@ def _dispatched_skills() -> set:
     return set(re.findall(r"""skill\s*==\s*["']([a-z_0-9]+)["']""", src))
 
 
+def test_source_scanning_guards_are_not_vacuous():
+    """Both helpers below scrape source with a regex, and
+    test_every_router_skill_has_a_handler asserts on
+    `_router_skills() - _dispatched_skills()`.
+
+    Set subtraction is not symmetric, so only one side can fail silently:
+
+    * `_router_skills()` returning empty makes the guard VACUOUS. `set() - x`
+      is empty for any x, so the assertion passes while checking nothing.
+      Verified by making the router pattern unmatchable: the handler guard
+      reported `1 passed` with zero skills examined.
+    * `_dispatched_skills()` returning empty fails LOUDLY -- the difference
+      becomes all 42 router skills. Also verified. This side needs no guard,
+      but is floored anyway so the pair cannot drift apart unnoticed.
+
+    A moved file raises FileNotFoundError, which is loud. The quiet failure is
+    a pattern that no longer matches: Phase 3 rewriting the router's
+    `{"skill": "x"}` dict literals into anything else -- a dataclass, an enum,
+    a registry lookup -- empties the left-hand set with the file still present
+    and readable.
+
+    Floors are well under the measured counts (42 router, 44 dispatched) so
+    ordinary edits do not trip them.
+    """
+    router = _router_skills()
+    dispatched = _dispatched_skills()
+
+    assert len(router) >= 35, (
+        f"_router_skills() found only {len(router)} skills ({sorted(router)}). "
+        "The regex has stopped matching the router source -- fix the pattern or "
+        "the path before trusting any guard built on it."
+    )
+    assert len(dispatched) >= 35, (
+        f"_dispatched_skills() found only {len(dispatched)} skills "
+        f"({sorted(dispatched)}). The dispatch chain has moved out of the file "
+        "this helper reads; point it at the new location."
+    )
+
+
 def test_every_router_skill_has_a_handler():
     """No intent may fall through to the chat LLM and pretend it succeeded.
 
