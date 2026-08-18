@@ -22,7 +22,10 @@ ENV/
 !voices.json
 
 # Caches and logs
-.cache
+# `.cache*`, not `.cache`: the bare form matches that exact filename only, which
+# is why .cache-jarvis-spotify -- a live Spotify OAuth token cache -- sat tracked
+# in the public remote from 31daa7d (2026-07-30) onward.
+.cache*
 .pytest_cache/
 *.log
 error.log
@@ -42,6 +45,13 @@ jarvis_brain/
 notes.txt
 *.db
 *.sqlite
+# SQLite WAL sidecars. Regenerated on every run; committing them corrupts a
+# clone that opens the db with a different journal state.
+*.db-shm
+*.db-wal
+# Scraped page caches and personal contact data, both machine-local.
+config/site_cache_*
+config/contacts_cache.json
 
 # IDEs
 .vscode/
