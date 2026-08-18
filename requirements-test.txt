@@ -18,6 +18,10 @@ loguru>=0.7
 # that string form makes pytest import requests itself.
 requests>=2.32
 
+# Coverage measurement and the CI gate. Kept here rather than installed ad hoc
+# so the number CI enforces is reproducible locally with the same command.
+pytest-cov>=5.0
+
 # sounddevice and soundfile load PortAudio / libsndfile at import time, so
 # `import core.tts_engine` needs the shared libraries present. No audio device
 # is ever opened: tests/test_tts_engine.py monkeypatches every playback call
