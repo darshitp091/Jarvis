@@ -212,6 +212,32 @@ git branch -d chore/credential-hygiene
 
 Do **not** push. The user reviews and pushes.
 
+**Then restore the two live caches to disk.** `git rm --cached` on its own
+leaves a file on disk, but this merge does not: `git checkout main` restores
+the files (main still tracks them), and the merge then deletes them from the
+working tree, because from git's point of view they go from tracked-and-present
+to absent. Observed for real during execution — both files vanished.
+
+```bash
+git show 5d9107b:.cache-jarvis-spotify > .cache-jarvis-spotify
+git show 5d9107b:config/contacts_cache.json > config/contacts_cache.json
+```
+
+Use `git show >`, not `git checkout <ref> -- <path>`: the latter also writes
+the file back into the index, re-tracking exactly what was just untracked.
+Verify with `git check-ignore -v` on both (each must report a rule) and
+`git status --short` (must be empty). Expected sizes: 592 and 85 bytes.
+
+The two `config/site_cache_*.txt` files are deliberately **not** restored —
+they were already deleted on disk before this task began, and they are
+regenerable scrape caches.
+
+Losing the Spotify cache would only have forced a re-auth, which is moot
+since that token must be revoked anyway; `contacts_cache.json` is the reason
+this matters, as 85 bytes of personal contact data has no other copy.
+
+**This trap applies to every later phase that untracks a still-tracked file.**
+
 ---
 
 ## Task 2: `requirements-test.txt` verified in a clean environment (Phase 1a)
