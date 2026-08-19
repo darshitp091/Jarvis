@@ -71,19 +71,19 @@ jobs:
         pip install -r requirements-test.txt
 
     - name: Run Test Suite With Coverage Gate
-      # Ratcheted 15 -> 20. The router characterization tests execute ~1,400
-      # previously-unexercised lines, moving the measured total from 20.45% to
-      # 25.72%; core/intent_router.py now reports 56% where it was absent from
-      # the denominator entirely. 20 leaves 5.72pp of headroom, so unlike the
-      # first gate this one is a genuine round-down rather than a floor squeezed
-      # against the measurement.
+      # Lowered 20 -> 5, and the drop is not a regression in testing.
       #
-      # Deliberately NOT ratcheted to 25 even though 25.72% would permit it:
-      # 0.72pp is inside ordinary variation, and a gate that tight fails on
-      # unrelated changes. Rounding down exists to buy headroom, so when the
-      # measurement lands just above a bucket edge the correct move is the
-      # bucket below. Same call was made at 20.45% -> 15.
+      # The denominator was wrong. `source = .` discovered never-imported files
+      # only inside importable packages, and services/ was the only directory
+      # with an __init__.py, so 66 of 81 source modules were absent from the
+      # measurement. Naming the directories explicitly grows the denominator
+      # from 6,690 statements to 17,960.
       #
-      # Still 20 rather than the audit's 40, and still never measured on Linux.
-      # Ratchet upward as tests land; never lower it to make a red build pass.
-      run: pytest --cov=. --cov-report=term-missing --cov-fail-under=20
+      # The number of covered statements is unchanged at 1,721. Exactly the same
+      # tests exercise exactly the same lines; 25.72% divided them by 6,690
+      # statements, which is 37% of the real total. 9.58% is the same fact,
+      # honestly divided.
+      #
+      # 5 leaves 4.58pp of headroom. Ratchet upward as tests land; never lower
+      # it to make a red build pass.
+      run: pytest --cov --cov-report=term-missing --cov-fail-under=5

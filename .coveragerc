@@ -1,30 +1,31 @@
 [run]
-# KNOWN LIMITATION -- read before trusting the TOTAL.
+# Discovery requires naming each directory. `source = .` alone auto-discovers
+# never-imported files only inside importable packages, so before this change
+# only services/ (the one directory with an __init__.py) was fully reported and
+# 66 modules were absent from the denominator entirely.
 #
-# `source = .` auto-discovers never-imported files only inside importable
-# packages. services/ has an __init__.py, so all of its modules are reported.
-# core/, skills/, and ui/ do NOT, so a file there appears only if a test
-# actually imports it. 15 of the repo's 87 modules are currently measured:
-# 4 of core/'s 20, all 5 under services/, and 6 top-level scripts. All 33
-# skills/ and 9 ui/ modules are absent from the denominator entirely.
+# That makes the list below a hand-maintained index, which is the sharp edge
+# this fix leaves behind: a top-level directory added later is invisible until
+# someone edits this file, and the symptom is a TOTAL that quietly rises rather
+# than an error anyone sees. Phase 3a removes the hazard rather than documenting
+# it, by giving every module one package tree to live in.
 #
-# core/intent_router.py is the worked example of the mechanism: it was absent
-# until tests/test_intent_router.py imported it, and its arrival added all 992
-# of its statements to the denominator at once. The TOTAL rose anyway because
-# the same tests covered more than 992/6690 of them -- but a test that imports
-# a large module and exercises little of it will DROP the total. Check the
-# per-file column, not just the gate, when adding a first test for a module.
+# `.` stays in the list deliberately. It is the entry that picks up the six
+# root-level scripts including main.py, which is the single largest file in the
+# project at 3,386 statements. A list of only the package directories measures
+# 14,134 statements and looks like an honest denominator while omitting the
+# biggest thing in it.
 #
-# The TOTAL therefore means "percentage of discovered code exercised", not
-# "percentage of the repository tested", and it is dominated by main.py
-# (3386 of 5698 statements, 0% covered). The gate is still a valid regression
-# detector over a stable denominator -- but the denominator grows whenever a
-# new module gets imported by a test, so re-measure after adding tests instead
-# of assuming the previous number still holds.
-#
-# Phase 3 moves everything into real packages under src/jarvis/, at which point
-# all modules become discoverable and the gate must be re-measured from scratch.
-source = .
+# Phase 3a moves these directories under src/jarvis/. When it does, this list
+# collapses to `.` plus `src/jarvis`, and the total must be re-measured again.
+source =
+    .
+    core
+    skills
+    ui
+    services
+    domains
+    auth
 omit =
     # Virtualenvs, vendored code, and local scratch work are not this project.
     jarvis_env/*
