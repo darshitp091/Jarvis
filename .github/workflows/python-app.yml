@@ -80,8 +80,9 @@ jobs:
       # from 6,690 statements to 17,960.
       #
       # The number of covered statements is unchanged at 1,721. Exactly the same
-      # tests exercise exactly the same lines; 25.72% was measuring them against
-      # a sixth of the codebase. 9.58% is the same fact, honestly divided.
+      # tests exercise exactly the same lines; 25.72% divided them by 6,690
+      # statements, which is 37% of the real total. 9.58% is the same fact,
+      # honestly divided.
       #
       # 5 leaves 4.58pp of headroom. Ratchet upward as tests land; never lower
       # it to make a red build pass.

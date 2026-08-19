@@ -4,6 +4,12 @@
 # only services/ (the one directory with an __init__.py) was fully reported and
 # 66 modules were absent from the denominator entirely.
 #
+# That makes the list below a hand-maintained index, which is the sharp edge
+# this fix leaves behind: a top-level directory added later is invisible until
+# someone edits this file, and the symptom is a TOTAL that quietly rises rather
+# than an error anyone sees. Phase 3a removes the hazard rather than documenting
+# it, by giving every module one package tree to live in.
+#
 # `.` stays in the list deliberately. It is the entry that picks up the six
 # root-level scripts including main.py, which is the single largest file in the
 # project at 3,386 statements. A list of only the package directories measures
