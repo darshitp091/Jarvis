@@ -73,10 +73,16 @@ jobs:
     - name: Run Test Suite With Coverage Gate
       # Ratcheted 15 -> 20. The router characterization tests execute ~1,400
       # previously-unexercised lines, moving the measured total from 20.45% to
-      # 24.81%; core/intent_router.py now reports 49.90% where it was absent from
-      # the denominator entirely. 20 leaves 4.81pp of headroom, so unlike the
+      # 25.72%; core/intent_router.py now reports 56% where it was absent from
+      # the denominator entirely. 20 leaves 5.72pp of headroom, so unlike the
       # first gate this one is a genuine round-down rather than a floor squeezed
       # against the measurement.
+      #
+      # Deliberately NOT ratcheted to 25 even though 25.72% would permit it:
+      # 0.72pp is inside ordinary variation, and a gate that tight fails on
+      # unrelated changes. Rounding down exists to buy headroom, so when the
+      # measurement lands just above a bucket edge the correct move is the
+      # bucket below. Same call was made at 20.45% -> 15.
       #
       # Still 20 rather than the audit's 40, and still never measured on Linux.
       # Ratchet upward as tests land; never lower it to make a red build pass.

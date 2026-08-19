@@ -4,9 +4,16 @@
 # `source = .` auto-discovers never-imported files only inside importable
 # packages. services/ has an __init__.py, so all of its modules are reported.
 # core/, skills/, and ui/ do NOT, so a file there appears only if a test
-# actually imports it: 14 of the repo's 87 modules are measured, and
-# core/intent_router.py (1572 lines) plus all 33 skills/ and 9 ui/ modules are
-# absent from the denominator entirely.
+# actually imports it. 15 of the repo's 87 modules are currently measured:
+# 4 of core/'s 20, all 5 under services/, and 6 top-level scripts. All 33
+# skills/ and 9 ui/ modules are absent from the denominator entirely.
+#
+# core/intent_router.py is the worked example of the mechanism: it was absent
+# until tests/test_intent_router.py imported it, and its arrival added all 992
+# of its statements to the denominator at once. The TOTAL rose anyway because
+# the same tests covered more than 992/6690 of them -- but a test that imports
+# a large module and exercises little of it will DROP the total. Check the
+# per-file column, not just the gate, when adding a first test for a module.
 #
 # The TOTAL therefore means "percentage of discovered code exercised", not
 # "percentage of the repository tested", and it is dominated by main.py
