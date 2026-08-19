@@ -596,9 +596,16 @@ def _router_skills() -> set:
     return set(re.findall(r"""["']skill["']\s*:\s*["']([a-z_0-9]+)["']""", src))
 ```
 
-`test_every_router_skill_has_a_handler` then asserts `_router_skills() - _dispatched_skills()` is empty. If either regex matches nothing, the difference of two empty sets is empty and **the test passes while checking nothing.**
+`test_every_router_skill_has_a_handler` then asserts `_router_skills() - _dispatched_skills()` is empty. Set subtraction is asymmetric, so **only the left side can fail quietly** — a distinction this section originally got backwards, corrected here after both cases were executed:
 
-That matters specifically now. Phase 3 moves `main.py` and `core/intent_router.py` into `src/jarvis/`. `open()` on a moved path raises `FileNotFoundError`, which is loud — but Phase 3 also splits the 43-branch dispatch chain into `app/dispatch/skills.py`. The moment `main.py` exists as a thin shim containing no `skill == "..."` branches, `_dispatched_skills()` returns an empty set, the guard passes vacuously, and the regression it exists to prevent — an intent that silently falls through to the chat LLM and pretends it succeeded — becomes invisible again.
+| Side that empties | Result | Verified |
+|---|---|---|
+| `_router_skills()` | **Vacuous pass.** `set() - x` is empty for any `x`, so the guard reports `1 passed` having examined zero skills. | Yes — router pattern made unmatchable |
+| `_dispatched_skills()` | **Loud failure.** The difference becomes all 42 router skills. | Yes — dispatch pattern inverted |
+
+So the dispatch chain leaving `main.py` during the Phase 3 split does *not* hide the regression; it surfaces it immediately. The genuine risk is on the router side, and it is not a file move — `open()` on a moved path raises `FileNotFoundError`, which is loud. It is a pattern that stops matching while the file is still present and readable: Phase 3 rewriting the router's `{"skill": "x"}` dict literals into a dataclass, an enum, or a registry lookup empties the left-hand set silently, and the regression this guard exists to prevent — an intent that falls through to the chat LLM and pretends it succeeded — becomes invisible again.
+
+Both sides get a floor regardless. The dispatch floor is not protecting against vacuity; it stops the two helpers drifting apart unnoticed.
 
 Measured today: the router emits **42** distinct skills, `main.py` dispatches **44**, and the difference is empty.
 

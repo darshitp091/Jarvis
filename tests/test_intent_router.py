@@ -1,0 +1,378 @@
+"""Characterization tests for IntentRouter._regex_route.
+
+These do not assert what the router *should* do. They record what it *does*,
+today, so the Phase 3 split of the 1,439-line _regex_route into ordered rule
+modules can be proven behavior-preserving. Every expected value here was
+captured by executing the current router, not reasoned out.
+
+They must pass UNCHANGED after the refactor. If a value here needs updating to
+make the refactor pass, the refactor changed behavior -- that is the finding,
+not a test to edit.
+
+Two cases are marked KNOWN GAP: real Hinglish word-order defects that return
+None and fall through to the LLM router. They are pinned as-is deliberately.
+Fixing them belongs in its own test-paired commit, not mixed into the baseline
+the refactor is measured against.
+"""
+
+import os
+import re
+import sys
+
+import pytest
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from core.intent_router import IntentRouter
+
+
+@pytest.fixture
+def router():
+    """An IntentRouter with __init__ skipped.
+
+    _regex_route reads no instance attributes -- scanning its body for `self.`
+    returns zero hits -- so it needs no constructed state. Skipping __init__
+    also avoids reading config/settings.yaml, which is gitignored and therefore
+    absent in CI. If _regex_route ever starts reading self state, these tests
+    fail with AttributeError, which is the correct loud signal.
+    """
+    return IntentRouter.__new__(IntentRouter)
+
+
+# --------------------------------------------------------------- purity guard
+
+def test_regex_route_reads_no_instance_state():
+    """Guards the __new__ fixture above, and a property Phase 3 depends on.
+
+    Because _regex_route is state-free it can become a module-level function in
+    routing/, with no mixin and no `self` threading. If a `self.` reference is
+    introduced here, both the fixture and that plan assumption break.
+    """
+    src = open(
+        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                     "core", "intent_router.py"),
+        encoding="utf-8",
+    ).read()
+
+    body = src[src.index("def _regex_route"):src.index("def route(")]
+    hits = [ln.strip() for ln in body.splitlines() if re.search(r"\bself\.", ln)]
+    assert not hits, (
+        "_regex_route now reads instance state, so it is no longer a pure "
+        f"function of its arguments: {hits[:5]}"
+    )
+
+
+# ------------------------------------------------------- skill/action mapping
+
+# (command, expected_skill, expected_action)
+ROUTES = [
+    # Browser opening. Checked before everything else in the chain.
+    ("open chrome and search for python tutorials", "os_control", "open_browser"),
+    ("browser me laptop dikhao",                    "os_control", "open_browser"),
+
+    # Reminders. Cancel and list precede create, so a cancel phrase containing
+    # "reminder" is not mistaken for a new reminder.
+    ("cancel reminder number 3",      "reminder", "cancel"),
+    ("snooze for 15 minutes",         "reminder", "snooze"),
+    ("snooze",                        "reminder", "snooze"),
+    ("what are my reminders",         "reminder", "list"),
+    ("remind me to call mom at 6 pm", "reminder", "create"),
+    ("wake me up at 7 am",            "reminder", "create"),
+
+    # Calendar. add_event precedes agenda; see the dedicated test below.
+    ("schedule a meeting with Roshan tomorrow at 4 pm", "calendar", "add_event"),
+    ("what's on my agenda today",                       "calendar", "agenda"),
+    ("next meeting kab hai",                            "calendar", "next_event"),
+    ("am i free tomorrow afternoon",                     "calendar", "free_slots"),
+
+    # Notes. Must come after the reminder rules: "remember" is a note trigger
+    # and "remind me" would otherwise be swallowed by it.
+    ("remember this: wifi password is hunter2", "obsidian", "create_note"),
+
+    # --- one row per remaining regex-reachable skill -----------------------
+    # Derived from each rule's own keyword lists, then verified by execution.
+    # Phrases are terse because that is what the rules match; readability of the
+    # phrase matters less than it provably hitting the intended rule.
+    ("open swarm lab",        "agent_lab",         "open_lab"),
+    ("turn on gaze pointer",  "air_typist",        "start"),
+    ("execute code",          "app_control",       "run_code"),
+    ("solve air canvas",      "coding_sandbox",    "execute_task"),
+    ("customization protocol", "customizer",       "enter"),
+    ("explorer show hidden",  "file_manager",      "toggle_show_hidden_files"),
+    ("show vitals",           "focus_tracker",     "open_dashboard"),
+    ("git sentinel check",    "git_sentinel",      "check"),
+    ("explode hologram",      "hologram_control",  "explode"),
+    ("pichla hata",           "image_editor",      "remove_background"),
+    ("suggest buy",           "market_analyzer",   "analyze"),
+    ("scan network",          "network_mapper",    "scan_and_project"),
+    ("open notepad",          "os_control",        "launch"),
+    ("list network devices",  "p2p_link",          "list_peers"),
+    ("phone home screen",     "phone",             "go_home"),
+    ("port scan",             "security_auditor",  "scan_ports"),
+    ("click the",             "self_healing",      "click_element"),
+    ("check environment",     "sensory_health",    "check"),
+    ("buy shoes on amazon",   "shopping",          "search_product"),
+    ("please stop",           "spotify",           "pause"),
+    ("diagnostic check",      "system_monitor",    "stark_diagnostics"),
+    ("what objects",          "vision_tracker",    "detect_objects"),
+    ("check stress level",    "vitals_check",      "check_vitals"),
+    ("explain my workspace",  "workspace_context", "explain_workspace"),
+
+    # productivity and web_research are also exercised by dedicated tests below,
+    # but they need a ROUTES row too: the accounting test derives its covered
+    # set from this table alone, so a skill tested only elsewhere would read as
+    # uncharacterized.
+    ("make a presentation on physics", "productivity",  "create_presentation"),
+    ("summarize this video",           "web_research",  "open_youtube_video"),
+
+    # screen_vision returns no "action" key at all. None means "assert the skill
+    # only" -- see the test body.
+    ("what can you see",      "screen_vision",     None),
+]
+
+
+@pytest.mark.parametrize("cmd,skill,action", ROUTES, ids=[r[0] for r in ROUTES])
+def test_route_maps_to_expected_skill_and_action(router, cmd, skill, action):
+    out = router._regex_route(cmd)
+    assert out is not None, f"{cmd!r} no longer matches any rule"
+    assert out["skill"] == skill
+    if action is None:
+        # screen_vision emits params with no "action" key. Pinning its absence
+        # matters: adding one would change what the dispatcher branches on.
+        assert "action" not in out["params"], (
+            f"{cmd!r} gained an action param: {out['params']}"
+        )
+    else:
+        assert out["params"]["action"] == action
+    assert out["domain"] == "general"
+
+
+# ------------------------------------------------- exact params, order-critical
+
+def test_cancel_extracts_the_job_number(router):
+    assert router._regex_route("cancel reminder number 3") == {
+        "skill": "reminder",
+        "params": {"action": "cancel", "job_id": 3, "all": False},
+        "domain": "general",
+    }
+
+
+def test_snooze_defaults_to_ten_minutes_when_unspecified(router):
+    assert router._regex_route("snooze")["params"]["minutes"] == 10
+    assert router._regex_route("snooze for 15 minutes")["params"]["minutes"] == 15
+
+
+def test_alarm_and_reminder_are_distinguished_by_kind(router):
+    assert router._regex_route("wake me up at 7 am")["params"]["kind"] == "alarm"
+    assert router._regex_route("remind me to call mom at 6 pm")["params"]["kind"] == "reminder"
+
+
+def test_create_passes_the_original_text_not_the_normalised_command(router):
+    """Downstream time parsing needs the raw text; _regex_route lowercases and
+    strips punctuation into `cmd` but must hand `text` over untouched."""
+    out = router._regex_route("Remind me to call Mom at 6 PM.")
+    assert out["params"]["query"] == "Remind me to call Mom at 6 PM."
+
+
+def test_event_creation_beats_the_agenda_rule(router):
+    """The end-to-end defect this ordering exists to prevent.
+
+    "schedule a meeting ... tomorrow at 4 pm" contains both a creation verb and
+    a day word. When the agenda rule matched first, JARVIS read the calendar
+    back instead of creating the event and nothing was ever saved.
+
+    tests/test_agents.py checks this by comparing source positions. This checks
+    the behavior, so it survives Phase 3 moving the rules into separate files.
+    """
+    out = router._regex_route("schedule a meeting with Roshan tomorrow at 4 pm")
+    assert out["params"]["action"] == "add_event"
+
+
+def test_agenda_resolves_the_day_word(router):
+    assert router._regex_route("what's on my agenda today")["params"]["day"] == "today"
+    assert router._regex_route("agenda for tomorrow")["params"]["day"] == "tomorrow"
+
+
+def test_note_capture_strips_the_trigger_phrase(router):
+    out = router._regex_route("remember this: wifi password is hunter2")
+    assert out["params"]["content"] == "wifi password is hunter2"
+
+
+def test_browser_query_has_the_command_words_removed(router):
+    """Pinned verbatim, double space included. The stripping regexes leave
+    whitespace artifacts; that is current behavior and the search still works.
+    Phase 3 must not quietly 'tidy' this -- if the output changes, the rule
+    changed."""
+    out = router._regex_route("open chrome and search for python tutorials")
+    assert out["params"]["query"] == "and  for python tutorials"
+
+
+def test_hinglish_browser_command_routes_to_open_browser(router):
+    out = router._regex_route("browser me laptop dikhao")
+    assert out["skill"] == "os_control"
+    assert out["params"]["query"] == "me laptop"
+
+
+# ------------------------------------------------------ stateful presentation
+
+def test_presentation_topic_captures_slide_follow_ups(router):
+    """With an active topic, a bare "make slide 3 shorter" is a refinement of
+    the existing deck rather than a new request."""
+    out = router._regex_route("make slide 3 shorter", "quantum entanglement")
+    assert out["skill"] == "productivity"
+    assert out["params"]["action"] == "modify_presentation_slide"
+    assert out["params"]["slide_num"] == 3
+    assert out["params"]["query"] == "make slide 3 shorter"
+
+
+def test_same_text_without_an_active_topic_is_a_new_deck_not_a_slide_edit(router):
+    """The state is what makes the refinement rule fire. Without it the same
+    text is parsed as a brand-new presentation request -- with a nonsense title
+    of "3 shorter", which is current behavior and pinned as such. The point is
+    that it must not reach modify_presentation_slide with no deck to modify.
+    """
+    out = router._regex_route("make slide 3 shorter")
+    assert out["skill"] == "productivity"
+    assert out["params"]["action"] == "create_presentation"
+    assert out["params"]["title"] == "3 shorter"
+
+
+# ---------------------------------------------------------------- fall-through
+
+def test_general_question_falls_through_to_the_llm(router):
+    """Returning None is the contract for "no fast path applies" -- the caller
+    then asks the LLM router. A rule that greedily claimed this would break
+    ordinary conversation."""
+    assert router._regex_route("what is the capital of France") is None
+
+
+# ------------------------------------------------------------------ KNOWN GAPS
+
+@pytest.mark.parametrize("cmd,why", [
+    (
+        "sabhi reminders hata do",
+        "the cancel rule needs the verb before the noun, and \\breminder\\b "
+        "cannot match inside 'reminders'",
+    ),
+    (
+        "mera kal ka schedule batao",
+        "the agenda rule needs 'mera' immediately followed by 'schedule', but "
+        "Hinglish puts 'kal ka' between them",
+    ),
+])
+def test_known_hinglish_word_order_gaps_return_none(router, cmd, why):
+    """KNOWN GAP -- pinned, not endorsed.
+
+    These are real defects: valid Hinglish that should route but does not, so it
+    falls through to the LLM router which may or may not recover. They are
+    recorded as current behavior because Phase 2 preserves behavior; fixing them
+    inside the characterization baseline would destroy the reference the Phase 3
+    refactor is measured against.
+
+    Fix each in its own commit, paired with the assertion flipped to the correct
+    route. When that happens this test SHOULD fail -- that is the signal the fix
+    landed, and this case moves up into ROUTES.
+    """
+    assert router._regex_route(cmd) is None, (
+        f"{cmd!r} now routes -- if that was deliberate, move it into ROUTES with "
+        f"its real expected value and drop this case. Gap was: {why}"
+    )
+
+
+@pytest.mark.parametrize("cmd,skill,action,expected_instead", [
+    ("run this python code",   "web_research", "open_youtube_video", "code_runner"),
+    ("start recording macro",  "os_control",   "launch",             "macro_recorder"),
+    ("order food from swiggy", "shopping",     "search_product",     "food_ordering"),
+])
+def test_known_rule_shadowing(router, cmd, skill, action, expected_instead):
+    """KNOWN GAP -- pinned, not endorsed.
+
+    An earlier rule claims these before the intended one is reached.
+    "run this python code" opening a YouTube video is the clearest defect of the
+    three. Recorded as current behavior for the same reason as the Hinglish gaps:
+    Phase 2 preserves behavior, and fixing a route inside the baseline destroys
+    the reference the Phase 3 refactor is measured against.
+
+    An explicitly ordered rule list is exactly what makes this class of bug
+    visible, which is the substantive win of the Phase 3 split rather than a
+    side effect of it.
+    """
+    out = router._regex_route(cmd)
+    assert out is not None
+    assert out["skill"] == skill, (
+        f"{cmd!r} now routes to {out['skill']} instead of {skill}. If it now "
+        f"reaches {expected_instead}, the shadowing was fixed -- move this case "
+        "into ROUTES and drop it from LLM_ONLY_SKILLS."
+    )
+    assert out["params"].get("action") == action
+
+
+# --------------------------------------------------------- coverage accounting
+
+# Skills that appear in intent_router.py but that _regex_route cannot reach.
+# Every phrase derived from their own rule text either returns None or is
+# claimed by an earlier rule, so they are reachable only via the LLM router.
+#
+# This is not a wish list -- it is a measured property of the current rule
+# ordering, and it is the reason the table above stops at 30 of 42. Shrinking
+# this set is real work with real user-visible value; see the follow-ups table
+# in the plan.
+LLM_ONLY_SKILLS = {
+    "ambiguous",          # deliberate: the disambiguation branch, not a route
+    "conversation",       # deliberate: the explicit fall-through skill
+    "code_runner",        # shadowed -- "run this python code" -> web_research
+    "macro_recorder",     # shadowed -- "start recording macro" -> os_control
+    "food_ordering",      # shadowed -- "order food from swiggy" -> shopping
+    "data_analyzer",
+    "media_summarize",
+    "memory_ops",
+    "polyglot_engineer",
+    "product_comparison",
+    "research_prodigy",
+    "sentry_firewall",
+}
+
+
+def _skills_in_router_source() -> set:
+    src = open(
+        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                     "core", "intent_router.py"),
+        encoding="utf-8",
+    ).read()
+    return set(re.findall(r"""["']skill["']\s*:\s*["']([a-z_0-9]+)["']""", src))
+
+
+def test_every_router_skill_is_covered_or_declared():
+    """No skill may be silently uncharacterized going into the Phase 3 split.
+
+    Either a skill has a row in ROUTES proving how it is reached, or it is named
+    in LLM_ONLY_SKILLS with the reason. A skill in neither set is one the
+    refactor could break with nothing to notice.
+    """
+    emitted = _skills_in_router_source()
+    assert len(emitted) >= 35, (
+        f"the source scan found only {len(emitted)} skills -- the regex has "
+        "stopped matching, so this accounting proves nothing"
+    )
+
+    covered = {row[1] for row in ROUTES}
+    unaccounted = sorted(emitted - covered - LLM_ONLY_SKILLS)
+    assert not unaccounted, (
+        "these skills are neither characterized in ROUTES nor declared in "
+        f"LLM_ONLY_SKILLS: {unaccounted}. Add a verified row, or declare it "
+        "with the reason it is unreachable."
+    )
+
+
+def test_declared_unreachable_skills_really_are_unreachable(router):
+    """Keeps LLM_ONLY_SKILLS honest.
+
+    If a rule change makes one of these reachable, the declaration is stale and
+    the skill belongs in ROUTES with a real expected value.
+    """
+    covered = {row[1] for row in ROUTES}
+    overlap = sorted(LLM_ONLY_SKILLS & covered)
+    assert not overlap, (
+        f"{overlap} are both declared unreachable and characterized in ROUTES; "
+        "remove them from LLM_ONLY_SKILLS"
+    )

@@ -71,14 +71,19 @@ jobs:
         pip install -r requirements-test.txt
 
     - name: Run Test Suite With Coverage Gate
-      # 15, not the 40 the audit suggested: coverage measured 20.45% here, so 40
-      # would have failed this job on its first run. It is also not 20, which the
-      # round-down-to-5 rule literally gives -- that leaves 0.45pp of headroom and
-      # defeats the point of rounding down. Two things move this number in ways
-      # not measurable from a Windows dev box: the denominator grows whenever a
-      # test imports a previously undiscovered module (see .coveragerc), and this
-      # figure has never been measured on Linux.
+      # Ratcheted 15 -> 20. The router characterization tests execute ~1,400
+      # previously-unexercised lines, moving the measured total from 20.45% to
+      # 25.72%; core/intent_router.py now reports 56% where it was absent from
+      # the denominator entirely. 20 leaves 5.72pp of headroom, so unlike the
+      # first gate this one is a genuine round-down rather than a floor squeezed
+      # against the measurement.
       #
-      # Ratchet it upward once CI reports a real Linux number; never lower it to
-      # make a red build pass.
-      run: pytest --cov=. --cov-report=term-missing --cov-fail-under=15
+      # Deliberately NOT ratcheted to 25 even though 25.72% would permit it:
+      # 0.72pp is inside ordinary variation, and a gate that tight fails on
+      # unrelated changes. Rounding down exists to buy headroom, so when the
+      # measurement lands just above a bucket edge the correct move is the
+      # bucket below. Same call was made at 20.45% -> 15.
+      #
+      # Still 20 rather than the audit's 40, and still never measured on Linux.
+      # Ratchet upward as tests land; never lower it to make a red build pass.
+      run: pytest --cov=. --cov-report=term-missing --cov-fail-under=20
