@@ -1394,7 +1394,7 @@ Task 1 already fixed the denominator, so this task should find the number essent
 
 **Files:**
 - Modify: `.coveragerc` — the `source` list and the KNOWN LIMITATION header
-- Modify: `.github/workflows/python-app.yml` — the gate value only if the measurement moves it
+- Modify: `.github/workflows/python-app.yml` — add `--cov-precision=2`, and change the gate value only if the measurement moves it
 
 **Interfaces:**
 - Consumes: the completed tree from Tasks 3–7 and Task 1's explicit `source` list.
@@ -1432,9 +1432,11 @@ The arithmetic behind "within a few tenths": five of the six new `__init__.py` f
 
 **If the TOTAL moved by more than ~0.5pp, stop.** A drop means a source path is wrong and a chunk of the tree stopped being counted. A rise means the same thing in reverse — files silently dropped out of the denominator. Neither is a coverage result; both are configuration errors, and this is the only step in the plan positioned to catch them.
 
-- [ ] **Step 4: Rewrite the KNOWN LIMITATION header, which is now obsolete**
+- [ ] **Step 4: Rewrite the `.coveragerc` header, which is now obsolete again**
 
-The existing header describes a limitation that no longer exists. Replace the whole block with what is true after the move:
+Task 1 already replaced the original `KNOWN LIMITATION` block with a header describing the six-directory `source` list — **there is no `KNOWN LIMITATION` block left to delete.** What you are replacing is Task 1's header, which is accurate right up until Step 2 changes the list underneath it. It even predicts this step: it closes with "Phase 3a moves these directories under src/jarvis/. When it does, this list collapses to `.` plus `src/jarvis`, and the total must be re-measured again."
+
+Replace the whole `[run]` header and `source` block with what is true after the move:
 
 ```ini
 [run]
@@ -1446,7 +1448,10 @@ The existing header describes a limitation that no longer exists. Replace the wh
 #
 # `.` picks up main.py and the four root scripts, which did not move.
 # main.py alone is 3,387 of the ~17,963 statements and is 0% covered, so it
-# dominates the total; check the per-file column, not just the gate.
+# dominates the total; check the per-file column, not just the gate. A list
+# of only src/jarvis measures roughly 14,000 statements and reports a HIGHER
+# percentage than the honest one -- it looks like a fixed denominator while
+# omitting the largest file in the project.
 #
 # Phase 3a's move did not change this number. The denominator was fixed
 # separately and beforehand, precisely so that the move could be shown to be
@@ -1458,13 +1463,34 @@ source =
 
 Also drop `setup.py` from the `omit` list — Task 8 deleted the file, and an omit entry for a path that does not exist is a stale instruction that reads as if it does.
 
-- [ ] **Step 5: Set the gate from the measurement, not from expectation**
+Do not carry forward Task 1's sentence about the list collapsing "when Phase 3a moves these directories". It has happened; a comment predicting a completed event misleads about where in the sequence the file sits.
 
-Round the measured TOTAL down to the nearest 5. If it measures 9.6%, the gate stays **5** and the workflow needs no change beyond a comment noting it was re-measured after the move. Do not ratchet to 10 on a 9.6% reading: rounding down exists to buy headroom, and 10 would be above the measurement.
+- [ ] **Step 5: Set the gate from the measurement, and close its dead band**
+
+Round the measured TOTAL down to the nearest 5. If it measures 9.6%, the gate stays **5** and the value needs no change. Do not ratchet to 10 on a 9.6% reading: rounding down exists to buy headroom, and 10 would be above the measurement.
+
+**Add `--cov-precision=2` to the workflow's coverage command.** This is a real defect in the gate, found and verified during Task 1, and this is the line that carries it:
 
 ```bash
-pytest --cov --cov-report=term-missing --cov-fail-under=5
-pytest --cov --cov-fail-under=15 2>&1 | grep -E "Required test coverage"
+PY=/c/tmp/jarvis-test-venv/Scripts/python.exe
+for a in "--cov-fail-under=10" "--cov-fail-under=10 --cov-precision=2"; do
+  $PY -m pytest --cov $a -q > /c/tmp/g.txt 2>&1; echo "$a -> exit $?"
+done
+```
+
+Measured on pytest-cov 7.1.0 against a 9.58% total: **`--cov-fail-under=10` prints `FAIL Required test coverage of 10% not reached` and exits 0.** CI goes green with FAIL on screen. Adding `--cov-precision=2` makes the identical command exit 1. The cause is that pytest-cov compares `round(total, precision) < fail_under` for the exit code — at the default precision 0 that is `10 < 10`, which is False — while formatting the message from the unrounded value.
+
+The committed gate of 5 is outside the band, so nothing is failing today. It matters because **10 is the single most likely next ratchet value** from a 9.6% reading, and the failure mode is a gate that reports FAIL and passes the build. Fixing it here rather than in its own commit: Step 5 already rewrites this exact line, and a gate that cannot fail is the same dishonesty this task exists to remove.
+
+```yaml
+        run: pytest --cov --cov-report=term-missing --cov-precision=2 --cov-fail-under=5
+```
+
+Then verify the gate in both directions, as in Task 1:
+
+```bash
+$PY -m pytest --cov --cov-report=term-missing --cov-precision=2 --cov-fail-under=5
+$PY -m pytest --cov --cov-precision=2 --cov-fail-under=15 2>&1 | grep -E "Required test coverage"
 ```
 
 Expected: pass, then fail. Verify the gate in both directions as in Task 1 — a gate that cannot fail is decoration.
@@ -1490,10 +1516,19 @@ measurement changing underneath it. Three statements were added in total --
 one __init__.py with a version string, five empty ones, and main.py's
 bootstrap line.
 
-The KNOWN LIMITATION header is deleted rather than edited. It described
-undiscoverable modules in directories without __init__.py, which is no
-longer a property of this project. Leaving a stale caveat in place is worse
-than having none: it tells a reader to distrust a number that is now sound.
+--cov-precision=2 closes a dead band in the gate itself. pytest-cov compares
+round(total, precision) < fail_under for its exit code but formats the
+printed message from the unrounded value, so at the default precision 0 a
+9.58% total against --cov-fail-under=10 printed "FAIL Required test coverage
+of 10% not reached" and exited 0 -- a green build with FAIL on screen. The
+committed gate of 5 was never in the band, but 10 is the most likely next
+ratchet from a 9.6% reading, so the flag lands here rather than waiting to be
+discovered by a CI run that passed when it should not have.
+
+The .coveragerc header is replaced rather than edited. It described a
+six-directory source list that no longer exists, and its closing line
+predicted this commit. Leaving a stale caveat in place is worse than having
+none: it tells a reader to distrust a number that is now sound.
 
 Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
 ```
@@ -1604,8 +1639,8 @@ PYEOF
 rm -rf /c/tmp/jarvis-gate && python -m venv /c/tmp/jarvis-gate
 /c/tmp/jarvis-gate/Scripts/python.exe -m pip install -q -e . && echo "install ok"
 # 5. The coverage gate is real in both directions
-$PY -m pytest --cov --cov-report=term-missing --cov-fail-under=5
-$PY -m pytest --cov --cov-fail-under=15 2>&1 | grep -E "Required test coverage"
+$PY -m pytest --cov --cov-report=term-missing --cov-precision=2 --cov-fail-under=5
+$PY -m pytest --cov --cov-precision=2 --cov-fail-under=15 2>&1 | grep -E "Required test coverage"
 # 6. No reference anywhere to any old top-level package path
 rg -n "^\s*(from|import)\s+(core|skills|ui|services|auth|domains)[\. ]" -g "*.py" -g "!jarvis_env/**" .
 # 7. The old directories are gone
@@ -1657,6 +1692,11 @@ move:
   grew the denominator from 6,690 statements to 17,960 and dropped the gate
   from 20 to 5 -- with the covered count unchanged at 1,721. This was fixed
   before anything moved, so the move could be shown coverage-neutral.
+- The coverage gate had a dead band at exactly 10. pytest-cov compares
+  round(total, precision) for its exit code but prints the unrounded value,
+  so a 9.58% total against --cov-fail-under=10 printed FAIL and exited 0.
+  --cov-precision=2 closes it. The gate is 5, so nothing was failing -- but
+  10 is the obvious next ratchet from 9.6%.
 - install_requires listed bare pywin32, which has no Linux wheel, so
   `pip install -e .` failed outright on the ubuntu runner.
 - find_packages() had been returning an empty list since the first move
