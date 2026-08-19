@@ -4,7 +4,7 @@
 
 **Goal:** Turn the six top-level source directories into one real installable package at `src/jarvis/`, so every module is importable, discoverable by coverage, and packaged correctly — without changing any runtime behavior.
 
-**Architecture:** `git mv` each directory under `src/jarvis/`, add `__init__.py`, and rewrite the 119 import statements that reference them. Packages move in dependency order, leaves first, and every commit leaves the tree green. No file's contents change except import lines, with exactly two named exceptions (see Global Constraints). `main.py` stays at the repository root and keeps working throughout — its teardown is Phase 3b, deliberately not this plan.
+**Architecture:** `git mv` each directory under `src/jarvis/`, add `__init__.py`, and rewrite the 119 import statements that reference them. Packages move in dependency order, leaves first, and every commit leaves the tree green. No file's contents change except import lines, with four named exceptions plus one deliberate repair (see Global Constraints). `main.py` stays at the repository root and keeps working throughout — its teardown is Phase 3b, deliberately not this plan.
 
 **Tech Stack:** Python 3.10–3.12, pytest 8.3+ (`pythonpath` ini option), setuptools, coverage.py, `git mv` for rename detection.
 
@@ -37,11 +37,17 @@ Measured against the working tree on 2026-08-19, not taken from the spec. Where 
 ## Global Constraints
 
 - **Every move uses `git mv`.** A delete-plus-add loses blame and rename detection, which is the whole reason the audit's History & Maintenance dimension is measurable at all.
-- **No file's contents change except `import` lines.** If a diff in this plan shows a logic change, it is a mistake in the plan, not a licence to proceed.
+- **No file's contents change except `import` lines, outside the four places the next-but-one bullet names.** If a diff shows a logic change anywhere else, it is a mistake in the plan, not a licence to proceed.
 - **Every commit leaves the tree green:** `pytest` passes and `python -c "import main"` succeeds. A commit that breaks either is split too coarsely.
 - **`python main.py` must keep working at every commit.** It is the documented entry point in `SETUP.md`.
 - **The 215 existing tests must pass unchanged.** They are Phase 2's characterization baseline. The one permitted edit is an `import` line — 20 of them across 5 test files, which a package move necessarily touches. A test whose *body*, assertion, or fixture needs editing to accommodate a move means the move changed behavior. That is the finding, not a test to edit.
-- **Exactly two non-import lines change in the whole plan,** and each is named where it happens: the `sys.path` bootstrap in Task 2, and `main.py:77` in Task 5. `main.py:77` is `core.llm_client.patch_ollama()` — an attribute-style use of the package name, so rewriting the import above it without rewriting it too would raise `NameError`. It was found by grepping for `(?<![\w"'.])(core|skills|ui|services|auth|domains)\.[a-z_]+` outside import lines across the tree; that grep returns exactly one live hit, so there is no third case hiding.
+- **Non-import lines change in exactly four places, each named where it happens** — and nowhere else. Two are module references and two are path references:
+  - the `sys.path` bootstrap in Task 2;
+  - `main.py:77`, `core.llm_client.patch_ollama()`, in Task 5 — an attribute-style use of the package name, so rewriting the import above it without rewriting it too would raise `NameError`. Found by grepping for `(?<![\w"'.])(core|skills|ui|services|auth|domains)\.[a-z_]+` outside import lines across the tree; that grep returns exactly one live hit, so there is no third *module* reference hiding.
+  - **four cwd-relative path references to `auth/`** in Task 3: `skills/phone_controller.py:901,910` and `main.py:675,4120`. That grep does not find these, because they are string literals (`"./auth/.auth_state"`), not attribute accesses. **A path reference to a moved file is the same class of change as an import reference to a moved module** — both name a location that stops existing — so each is rewritten in the commit that moves the file it points at.
+  - **`main.py`'s `_reload_skill_instance`** in Task 7b, the one place in this phase where behavior is redesigned rather than moved. It is a separate task with its own commit and its own test precisely so that the redesign is not buried inside a move.
+
+  The distinction that matters: a `__file__`-relative path is **move-invariant** when both ends of it move together, and needs no edit. A cwd-relative path is not, and always does. `core/vision_engine.py:50` is the first kind and is deliberately left alone; the four above are the second kind.
 - **Untracking traps:** `git rm --cached` followed by a branch checkout and merge deletes the file from disk. Recover with `git show <ref>:<path> > <path>`, never `git checkout <ref> -- <path>`. This plan does not untrack anything, but the branch-and-merge sequence at the end is the same one that deleted two live credential caches in the foundation plan.
 - **Nothing is pushed.** All work stays on a local branch per task group; the user reviews and pushes.
 - **No history rewrite, no force-push, no fabricated co-authors, no backdated commits.**
@@ -57,16 +63,18 @@ Measured against the working tree on 2026-08-19, not taken from the spec. Where 
 **Moved (contents unchanged):**
 - `core/` → `src/jarvis/core/` (20 modules)
 - `skills/` → `src/jarvis/skills/` (33 modules)
-- `ui/` → `src/jarvis/ui/` (9 modules)
+- `ui/` → `src/jarvis/ui/` (9 modules), plus `ui/assets/` — empty and untracked, so git cannot move it; recreated with `mkdir -p` and the old one `rmdir`-ed. Nothing reads it: a tree-wide grep for `assets` returns no Python hits.
 - `services/` → `src/jarvis/services/` (5 modules, already a package)
 - `domains/` → `src/jarvis/domains/` (7 modules)
-- `auth/` → `src/jarvis/auth/` (1 module)
+- `auth/` → `src/jarvis/auth/` (1 module **and two data files**): `face_model.xml` is tracked, so `git mv`; `.adb_wireless_config` is gitignored and untracked, so plain `mv`. A package's data moves with the package — leaving `face_model.xml` behind would make `core/vision_engine.py` fail to find it with no exception and no test failure, degrading face recognition to "recognises nobody".
 
 **Modified:**
+- `.gitignore` — line 70, `auth/.adb_wireless_config` → `src/jarvis/auth/.adb_wireless_config`. Repointed rather than dropped: the file is local state carrying a device address and **must not become tracked** when it moves.
 - `.coveragerc` — explicit source list (Task 1), then repointed at `src/jarvis` (Task 9)
 - `.github/workflows/python-app.yml` — coverage gate, and CI import paths
 - `pytest.ini` — `pythonpath = src`
-- `main.py` — 80 import lines, plus line 77 (Task 5); no other change in this plan
+- `main.py` — 80 import lines, plus line 77 (Task 5), two `./auth/.auth_state` paths at 675 and 4120 (Task 3), and `_reload_skill_instance` (Task 7b); no other change in this plan
+- `skills/phone_controller.py` — two `./auth/.adb_wireless_config` paths at 901 and 910 (Task 3), on top of its import lines
 - `tests/*.py` — 20 import lines across 5 files
 - `calibrate_face.py`, `calibrate_voice.py`, `record_hinglish_wakeword.py` — one import line each. `authorize_spotify.py` and `doctor.py` are **not** touched: neither imports any of the six packages, `doctor.py` resolving modules through `importlib.util.find_spec` instead.
 - `setup.py` — deleted in favour of `pyproject.toml` (Task 8)
@@ -315,33 +323,66 @@ These move first because they have the fewest inbound references: `auth` has exa
 
 **Files:**
 - Move: `auth/local_auth.py` to `src/jarvis/auth/local_auth.py`
+- Move: `auth/face_model.xml` to `src/jarvis/auth/face_model.xml` (tracked → `git mv`)
+- Move: `auth/.adb_wireless_config` to `src/jarvis/auth/.adb_wireless_config` (gitignored, untracked → plain `mv`)
 - Move: `domains/*.py` (7 modules) to `src/jarvis/domains/`
 - Create: `src/jarvis/auth/__init__.py`, `src/jarvis/domains/__init__.py`
 - Modify: `ui/secure_lock.py:9` — the only cross-package importer of `auth`
 - Modify: `main.py:95` (auth) and `main.py:96-102` (7 domains)
+- Modify: `main.py:675` and `main.py:4120` — cwd-relative `./auth/.auth_state` paths
+- Modify: `skills/phone_controller.py:901` and `:910` — cwd-relative `./auth/.adb_wireless_config` paths
+- Modify: `.gitignore:70` — repoint at the new location
 
 **Interfaces:**
 - Consumes: the `src/jarvis/` package root and both path wirings from Task 2.
-- Produces: `jarvis.auth.local_auth.LocalAuth`, and `jarvis.domains.{medical,business,finance,security,development,science,engineering}`.
+- Produces: `jarvis.auth.local_auth.LocalAuth`, and `jarvis.domains.{medical,business,finance,security,development,science,engineering}`. Also produces `src/jarvis/auth/face_model.xml`, which `core/vision_engine.py:50` resolves `__file__`-relatively and which therefore only works again once Task 5 moves `core/` to be its sibling.
+
+**Why the path rewrites are here and not in a later cleanup task:** four lines resolve `./auth/...` against the *working directory*, so they break the instant this task runs — not when `skills/` or `main.py` later move. A path reference to a moved file is the same class of change as an import reference to a moved module: both name a location that stops existing. Both belong in the commit that moves the file.
 
 - [ ] **Step 1: Move with `git mv`, so rename detection survives**
 
 ```bash
 mkdir -p src/jarvis/auth src/jarvis/domains
 git mv auth/local_auth.py src/jarvis/auth/local_auth.py
+git mv auth/face_model.xml src/jarvis/auth/face_model.xml
+[ -f auth/.adb_wireless_config ] && mv auth/.adb_wireless_config src/jarvis/auth/.adb_wireless_config
 for f in domains/*.py; do git mv "$f" "src/jarvis/domains/$(basename $f)"; done
 touch src/jarvis/auth/__init__.py src/jarvis/domains/__init__.py
 git add src/jarvis/auth/__init__.py src/jarvis/domains/__init__.py
 ```
 
+`face_model.xml` is the trained face-recognition model and is **tracked**, so it moves with `git mv` like any other file — that is 9 renames from this task, not 8.
+
+`.adb_wireless_config` is **gitignored local state**, so `git mv` would refuse it; plain `mv` is correct and it must stay untracked afterwards. The `[ -f ]` guard is there because the file only exists on a machine that has paired a phone — its absence is normal, not a failure.
+
+- [ ] **Step 1b: Repoint `.gitignore` at the new location**
+
+Line 70 becomes:
+
+```
+src/jarvis/auth/.adb_wireless_config
+```
+
+Repointed, not deleted. The file holds a device address on the user's local network; if the ignore rule stops matching, the next `git add -A` stages it.
+
+```bash
+git check-ignore -v src/jarvis/auth/.adb_wireless_config
+git status --short | grep -c adb_wireless   # expect 0
+```
+
+Expected: the `check-ignore` prints the rule that matches, and `git status` does not mention the file at all. If `check-ignore` exits non-zero, the file is now trackable and the next `git add` will commit it.
+
 - [ ] **Step 2: Delete the stale bytecode and the empty directories**
 
 ```bash
 rm -rf auth/__pycache__ domains/__pycache__
+ls -A auth domains 2>/dev/null    # expect no output — anything listed did not move
 rmdir auth domains 2>/dev/null || true
 ```
 
 A leftover `auth/__pycache__` leaves a directory Python can still treat as a namespace package, so a missed import would silently resolve to the old location and the move would appear to work. Removing it makes any missed import fail loudly.
+
+The `ls -A` is the check that Step 1 was complete. `rmdir` refuses a non-empty directory, and it is followed by `|| true`, so without the `ls` a leftover file would leave `auth/` standing with no error printed — and `face_model.xml` orphaned at the old path is exactly the failure that produces no exception and no test failure later.
 
 - [ ] **Step 3: Confirm the old paths are gone**
 
@@ -375,6 +416,48 @@ from jarvis.domains.engineering import EngineeringDomain; _p("DBG: engineering o
 
 Keep the trailing `; _p("DBG: ... ok")` on every line. Those debug calls are how a partially-failing import block is diagnosed in `jarvis.log`; dropping them changes the startup diagnostics.
 
+- [ ] **Step 4b: Rewrite the four cwd-relative `auth/` paths**
+
+These are string literals, not imports, so Step 5's grep will not find them and no test covers any of the four. Locate each by content — line numbers shift once Task 2 has inserted its bootstrap:
+
+```bash
+grep -n '"\./auth/\.auth_state"' main.py                 # expect 2 hits
+grep -n "'\./auth/\.adb_wireless_config'" skills/phone_controller.py
+grep -n '"\./auth/\.adb_wireless_config"' skills/phone_controller.py
+```
+
+`main.py`, both hits — currently `state_file = os.path.abspath("./auth/.auth_state")`:
+
+```python
+state_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "src", "jarvis", "auth", ".auth_state")
+```
+
+`main.py` stays at the repository root all through this plan, so `__file__` here is the repo root and the path descends into `src/jarvis/auth/`. Both hits get the identical replacement; they are the same expression in `_unlock_monitor` and in `run`, and they must agree — one writes the file the other reads.
+
+`skills/phone_controller.py`, both hits — currently `config_path = os.path.abspath("./auth/.adb_wireless_config")`:
+
+```python
+config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "auth", ".adb_wireless_config")
+```
+
+`skills/` moves to `src/jarvis/skills/` in Task 6, which makes `..` resolve to `src/jarvis/` and the path correct **from Task 6 onward**. Between this task and Task 6 it resolves to the repository root and is wrong — the same accepted intermediate breakage as `core/vision_engine.py` below, and for the same reason: `__file__`-relative paths between two moved directories are correct once both have moved, and writing them the other way round would mean editing these lines twice.
+
+Why `__file__`-relative and not cwd-relative-to-the-new-location: `os.path.abspath("./auth/...")` resolves against whatever directory the process was started from. It works today only because `python main.py` is documented as being run from the repository root. `__file__`-relative works regardless, and after Task 8 the package can be installed and imported from anywhere.
+
+- [ ] **Step 4c: Verify all four paths point at a real location**
+
+```bash
+python - <<'PYEOF'
+import os
+root = os.path.abspath(".")
+print("auth_state dir:", os.path.isdir(os.path.join(root, "src", "jarvis", "auth")))
+print("model present :", os.path.isfile(os.path.join(root, "src", "jarvis", "auth", "face_model.xml")))
+PYEOF
+grep -c 'os\.path\.abspath("\./auth' main.py skills/phone_controller.py
+```
+
+Expected: `True`, `True`, and `0` from both files in the `grep -c` — no cwd-relative `./auth` literal survives anywhere. A surviving hit means one of the four replacements did not apply, and the failure it produces later is a silently missing file rather than an exception.
+
 - [ ] **Step 5: Prove no reference to the old paths remains**
 
 Use ripgrep, not a recursive `grep` — a plain `grep -r` from the repository root walks `jarvis_env/` and takes minutes:
@@ -402,7 +485,15 @@ git add -A
 git diff --cached --find-renames --summary | grep -c "rename"
 ```
 
-Expected: `8`. A `0` means blame was lost and the commit must be redone with `git mv`.
+Expected: `9`. A `0` means blame was lost and the commit must be redone with `git mv`. An `8` means `face_model.xml` was not moved — the one failure in this task that produces no error message anywhere downstream.
+
+Then confirm the untracked file did **not** get staged:
+
+```bash
+git diff --cached --name-only | grep -c adb_wireless   # expect 0
+```
+
+`git add -A` is what would stage it if Step 1b's `.gitignore` edit were wrong, and this is the last point before the commit where that is catchable.
 
 - [ ] **Step 8: Commit**
 
@@ -414,7 +505,31 @@ fewest inbound references -- auth has one importer outside main.py and
 domains has none. If the mechanics are wrong they are wrong here, across 9
 files, rather than across skills/'s 33.
 
-File contents are unchanged apart from import lines. The trailing
+auth/ carries two data files with it. face_model.xml is the tracked
+face-recognition model, moved with git mv like any other file; leaving it
+behind would have made core/vision_engine.py resolve a model path that no
+longer exists, with no exception raised and no test failing -- face
+recognition would simply have stopped matching anyone.
+.adb_wireless_config is gitignored local state, so it moves with plain mv
+and .gitignore is repointed at the new path rather than dropped: it holds a
+device address, and an ignore rule that stops matching means the next
+`git add -A` commits it.
+
+Four string literals are rewritten alongside the imports. main.py:675,4120
+and skills/phone_controller.py:901,910 resolved "./auth/..." against the
+working directory, so they broke the moment auth/ moved -- not when their
+own files move later. A path reference to a moved file is the same class of
+change as an import reference to a moved module, so both belong in the
+commit that moves the file. All four become __file__-relative, which also
+stops them depending on the process being started from the repository root.
+
+core/vision_engine.py:50 is deliberately not touched. It resolves the model
+__file__-relatively as ../auth/face_model.xml, which is correct again once
+Task 5 makes core and auth siblings under src/jarvis/. Rewriting it now
+would mean rewriting it twice. It is broken in the interval, which is
+accepted and recorded rather than papered over.
+
+File contents are otherwise unchanged apart from import lines. The trailing
 `; _p("DBG: ... ok")` calls are kept on each moved import: they are how a
 partially-failing startup import block is diagnosed in jarvis.log, so
 dropping them would change startup diagnostics.
@@ -585,9 +700,15 @@ sed -i -E 's/^([[:space:]]*)(from|import) core([ .])/\1\2 jarvis.core\3/' \
 
 `tests/test_agents.py:466` is `import core.agents as agents_module`. The regex turns it into `import jarvis.core.agents as agents_module`, and the alias keeps every use of `agents_module` in that test working untouched — which is why the aliased form needs no special handling and the un-aliased `main.py:76` does.
 
-- [ ] **Step 3: Fix `main.py:76-77` by hand — the one non-import line**
+- [ ] **Step 3: Fix the `patch_ollama()` pair by hand — the one non-import line here**
 
-After Step 2, line 76 reads `import jarvis.core.llm_client` and line 77 still reads `core.llm_client.patch_ollama()`, which now raises `NameError: name 'core' is not defined`. Both lines become:
+**Locate it by content, not by line number.** The plan's "line 76-77" is a pre-Task-2 reference; Task 2 inserted four lines at `main.py:3`, so these two now sit around line 80:
+
+```bash
+grep -n "patch_ollama" main.py    # expect exactly 2 hits, adjacent lines
+```
+
+The first hit is `import jarvis.core.llm_client` (Step 2 already rewrote it). The second still reads `core.llm_client.patch_ollama()`, which now raises `NameError: name 'core' is not defined`. Both become:
 
 ```python
 import jarvis.core.llm_client
@@ -596,7 +717,7 @@ jarvis.core.llm_client.patch_ollama()
 
 Prefixing the same dotted expression is deliberate, rather than the shorter `from jarvis.core import llm_client` / `llm_client.patch_ollama()`. It introduces no new local name, so it cannot shadow anything, and the change is verifiable by eye as a pure prefix.
 
-**This call must stay at line 77, before any other use of `ollama`.** `patch_ollama()` monkeypatches the client; code that imports `ollama` before the patch runs gets the unpatched version. Moving it later in the file is a behavior change disguised as tidying.
+**This call must stay exactly where it is, before any other use of `ollama`.** `patch_ollama()` monkeypatches the client; code that imports `ollama` before the patch runs gets the unpatched version. Moving it later in the file is a behavior change disguised as tidying.
 
 - [ ] **Step 4: Confirm no other attribute-style use of `core` remains**
 
@@ -615,6 +736,29 @@ rg -n "^\s*(from|import)\s+core[\. ]" -g "*.py" -g "!jarvis_env/**" .   # expect
 ```
 
 42 = 41 import lines plus line 77. If the count is 41, Step 3 was skipped.
+
+- [ ] **Step 5b: Confirm `vision_engine`'s model path resolves again**
+
+This task closes a window Task 3 opened. `src/jarvis/core/vision_engine.py:50` is:
+
+```python
+self.model_path = os.path.join(os.path.dirname(__file__), "..", "auth", "face_model.xml")
+```
+
+That line is **never edited in this plan** — it is `__file__`-relative between two directories that both move, so it is move-invariant. But it was *wrong* from Task 3 until this moment: `core/` sat at the repository root, so `..` resolved to the repo's parent and then into a `<parent>/auth/` that never existed. Now `core` and `auth` are siblings under `src/jarvis/` and it is correct again. Verify rather than assume:
+
+```bash
+python - <<'PYEOF'
+import os
+p = os.path.join("src", "jarvis", "core", "..", "auth", "face_model.xml")
+print("resolves to:", os.path.normpath(p))
+print("exists     :", os.path.isfile(p))
+PYEOF
+```
+
+Expected: `src\jarvis\auth\face_model.xml` and `True`.
+
+`False` here means Task 3 did not move `face_model.xml`. Nothing else in the plan catches that: no test touches `vision_engine`, the constructor does not stat the path, and OpenCV's loader returns an empty model rather than raising — so face recognition would degrade to matching nobody, silently, and this step is the only place it surfaces.
 
 - [ ] **Step 6: Verify, including the deferred imports no test reaches**
 
@@ -790,9 +934,15 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
 mkdir -p src/jarvis/ui
 for f in ui/*.py; do git mv "$f" "src/jarvis/ui/$(basename $f)"; done
 touch src/jarvis/ui/__init__.py && git add src/jarvis/ui/__init__.py
-rm -rf ui/__pycache__ && rmdir ui 2>/dev/null || true
+# ui/assets/ is empty and untracked, so git cannot move it. Recreate, don't git mv.
+[ -d ui/assets ] && mkdir -p src/jarvis/ui/assets && rmdir ui/assets
+rm -rf ui/__pycache__
+ls -A ui 2>/dev/null            # expect no output
+rmdir ui 2>/dev/null || true
 python -c "import ui.orb" 2>&1 | tail -1   # expect ModuleNotFoundError
 ```
+
+`ui/assets/` holds nothing and no Python file references it — a tree-wide grep for `assets` returns no hits — but it is part of the directory's declared shape, so it moves. Git tracks files, not directories, so an empty directory has no rename to record and `mkdir`+`rmdir` is the only way to move it. It does not count toward this task's 9 renames.
 
 - [ ] **Step 2: Rewrite `main.py`'s 12 references**
 
@@ -837,6 +987,16 @@ PYEOF
 
 Expected: `9/9 imported`, exit 0. `QT_QPA_PLATFORM=offscreen` is what makes this runnable on a headless runner; without it a Qt import can abort the process rather than raise, which would look like a crash rather than a failed import.
 
+**PyQt6 is required for this check, and not every interpreter on this machine has it.** Find one that does before concluding anything:
+
+```bash
+for py in /c/tmp/jarvis-test-venv/Scripts/python.exe jarvis_env/Scripts/python.exe python; do
+  "$py" -c "import PyQt6; print('$py has PyQt6')" 2>/dev/null
+done
+```
+
+Run the loop above under the first interpreter that prints. If **none** does, record this step in the report as **not run, naming the reason** — "no interpreter on this machine has PyQt6" — and say so in the commit message. Do not report a pass, do not weaken the check to `import ast`-parsing, and do not skip it silently: this is the only verification in the task that exercises the moved package, because `pytest` does not import `ui/` at all and `python -c "import main"` compiles its deferred UI imports without executing them. An unavailable check recorded as unavailable is a known gap; an unavailable check recorded as green is a false one.
+
 - [ ] **Step 5: Verify and confirm renames**
 
 ```bash
@@ -871,6 +1031,216 @@ crash rather than a failed import.
 main.py still holds the 4,714-line JARVIS class. Decomposing it is Phase
 3b, kept separate because moving methods between classes cannot be verified
 by these tests the way moving whole files can.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+```
+
+---
+
+### Task 7b: Repair `_reload_skill_instance`, the one behavior this phase redesigns
+
+Hot reload is the only feature in the repository that reads module paths as *data*. It maps a source file path to a live attribute on the JARVIS instance, and it derives the module name from the path by string substitution. Both halves break in the move, and the derivation cannot be repaired by editing a string — `src/jarvis/skills/os_control.py` becomes `src.jarvis.skills.os_control`, which is not an importable name.
+
+This is a genuine logic change, so it is its own task with its own commit and its own test. Everything before this point in the phase moves files; this fixes something. Bundling it into Task 6 or 7 would put a behavior change inside a move commit, which is exactly what the plan's global constraints forbid.
+
+**Files:**
+- Modify: `main.py` — the body of `_reload_skill_instance`, around line 2011 pre-Task-2
+- Test: `tests/test_hot_reload.py` — created here
+
+**Interfaces:**
+- Consumes: the completed `src/jarvis/` tree from Tasks 3–7. The five modules it names must be importable as `jarvis.skills.*` and `jarvis.core.*`.
+- Produces: nothing later tasks depend on. Task 10's gate runs the new test as part of the suite, so the expected count rises from 215.
+
+- [ ] **Step 1: Read the method as it stands, and understand why it cannot be sed-ed**
+
+```bash
+grep -n "_reload_skill_instance" main.py
+```
+
+The body does three things in sequence: it makes `filepath` absolute, expresses it relative to `os.getcwd()` with forward slashes, and looks that string up in a dict keyed by repository-relative source paths:
+
+```python
+mappings = {
+    "skills/os_control.py": ("os_ctrl", "OSControl"),
+    "skills/spotify_control.py": ("spotify_ctrl", "SpotifyControl"),
+    "skills/web_research.py": ("web", "WebResearch"),
+    "skills/gesture_control.py": ("gesture_ctrl", "GestureController"),
+    "core/intent_router.py": ("router", "IntentRouter"),
+}
+if rel_path not in mappings:
+    return False
+attr_name, class_name = mappings[rel_path]
+module_name = rel_path.replace(".py", "").replace("/", ".")
+```
+
+Two separate breakages, and only the first is a rename:
+
+1. **The keys are stale.** The watcher now reports `src/jarvis/skills/os_control.py`, which matches nothing, so every reload returns `False` and hot reload silently stops working. No exception, no log line — it looks like the watcher stopped firing.
+2. **The derivation is unsalvageable.** Updating the keys makes `module_name` come out as `src.jarvis.skills.os_control`. `src/` is a path root, not a package — it has no `__init__.py` and is deliberately not importable — so `importlib.import_module` raises `ModuleNotFoundError`. There is no key spelling that makes a path-to-module string substitution correct under src-layout.
+
+The fix is to stop deriving the module name at all. A path and a module name are different things that happened to coincide under the old flat layout; the coincidence is what broke.
+
+- [ ] **Step 2: Write the failing test**
+
+Create `tests/test_hot_reload.py`. It tests the mapping in isolation — instantiating `JARVIS` starts threads and opens devices, so the test must not construct one:
+
+```python
+"""Characterization tests for hot-reload path -> module mapping.
+
+_reload_skill_instance maps a watched source file to (module, attribute,
+class). Under the old flat layout it derived the module name from the file
+path by string substitution; src-layout broke that, because src/ is a path
+root rather than a package. These tests pin the mapping itself, which is the
+part that can silently degrade: a wrong key returns False and hot reload
+stops working with no error anywhere.
+"""
+
+import importlib
+import os
+
+import pytest
+
+from main import SKILL_RELOAD_MAP
+
+
+def test_map_covers_the_five_reloadable_modules():
+    assert set(SKILL_RELOAD_MAP) == {
+        "src/jarvis/skills/os_control.py",
+        "src/jarvis/skills/spotify_control.py",
+        "src/jarvis/skills/web_research.py",
+        "src/jarvis/skills/gesture_control.py",
+        "src/jarvis/core/intent_router.py",
+    }
+
+
+def test_every_key_is_a_file_that_exists():
+    for rel_path in SKILL_RELOAD_MAP:
+        assert os.path.isfile(rel_path), f"{rel_path} does not exist"
+
+
+def test_every_module_name_is_importable():
+    for rel_path, (module_name, _attr, _cls) in SKILL_RELOAD_MAP.items():
+        mod = importlib.import_module(module_name)
+        assert mod is not None, rel_path
+
+
+def test_every_class_exists_on_its_module():
+    for rel_path, (module_name, _attr, class_name) in SKILL_RELOAD_MAP.items():
+        mod = importlib.import_module(module_name)
+        assert hasattr(mod, class_name), f"{module_name} has no {class_name}"
+
+
+def test_module_name_is_not_derivable_from_the_path():
+    """The regression this task exists to prevent.
+
+    A future refactor may be tempted to shorten the map by deriving the
+    module name again. Under src-layout the derivation yields
+    src.jarvis.skills.os_control, which is not importable -- so the module
+    name has to be carried explicitly. This asserts the two genuinely differ.
+    """
+    for rel_path, (module_name, _attr, _cls) in SKILL_RELOAD_MAP.items():
+        derived = rel_path.replace(".py", "").replace("/", ".")
+        assert derived != module_name
+        with pytest.raises(ModuleNotFoundError):
+            importlib.import_module(derived)
+```
+
+- [ ] **Step 3: Run it and watch it fail for the right reason**
+
+```bash
+/c/tmp/jarvis-test-venv/Scripts/python.exe -m pytest tests/test_hot_reload.py -v
+```
+
+Expected: **all five fail at collection** with `ImportError: cannot import name 'SKILL_RELOAD_MAP' from 'main'`. That is the correct failure — the constant does not exist yet. A failure inside a test body instead means `main.py` imported something it should not have.
+
+- [ ] **Step 4: Lift the dict to module scope, carrying the module name explicitly**
+
+Add above `class JARVIS`, immediately after the import block:
+
+```python
+# Files the hot-reload watcher can act on, mapped to
+# (module name, JARVIS attribute, class name).
+#
+# The module name is carried explicitly rather than derived from the path.
+# Under the old flat layout "skills/os_control.py" -> "skills.os_control" by
+# string substitution, and that coincidence is what src-layout broke: the
+# same substitution now yields "src.jarvis.skills.os_control", and src/ is a
+# path root with no __init__.py, so it is not importable. A path and a module
+# name are different things; this maps between them instead of computing one
+# from the other.
+SKILL_RELOAD_MAP = {
+    "src/jarvis/skills/os_control.py": ("jarvis.skills.os_control", "os_ctrl", "OSControl"),
+    "src/jarvis/skills/spotify_control.py": ("jarvis.skills.spotify_control", "spotify_ctrl", "SpotifyControl"),
+    "src/jarvis/skills/web_research.py": ("jarvis.skills.web_research", "web", "WebResearch"),
+    "src/jarvis/skills/gesture_control.py": ("jarvis.skills.gesture_control", "gesture_ctrl", "GestureController"),
+    "src/jarvis/core/intent_router.py": ("jarvis.core.intent_router", "router", "IntentRouter"),
+}
+```
+
+Then replace the derivation inside `_reload_skill_instance`. The lookup and the `os.getcwd()` normalization above it stay exactly as they are — the watcher reports repository-relative paths and that has not changed:
+
+```python
+        if rel_path not in SKILL_RELOAD_MAP:
+            return False
+        module_name, attr_name, class_name = SKILL_RELOAD_MAP[rel_path]
+```
+
+and delete the `module_name = rel_path.replace(...)` line. Everything downstream of it — the `importlib.reload`, the `getattr`, the instance swap, the logging — is untouched: it already consumes `module_name`, `attr_name`, and `class_name` as locals.
+
+**Do not change the `os.getcwd()` normalization to `__file__`-relative.** It is arguably the better form, but it is not what breaks here, and changing it would mean the diff contains two behavior changes with one test.
+
+- [ ] **Step 5: Run the test again**
+
+```bash
+/c/tmp/jarvis-test-venv/Scripts/python.exe -m pytest tests/test_hot_reload.py -v
+```
+
+Expected: **5 passed**. `test_module_name_is_not_derivable_from_the_path` passing is the interesting one — it confirms the old approach really is broken rather than merely inelegant, which is the justification for this task existing.
+
+- [ ] **Step 6: Verify the whole suite and the entry point**
+
+```bash
+/c/tmp/jarvis-test-venv/Scripts/python.exe -m pytest
+python -c "import main; print(len(main.SKILL_RELOAD_MAP))"
+grep -c "rel_path.replace" main.py    # expect 0
+```
+
+Expected: **220 passed** (215 + 5), `5`, and `0`. The suite total changes here for the first and only time in this phase; every other task holds it at 215. Task 10's gate expects 220.
+
+- [ ] **Step 7: Commit**
+
+```
+fix: repair hot reload's path-to-module mapping under src-layout
+
+_reload_skill_instance looked a watched file up in a dict keyed by
+repository-relative source paths, then derived the module name from the same
+string: "skills/os_control.py" -> "skills.os_control". src-layout broke both
+halves. The keys stopped matching, so every reload returned False and hot
+reload silently stopped working -- no exception, no log line,
+indistinguishable from a watcher that had stopped firing. And no key
+spelling can fix the derivation, because it now yields
+"src.jarvis.skills.os_control": src/ is a path root with no __init__.py and
+is deliberately not importable.
+
+The dict moves to module scope as SKILL_RELOAD_MAP and carries the module
+name explicitly. A path and a module name are different things that happened
+to coincide under the flat layout, and the coincidence is what broke, so the
+fix is to map between them rather than compute one from the other.
+
+This is the only commit in the src-layout phase that changes behavior rather
+than moving files, which is why it is a separate commit with its own test
+rather than folded into the skills or ui move. Hot reload was broken from the
+core move until this commit.
+
+Five tests pin the mapping, including one asserting the old derivation raises
+ModuleNotFoundError -- a future refactor tempted to shorten the map by
+deriving the name again will fail that test instead of silently breaking
+reload. The mapping is tested directly rather than through JARVIS, which
+starts threads and opens audio and camera devices on construction.
+
+The os.getcwd() normalization above the lookup is left alone. Making it
+__file__-relative would be an improvement, but it is not what broke, and
+changing it here would put two behavior changes behind one test.
 
 Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
 ```
@@ -956,10 +1326,10 @@ jarvis = "main:main"
 `main.py` sits at the repository root while the packages sit under `src/`. `py-modules = ["main"]` combined with `packages.find where = ["src"]` asks setuptools to resolve two different roots in one project, and whether it accepts that is a fact about the installed setuptools version, not something to reason about. Test it:
 
 ```bash
-python -m venv /tmp/jarvis-pkg-check
-/tmp/jarvis-pkg-check/bin/python -m pip install -q -e . 2>&1 | tail -5
-/tmp/jarvis-pkg-check/bin/python -c "import jarvis, main; print('both importable')"
-ls /tmp/jarvis-pkg-check/bin/jarvis && echo "console script present"
+python -m venv /c/tmp/jarvis-pkg-check
+/c/tmp/jarvis-pkg-check/Scripts/python.exe -m pip install -q -e . 2>&1 | tail -5
+/c/tmp/jarvis-pkg-check/Scripts/python.exe -c "import jarvis, main; print('both importable')"
+ls /c/tmp/jarvis-pkg-check/Scripts/jarvis.exe && echo "console script present"
 ```
 
 **If all three succeed,** keep the file as written and move on.
@@ -971,8 +1341,8 @@ Record which branch was taken. A plan that says "it should work" and an executor
 - [ ] **Step 4: Confirm the marker actually excludes pywin32 off-Windows**
 
 ```bash
-/tmp/jarvis-pkg-check/bin/python -m pip install -q -e . && echo "install ok"
-/tmp/jarvis-pkg-check/bin/python -m pip list 2>/dev/null | grep -ci pywin32   # expect 0 on Linux
+/c/tmp/jarvis-pkg-check/Scripts/python.exe -m pip install -q -e . && echo "install ok"
+/c/tmp/jarvis-pkg-check/Scripts/python.exe -m pip list 2>/dev/null | grep -ci pywin32   # expect 0 on Linux
 ```
 
 On Linux, expect `install ok` and `0`. Before this task the first command fails; on Windows expect `1` and that is correct.
@@ -981,7 +1351,7 @@ On Linux, expect `install ok` and `0`. Before this task the first command fails;
 
 ```bash
 git rm setup.py
-/tmp/jarvis-pkg-check/bin/python -c "import jarvis.core.intent_router, jarvis.skills.file_manager; print('packages found')"
+/c/tmp/jarvis-pkg-check/Scripts/python.exe -c "import jarvis.core.intent_router, jarvis.skills.file_manager; print('packages found')"
 pytest
 python -c "import main"
 ```
@@ -1139,7 +1509,7 @@ The Windows CI job imports `core.intent_router` and `skills.file_manager` by the
 - Merge: `refactor/src-layout` into `main`
 
 **Interfaces:**
-- Consumes: everything from Tasks 1–9.
+- Consumes: everything from Tasks 1–9, Task 7b included.
 - Produces: `main` carrying the completed src-layout. Phase 3b branches from here.
 
 - [ ] **Step 1: Fix the two stale import checks in the Windows job**
@@ -1181,6 +1551,8 @@ PYTHONPATH=src python -X utf8 -c "from jarvis.skills.file_manager import FileMan
 flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics --exclude=jarvis_env,venv,.git,scratch
 ```
 
+flake8 is not installed in the test venv. Install it there first — `/c/tmp/jarvis-test-venv/Scripts/python.exe -m pip install flake8` — and run it as `python -m flake8`. It is a dev tool for reproducing a CI step, not a project dependency, so it does not go in `pyproject.toml`.
+
 Expected: `router ok`, `fm ok`, and `0` from flake8. The `PYTHONPATH=src` prefix is the local stand-in for the `env` block — if the bare command works without it, `pytest.ini` is not the only thing putting `src` on the path and the `env` block may be masking something.
 
 - [ ] **Step 3: Commit the workflow fix**
@@ -1206,8 +1578,9 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
 Run every check and write down what each returned. A gate where one check is skipped because the others passed is not a gate.
 
 ```bash
-# 1. The characterization baseline, unchanged
-pytest
+PY=/c/tmp/jarvis-test-venv/Scripts/python.exe
+# 1. The characterization baseline, plus Task 7b's five
+$PY -m pytest
 # 2. The documented entry point still resolves
 python -c "import main"
 # 3. Every module in the package tree imports
@@ -1228,26 +1601,32 @@ for f in failed:
 sys.exit(1 if failed else 0)
 PYEOF
 # 4. The project is installable from scratch
-rm -rf /tmp/jarvis-gate && python -m venv /tmp/jarvis-gate
-/tmp/jarvis-gate/bin/python -m pip install -q -e . && echo "install ok"
+rm -rf /c/tmp/jarvis-gate && python -m venv /c/tmp/jarvis-gate
+/c/tmp/jarvis-gate/Scripts/python.exe -m pip install -q -e . && echo "install ok"
 # 5. The coverage gate is real in both directions
-pytest --cov --cov-report=term-missing --cov-fail-under=5
-pytest --cov --cov-fail-under=15 2>&1 | grep -E "Required test coverage"
+$PY -m pytest --cov --cov-report=term-missing --cov-fail-under=5
+$PY -m pytest --cov --cov-fail-under=15 2>&1 | grep -E "Required test coverage"
 # 6. No reference anywhere to any old top-level package path
 rg -n "^\s*(from|import)\s+(core|skills|ui|services|auth|domains)[\. ]" -g "*.py" -g "!jarvis_env/**" .
 # 7. The old directories are gone
 ls -d core skills ui services domains auth 2>&1 | tail -1
 # 8. Exactly what CI runs, run locally
-flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics --exclude=jarvis_env,venv,.git,scratch
-# 9. Git recorded 75 renames across the branch, not 75 deletes and 75 adds
+$PY -m flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics --exclude=jarvis_env,venv,.git,scratch
+# 9. Git recorded 76 renames across the branch, not 76 deletes and 76 adds
 git diff --find-renames --summary main...HEAD | grep -c "rename"
 ```
 
-Expected: `215 passed`; silent; `81/81 imported`; `install ok`; pass then "Required test coverage of 15% not reached"; no output; `No such file or directory`; `0`; `75`.
+Expected: `220 passed`; silent; `81/81 imported`; `install ok`; pass then "Required test coverage of 15% not reached"; no output; `No such file or directory`; `0`; `76`.
 
-Check 9's number is `75` = 20 core + 33 skills + 9 ui + 5 services + 7 domains + 1 auth. A lower count means some directory was moved with `cp`+`rm` somewhere along the way and its history is severed — which is invisible in the working tree and permanent once merged.
+Check 1's `220` is 215 characterization tests plus Task 7b's 5. Every other task in this phase holds the count at 215; if this reads 215, Task 7b's test file was not committed, and if it reads anything else, a test was added or lost outside the plan.
 
-Check 3's `81/81` counts the 75 moved modules plus the 6 `__init__.py` files.
+Check 8 needs flake8, which the test venv does not ship: `$PY -m pip install flake8` first. It is a dev-only dependency in a scratch venv and does not belong in `pyproject.toml`. Run it rather than skipping it — it is the one check here that reproduces a CI step verbatim, and E9/F82 catch exactly the class of error a bulk `sed` over 119 import lines can introduce (an undefined name left behind by a half-rewritten line).
+
+Check 9's number is `76` = 20 core + 33 skills + 9 ui + 5 services + 7 domains + 1 auth module + 1 `auth/face_model.xml`. A lower count means some directory was moved with `cp`+`rm` somewhere along the way and its history is severed — invisible in the working tree and permanent once merged. `75` specifically means `face_model.xml` was moved with plain `mv` instead of `git mv`, or not moved at all.
+
+`ui/assets/` is not in that count and cannot be: git tracks files, and the directory is empty. `.adb_wireless_config` is not in it either, by design — it is gitignored.
+
+Check 3's `81/81` counts the 75 moved modules plus the 6 `__init__.py` files. `face_model.xml` is data, not a module, so it does not appear here.
 
 - [ ] **Step 5: Merge to `main` with a real merge commit**
 
@@ -1264,8 +1643,10 @@ Merge message:
 Merge branch 'refactor/src-layout': Phase 3a src-layout packaging
 
 Turns six top-level directories into one installable package at
-src/jarvis/. 75 modules moved by git mv, 119 import references rewritten,
-no file's contents changed except import lines plus two named exceptions.
+src/jarvis/. 76 files moved by git mv -- 75 modules and the tracked
+face_model.xml -- and 119 import references rewritten. No file's contents
+changed except import lines, apart from four named path and module
+references and one deliberate repair.
 
 Fixed along the way, each a real defect rather than a consequence of the
 move:
@@ -1285,11 +1666,28 @@ move:
 - The Windows CI job imported core.intent_router and skills.file_manager
   by paths that no longer existed, and lacked PYTHONPATH=src to find the
   package at all.
+- Hot reload's path-to-module mapping. _reload_skill_instance derived a
+  module name from a source path by string substitution, which src-layout
+  turns into the un-importable "src.jarvis.skills.os_control". The mapping
+  now carries module names explicitly, with five tests pinning it. This is
+  the only behavior change in the phase and it has its own commit.
 
-Verified as one unit before merging: 215 tests pass, all 81 package modules
-import, `pip install -e .` succeeds in a clean venv, the coverage gate
-passes at 5 and fails at 15, a tree-wide grep finds no reference to any old
-package path, and git records 75 renames rather than 75 delete/add pairs.
+Four string literals moved with the files they point at:
+main.py's two ./auth/.auth_state paths and phone_controller.py's two
+./auth/.adb_wireless_config paths were cwd-relative and broke the moment
+auth/ moved. A path reference to a moved file is the same class of change as
+an import reference to a moved module, so each was rewritten in the commit
+that moved its target. core/vision_engine.py's model path was deliberately
+NOT rewritten: it is __file__-relative between two directories that both
+move, so it is move-invariant, and editing it would have meant editing it
+twice.
+
+Verified as one unit before merging: 220 tests pass (215 characterization
+plus 5 for the hot-reload fix), all 81 package modules import, `pip install
+-e .` succeeds in a clean venv, the coverage gate passes at 5 and fails at
+15, flake8's E9/F63/F7/F82 selection is clean, a tree-wide grep finds no
+reference to any old package path, and git records 76 renames rather than 76
+delete/add pairs.
 
 main.py keeps its 4,714-line JARVIS class. Decomposing it is Phase 3b,
 deliberately separate: moving methods between classes cannot be verified by
@@ -1302,7 +1700,7 @@ Nothing is pushed. Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
 - [ ] **Step 6: Re-run the gate on `main` after the merge, then stop**
 
 ```bash
-pytest && python -c "import main" && echo "post-merge green"
+/c/tmp/jarvis-test-venv/Scripts/python.exe -m pytest && python -c "import main" && echo "post-merge green"
 git log --oneline main...refactor/src-layout | wc -l   # expect 0
 git status --short                                      # expect empty
 ```
