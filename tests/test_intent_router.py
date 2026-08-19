@@ -88,6 +88,46 @@ ROUTES = [
     # Notes. Must come after the reminder rules: "remember" is a note trigger
     # and "remind me" would otherwise be swallowed by it.
     ("remember this: wifi password is hunter2", "obsidian", "create_note"),
+
+    # --- one row per remaining regex-reachable skill -----------------------
+    # Derived from each rule's own keyword lists, then verified by execution.
+    # Phrases are terse because that is what the rules match; readability of the
+    # phrase matters less than it provably hitting the intended rule.
+    ("open swarm lab",        "agent_lab",         "open_lab"),
+    ("turn on gaze pointer",  "air_typist",        "start"),
+    ("execute code",          "app_control",       "run_code"),
+    ("solve air canvas",      "coding_sandbox",    "execute_task"),
+    ("customization protocol", "customizer",       "enter"),
+    ("explorer show hidden",  "file_manager",      "toggle_show_hidden_files"),
+    ("show vitals",           "focus_tracker",     "open_dashboard"),
+    ("git sentinel check",    "git_sentinel",      "check"),
+    ("explode hologram",      "hologram_control",  "explode"),
+    ("pichla hata",           "image_editor",      "remove_background"),
+    ("suggest buy",           "market_analyzer",   "analyze"),
+    ("scan network",          "network_mapper",    "scan_and_project"),
+    ("open notepad",          "os_control",        "launch"),
+    ("list network devices",  "p2p_link",          "list_peers"),
+    ("phone home screen",     "phone",             "go_home"),
+    ("port scan",             "security_auditor",  "scan_ports"),
+    ("click the",             "self_healing",      "click_element"),
+    ("check environment",     "sensory_health",    "check"),
+    ("buy shoes on amazon",   "shopping",          "search_product"),
+    ("please stop",           "spotify",           "pause"),
+    ("diagnostic check",      "system_monitor",    "stark_diagnostics"),
+    ("what objects",          "vision_tracker",    "detect_objects"),
+    ("check stress level",    "vitals_check",      "check_vitals"),
+    ("explain my workspace",  "workspace_context", "explain_workspace"),
+
+    # productivity and web_research are also exercised by dedicated tests below,
+    # but they need a ROUTES row too: the accounting test derives its covered
+    # set from this table alone, so a skill tested only elsewhere would read as
+    # uncharacterized.
+    ("make a presentation on physics", "productivity",  "create_presentation"),
+    ("summarize this video",           "web_research",  "open_youtube_video"),
+
+    # screen_vision returns no "action" key at all. None means "assert the skill
+    # only" -- see the test body.
+    ("what can you see",      "screen_vision",     None),
 ]
 
 
@@ -96,7 +136,14 @@ def test_route_maps_to_expected_skill_and_action(router, cmd, skill, action):
     out = router._regex_route(cmd)
     assert out is not None, f"{cmd!r} no longer matches any rule"
     assert out["skill"] == skill
-    assert out["params"]["action"] == action
+    if action is None:
+        # screen_vision emits params with no "action" key. Pinning its absence
+        # matters: adding one would change what the dispatcher branches on.
+        assert "action" not in out["params"], (
+            f"{cmd!r} gained an action param: {out['params']}"
+        )
+    else:
+        assert out["params"]["action"] == action
     assert out["domain"] == "general"
 
 
@@ -229,4 +276,103 @@ def test_known_hinglish_word_order_gaps_return_none(router, cmd, why):
     assert router._regex_route(cmd) is None, (
         f"{cmd!r} now routes -- if that was deliberate, move it into ROUTES with "
         f"its real expected value and drop this case. Gap was: {why}"
+    )
+
+
+@pytest.mark.parametrize("cmd,skill,action,expected_instead", [
+    ("run this python code",   "web_research", "open_youtube_video", "code_runner"),
+    ("start recording macro",  "os_control",   "launch",             "macro_recorder"),
+    ("order food from swiggy", "shopping",     "search_product",     "food_ordering"),
+])
+def test_known_rule_shadowing(router, cmd, skill, action, expected_instead):
+    """KNOWN GAP -- pinned, not endorsed.
+
+    An earlier rule claims these before the intended one is reached.
+    "run this python code" opening a YouTube video is the clearest defect of the
+    three. Recorded as current behavior for the same reason as the Hinglish gaps:
+    Phase 2 preserves behavior, and fixing a route inside the baseline destroys
+    the reference the Phase 3 refactor is measured against.
+
+    An explicitly ordered rule list is exactly what makes this class of bug
+    visible, which is the substantive win of the Phase 3 split rather than a
+    side effect of it.
+    """
+    out = router._regex_route(cmd)
+    assert out is not None
+    assert out["skill"] == skill, (
+        f"{cmd!r} now routes to {out['skill']} instead of {skill}. If it now "
+        f"reaches {expected_instead}, the shadowing was fixed -- move this case "
+        "into ROUTES and drop it from LLM_ONLY_SKILLS."
+    )
+    assert out["params"].get("action") == action
+
+
+# --------------------------------------------------------- coverage accounting
+
+# Skills that appear in intent_router.py but that _regex_route cannot reach.
+# Every phrase derived from their own rule text either returns None or is
+# claimed by an earlier rule, so they are reachable only via the LLM router.
+#
+# This is not a wish list -- it is a measured property of the current rule
+# ordering, and it is the reason the table above stops at 30 of 42. Shrinking
+# this set is real work with real user-visible value; see the follow-ups table
+# in the plan.
+LLM_ONLY_SKILLS = {
+    "ambiguous",          # deliberate: the disambiguation branch, not a route
+    "conversation",       # deliberate: the explicit fall-through skill
+    "code_runner",        # shadowed -- "run this python code" -> web_research
+    "macro_recorder",     # shadowed -- "start recording macro" -> os_control
+    "food_ordering",      # shadowed -- "order food from swiggy" -> shopping
+    "data_analyzer",
+    "media_summarize",
+    "memory_ops",
+    "polyglot_engineer",
+    "product_comparison",
+    "research_prodigy",
+    "sentry_firewall",
+}
+
+
+def _skills_in_router_source() -> set:
+    src = open(
+        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                     "core", "intent_router.py"),
+        encoding="utf-8",
+    ).read()
+    return set(re.findall(r"""["']skill["']\s*:\s*["']([a-z_0-9]+)["']""", src))
+
+
+def test_every_router_skill_is_covered_or_declared():
+    """No skill may be silently uncharacterized going into the Phase 3 split.
+
+    Either a skill has a row in ROUTES proving how it is reached, or it is named
+    in LLM_ONLY_SKILLS with the reason. A skill in neither set is one the
+    refactor could break with nothing to notice.
+    """
+    emitted = _skills_in_router_source()
+    assert len(emitted) >= 35, (
+        f"the source scan found only {len(emitted)} skills -- the regex has "
+        "stopped matching, so this accounting proves nothing"
+    )
+
+    covered = {row[1] for row in ROUTES}
+    unaccounted = sorted(emitted - covered - LLM_ONLY_SKILLS)
+    assert not unaccounted, (
+        "these skills are neither characterized in ROUTES nor declared in "
+        f"LLM_ONLY_SKILLS: {unaccounted}. Add a verified row, or declare it "
+        "with the reason it is unreachable."
+    )
+
+
+def test_declared_unreachable_skills_really_are_unreachable(router):
+    """Keeps LLM_ONLY_SKILLS honest.
+
+    If a rule change makes one of these reachable, the declaration is stale and
+    the skill belongs in ROUTES with a real expected value.
+    """
+    covered = {row[1] for row in ROUTES}
+    overlap = sorted(LLM_ONLY_SKILLS & covered)
+    assert not overlap, (
+        f"{overlap} are both declared unreachable and characterized in ROUTES; "
+        "remove them from LLM_ONLY_SKILLS"
     )
