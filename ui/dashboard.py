@@ -14,7 +14,7 @@ from loguru import logger
 
 # Add root folder to sys.path to resolve imports cleanly
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from core.vision_engine import CameraEngine
+from jarvis.core.vision_engine import CameraEngine
 
 class JarvisDashboard(QWidget):
     """Futuristic Glassmorphic HUD Dashboard showing system stats, schedule, and camera stream."""

@@ -12,7 +12,7 @@ import pytest
 
 sys.path.insert(0, ".")
 
-from core.tts_engine import TTSEngine, OPENROUTER_SPEECH_URL
+from jarvis.core.tts_engine import TTSEngine, OPENROUTER_SPEECH_URL
 
 
 class FakeResponse:

@@ -23,7 +23,7 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from core.intent_router import IntentRouter
+from jarvis.core.intent_router import IntentRouter
 
 
 @pytest.fixture
@@ -50,7 +50,7 @@ def test_regex_route_reads_no_instance_state():
     """
     src = open(
         os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                     "core", "intent_router.py"),
+                     "src", "jarvis", "core", "intent_router.py"),
         encoding="utf-8",
     ).read()
 
@@ -336,7 +336,7 @@ LLM_ONLY_SKILLS = {
 def _skills_in_router_source() -> set:
     src = open(
         os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                     "core", "intent_router.py"),
+                     "src", "jarvis", "core", "intent_router.py"),
         encoding="utf-8",
     ).read()
     return set(re.findall(r"""["']skill["']\s*:\s*["']([a-z_0-9]+)["']""", src))

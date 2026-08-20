@@ -2,7 +2,7 @@ import os
 import json
 import numpy as np
 from loguru import logger
-from core.wake_word import compute_mean_mfcc, cosine_similarity
+from jarvis.core.wake_word import compute_mean_mfcc, cosine_similarity
 
 class VoiceAuthenticator:
     """Verifies spoken voice commands against the calibrated speaker profile."""

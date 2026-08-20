@@ -77,15 +77,15 @@ from loguru import logger; _p("DBG: loguru ok")
 logger.remove()
 logger.add("jarvis.log", level="INFO", rotation="10 MB", encoding="utf-8")
 from PyQt6.QtWidgets import QApplication; _p("DBG: PyQt6 ok")
-import core.llm_client
-core.llm_client.patch_ollama()
+import jarvis.core.llm_client
+jarvis.core.llm_client.patch_ollama()
 
-from core.audio_engine import AudioEngine
-from core.tts_engine import TTSEngine
-from core.wake_word import WakeWordDetector
-from core.intent_router import IntentRouter
-from core.brain import JarvisBrain
-from core.vision_engine import CameraEngine
+from jarvis.core.audio_engine import AudioEngine
+from jarvis.core.tts_engine import TTSEngine
+from jarvis.core.wake_word import WakeWordDetector
+from jarvis.core.intent_router import IntentRouter
+from jarvis.core.brain import JarvisBrain
+from jarvis.core.vision_engine import CameraEngine
 from ui.orb import JarvisOrb; _p("DBG: orb ok")
 from skills.screen_vision import ScreenVision; _p("DBG: screen_vision ok")
 from skills.os_control import OSControl; _p("DBG: os_control ok")
@@ -104,7 +104,7 @@ from jarvis.domains.security import SecurityDomain; _p("DBG: security ok")
 from jarvis.domains.development import DevelopmentDomain; _p("DBG: development ok")
 from jarvis.domains.science import ScienceDomain; _p("DBG: science ok")
 from jarvis.domains.engineering import EngineeringDomain; _p("DBG: engineering ok")
-from core.proactive_monitor import ProactiveMonitor
+from jarvis.core.proactive_monitor import ProactiveMonitor
 from skills.workspace_context import WorkspaceContext
 from skills.self_healing_vision import SelfHealingVision
 from ui.dashboard import JarvisDashboard
@@ -127,9 +127,9 @@ from ui.hologram import HologramSimWidget; _p("DBG: HologramSimWidget ok")
 from skills.polyglot_engineer import PolyglotEngineer; _p("DBG: PolyglotEngineer ok")
 from skills.research_prodigy import ResearchProdigy; _p("DBG: ResearchProdigy ok")
 from skills.emergency_sentinel import EmergencySentinel; _p("DBG: EmergencySentinel ok")
-from core.context_sentinel import ContextSentinel
+from jarvis.core.context_sentinel import ContextSentinel
 from skills.app_control import AppControl
-from core.profile_manager import ProfileManager
+from jarvis.core.profile_manager import ProfileManager
 from skills.obsidian_control import ObsidianControl; _p("DBG: obsidian ok")
 from skills.shopping_assistant import ShoppingAssistant; _p("DBG: shopping_assistant ok")
 from jarvis.services.db import Database, utc_now; _p("DBG: services.db ok")
@@ -255,7 +255,7 @@ class JARVIS:
         
         # Self-Healing Engine & Memory Consolidation QTimer
         _p("INIT: SelfHealingEngine")
-        from core.self_healing import SelfHealingEngine
+        from jarvis.core.self_healing import SelfHealingEngine
         self.healer = SelfHealingEngine()
         
         from PyQt6.QtCore import QTimer
@@ -344,7 +344,7 @@ class JARVIS:
         self.last_command_time = 0.0
 
         # Import cognitive tracker
-        from core.cognitive import CognitiveSentimentTracker
+        from jarvis.core.cognitive import CognitiveSentimentTracker
         self.sentiment_tracker = CognitiveSentimentTracker()
         self.cognitive_state = "calm"
 
@@ -370,23 +370,23 @@ class JARVIS:
 
         # Initialize SensoryHealthAnalyzer
         _p("INIT: SensoryHealthAnalyzer")
-        from core.sensory_health import SensoryHealthAnalyzer
+        from jarvis.core.sensory_health import SensoryHealthAnalyzer
         self.sensory_health = SensoryHealthAnalyzer(self.camera)
 
         # Initialize P2PLinkNode
         _p("INIT: P2PLinkNode")
-        from core.p2p_link import P2PLinkNode
+        from jarvis.core.p2p_link import P2PLinkNode
         self.p2p_link = P2PLinkNode(tts_engine=self.tts)
         self.p2p_link.start()
 
         # Initialize AirTypistTracker
         _p("INIT: AirTypistTracker")
-        from core.air_typist import AirTypistTracker
+        from jarvis.core.air_typist import AirTypistTracker
         self.air_typist = AirTypistTracker(self.camera)
 
         # Initialize VoiceAuthenticator
         _p("INIT: VoiceAuthenticator")
-        from core.voice_auth import VoiceAuthenticator
+        from jarvis.core.voice_auth import VoiceAuthenticator
         self.voice_auth = VoiceAuthenticator()
 
         # Initialize GitSentinel
@@ -402,7 +402,7 @@ class JARVIS:
         # Initialize Focus Dashboard and Focus Tracker
         _p("INIT: FocusTracker & Dashboard")
         from ui.vitals_dashboard import VitalsDashboardWidget
-        from core.focus_tracker import FocusTracker
+        from jarvis.core.focus_tracker import FocusTracker
         self.vitals_dashboard = VitalsDashboardWidget()
         self.focus_tracker = FocusTracker(self.camera, self.sensory_health, self.vitals_dashboard, self)
         self.focus_tracker.start()
@@ -428,8 +428,8 @@ class JARVIS:
 
         # Initialize Multi-Agent Swarm Swarm (Multi-Working)
         _p("INIT: Multi-Agent Swarm Agency")
-        from core.agency import Agency
-        from core.agents import (
+        from jarvis.core.agency import Agency
+        from jarvis.core.agents import (
             ReminderAgent, CalendarAgent,
             AudioEngineAgent, TtsEngineAgent, WakeWordAgent, VoiceAuthAgent, IntentRouterAgent,
             BrainAgent, CognitiveAgent, ContextSentinelAgent, ProactiveMonitorAgent, FocusTrackerAgent,
@@ -3961,7 +3961,7 @@ class JARVIS:
         self.orb.set_state("speaking")
         self.tts.speak("Starting voice calibration process. I will need you to say 'Hey JARVIS' three times. Let's record the first attempt.")
         
-        from core.wake_word import compute_mean_mfcc, cosine_similarity
+        from jarvis.core.wake_word import compute_mean_mfcc, cosine_similarity
         import numpy as np
         import json
         import time
@@ -4634,7 +4634,7 @@ class JARVIS:
         # Case B: PyAudio stream closed or device error -> re-init Audio & Wake engine
         elif any(w in err_msg.lower() for w in ["stream", "audio", "pyaudio", "input device"]):
             try:
-                from core.wake_word import WakeWordDetector
+                from jarvis.core.wake_word import WakeWordDetector
                 self.wake = WakeWordDetector()
                 healed = True
                 heal_desc = "Re-initialized PyAudio stream and WakeWordDetector."
@@ -4661,8 +4661,8 @@ class JARVIS:
         if len(self._error_history) >= 3:
             logger.warning("Sensory loop error rate high. Performing full subsystem reset...")
             try:
-                from core.wake_word import WakeWordDetector
-                from core.audio_engine import AudioEngine
+                from jarvis.core.wake_word import WakeWordDetector
+                from jarvis.core.audio_engine import AudioEngine
                 self.wake = WakeWordDetector()
                 self.audio = AudioEngine(silence_sec=self.config["audio"]["silence_threshold"])
                 self._error_history.clear()

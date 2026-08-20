@@ -19,7 +19,7 @@ from loguru import logger
 JARVIS_ROOT = os.path.abspath(os.path.dirname(__file__))
 sys.path.insert(0, JARVIS_ROOT)
 
-from core.wake_word import compute_mean_mfcc, cosine_similarity
+from jarvis.core.wake_word import compute_mean_mfcc, cosine_similarity
 
 def record_audio_sample(duration_sec: float = 2.5, sample_rate: int = 16000) -> np.ndarray:
     """Records audio from microphone using sounddevice or pyaudio for duration_sec seconds."""

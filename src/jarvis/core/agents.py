@@ -16,7 +16,7 @@ from datetime import datetime, timedelta
 
 from loguru import logger
 
-from core.agency import Agent, Message
+from jarvis.core.agency import Agent, Message
 
 
 class SwarmAgent(Agent):

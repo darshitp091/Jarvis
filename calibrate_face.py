@@ -1,7 +1,7 @@
 import sys
 import time
 from loguru import logger
-from core.vision_engine import CameraEngine
+from jarvis.core.vision_engine import CameraEngine
 
 if __name__ == "__main__":
     logger.info("Initializing Face ID Calibration...")
