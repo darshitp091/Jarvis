@@ -80,3 +80,11 @@ models/
 obsidian_vault/
 *.mp3
 node_modules
+
+# Build artifacts
+# `pip install -e .` writes src/jarvis_assistant.egg-info/ on every run. Until
+# pyproject.toml existed the tree was not installable, so nothing generated
+# these and no rule was needed; now `git add -A` would commit one.
+*.egg-info/
+build/
+dist/

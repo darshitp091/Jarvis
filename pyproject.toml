@@ -1,0 +1,61 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jarvis-assistant"
+version = "1.0.0"
+description = "A high-performance, privacy-first, Stark-inspired desktop voice & vision AI assistant for Windows."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Darshit Patel", email = "darshitp091@gmail.com" }]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: System :: Systems Administration",
+]
+dependencies = [
+    "pyyaml",
+    "loguru",
+    "requests",
+    "ollama",
+    "sounddevice",
+    "numpy",
+    "pyautogui",
+    # pywin32 has no Linux wheel. Unmarked, it makes `pip install -e .` fail
+    # outright on the ubuntu CI runner -- which is why the Linux job installs
+    # requirements-test.txt instead of the project. The marker is what lets
+    # that job install the project itself.
+    "pywin32; sys_platform == 'win32'",
+]
+
+[project.urls]
+Homepage = "https://github.com/darshitp091/Jarvis"
+"Bug Tracker" = "https://github.com/darshitp091/Jarvis/issues"
+"Source Code" = "https://github.com/darshitp091/Jarvis"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+# There is deliberately no [project.scripts] entry and no py-modules = ["main"].
+# main.py sits at the repository root while the packages sit under src/, and
+# `where = ["src"]` makes src/ the package root -- so py-modules looks for
+# src/main.py and does not find it. Tested rather than assumed: with both keys
+# present, setuptools does not reject the configuration, it accepts it and
+# installs a jarvis.exe that dies on invocation with
+# `ModuleNotFoundError: No module named 'main'`. A command that ships broken is
+# worse than one that is absent.
+#
+# `python main.py` is unaffected -- it resolves through main.py's own sys.path
+# bootstrap, not through an install, and it is the entry point SETUP.md
+# documents. The console script comes back when main.py is decomposed and a
+# real jarvis.__main__ exists to point at.
