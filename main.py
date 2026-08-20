@@ -86,7 +86,7 @@ from jarvis.core.wake_word import WakeWordDetector
 from jarvis.core.intent_router import IntentRouter
 from jarvis.core.brain import JarvisBrain
 from jarvis.core.vision_engine import CameraEngine
-from ui.orb import JarvisOrb; _p("DBG: orb ok")
+from jarvis.ui.orb import JarvisOrb; _p("DBG: orb ok")
 from jarvis.skills.screen_vision import ScreenVision; _p("DBG: screen_vision ok")
 from jarvis.skills.os_control import OSControl; _p("DBG: os_control ok")
 from jarvis.skills.web_research import WebResearch; _p("DBG: web_research ok")
@@ -94,7 +94,7 @@ from jarvis.skills.media_summarizer import MediaSummarizer; _p("DBG: media_summa
 from jarvis.skills.app_mapper import AppMapper; _p("DBG: app_mapper ok")
 from jarvis.skills.spotify_control import SpotifyControl; _p("DBG: spotify_control ok")
 from jarvis.skills.youtube_music import YouTubeMusicPlayer; _p("DBG: youtube_music ok")
-from ui.overlay_widgets import IronManHUDOverlay; _p("DBG: IronManHUDOverlay ok")
+from jarvis.ui.overlay_widgets import IronManHUDOverlay; _p("DBG: IronManHUDOverlay ok")
 from jarvis.skills.macro_recorder import MacroRecorder; _p("DBG: MacroRecorder ok")
 from jarvis.auth.local_auth import LocalAuth; _p("DBG: local_auth ok")
 from jarvis.domains.medical import MedicalDomain; _p("DBG: medical ok")
@@ -107,7 +107,7 @@ from jarvis.domains.engineering import EngineeringDomain; _p("DBG: engineering o
 from jarvis.core.proactive_monitor import ProactiveMonitor
 from jarvis.skills.workspace_context import WorkspaceContext
 from jarvis.skills.self_healing_vision import SelfHealingVision
-from ui.dashboard import JarvisDashboard
+from jarvis.ui.dashboard import JarvisDashboard
 from jarvis.skills.phone_controller import PhoneController
 import ollama; _p("DBG: ollama ok")
 from jarvis.skills.file_manager import FileManager; _p("DBG: file_manager ok")
@@ -118,12 +118,12 @@ from jarvis.skills.security_auditor import SecurityAuditor; _p("DBG: security_au
 from jarvis.skills.vision_tracker import VisionTracker; _p("DBG: vision_tracker ok")
 from jarvis.skills.market_analyzer import MarketAnalyzer; _p("DBG: market_analyzer ok")
 from jarvis.skills.gesture_control import GestureController; _p("DBG: gesture_control ok")
-from ui.air_canvas import AirCanvas; _p("DBG: air_canvas ok")
+from jarvis.ui.air_canvas import AirCanvas; _p("DBG: air_canvas ok")
 from jarvis.skills.code_runner import CodeRunner; _p("DBG: code_runner ok")
 from jarvis.skills.product_comparator import ProductComparator; _p("DBG: product_comparator ok")
 from jarvis.skills.food_comparator import FoodComparator; _p("DBG: food_comparator ok")
 from jarvis.skills.coding_sandbox import AutonomousCodingSandbox, CompilerRepairEngine; _p("DBG: coding_sandbox ok")
-from ui.hologram import HologramSimWidget; _p("DBG: HologramSimWidget ok")
+from jarvis.ui.hologram import HologramSimWidget; _p("DBG: HologramSimWidget ok")
 from jarvis.skills.polyglot_engineer import PolyglotEngineer; _p("DBG: PolyglotEngineer ok")
 from jarvis.skills.research_prodigy import ResearchProdigy; _p("DBG: ResearchProdigy ok")
 from jarvis.skills.emergency_sentinel import EmergencySentinel; _p("DBG: EmergencySentinel ok")
@@ -365,7 +365,7 @@ class JARVIS:
 
         # Initialize AgentLabWidget
         _p("INIT: AgentLabWidget")
-        from ui.agent_lab import AgentLabWidget
+        from jarvis.ui.agent_lab import AgentLabWidget
         self.agent_lab = AgentLabWidget()
 
         # Initialize SensoryHealthAnalyzer
@@ -401,7 +401,7 @@ class JARVIS:
 
         # Initialize Focus Dashboard and Focus Tracker
         _p("INIT: FocusTracker & Dashboard")
-        from ui.vitals_dashboard import VitalsDashboardWidget
+        from jarvis.ui.vitals_dashboard import VitalsDashboardWidget
         from jarvis.core.focus_tracker import FocusTracker
         self.vitals_dashboard = VitalsDashboardWidget()
         self.focus_tracker = FocusTracker(self.camera, self.sensory_health, self.vitals_dashboard, self)
@@ -3872,7 +3872,7 @@ class JARVIS:
         self.orb.set_state("idle")
 
     def _execute_eyecare_toggle(self, enable: bool):
-        from ui.overlay_widgets import EyeCareOverlay
+        from jarvis.ui.overlay_widgets import EyeCareOverlay
         if enable:
             if not self.eyecare_overlay:
                 self.eyecare_overlay = EyeCareOverlay()
@@ -3885,7 +3885,7 @@ class JARVIS:
             logger.info("Eye care overlay deactivated.")
 
     def _execute_ruler_toggle(self, show: bool):
-        from ui.overlay_widgets import ScreenRuler
+        from jarvis.ui.overlay_widgets import ScreenRuler
         if show:
             if not self.screen_ruler:
                 self.screen_ruler = ScreenRuler()
@@ -3898,7 +3898,7 @@ class JARVIS:
             logger.info("Screen ruler deactivated.")
 
     def _execute_snipping_tool(self):
-        from ui.overlay_widgets import SnippingOverlay
+        from jarvis.ui.overlay_widgets import SnippingOverlay
         if self.snipping_overlay:
             self.snipping_overlay.close()
         self.snipping_overlay = SnippingOverlay()
@@ -3907,7 +3907,7 @@ class JARVIS:
         logger.info("Snipping tool activated.")
 
     def show_hud_target_highlighter(self, x: int, y: int, label: str):
-        from ui.overlay_widgets import TargetReticleOverlay
+        from jarvis.ui.overlay_widgets import TargetReticleOverlay
         overlay = TargetReticleOverlay(x, y, label)
         overlay.show()
         logger.info(f"Target highlighter activated at {x},{y} with label '{label}'")
@@ -3922,7 +3922,7 @@ class JARVIS:
 
     def _show_hud_notification(self, title: str, message: str):
         try:
-            from ui.hud_notification import HudNotificationManager
+            from jarvis.ui.hud_notification import HudNotificationManager
             HudNotificationManager.show_toast(title, message)
         except Exception as e:
             logger.error(f"Failed to show HUD notification: {e}")
