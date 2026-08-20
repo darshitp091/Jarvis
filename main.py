@@ -137,6 +137,27 @@ from jarvis.services.scheduler import Scheduler; _p("DBG: scheduler ok")
 from jarvis.services.calendar_service import CalendarService; _p("DBG: calendar_service ok")
 from jarvis.services import timeparse; _p("DBG: timeparse ok")
 
+# Files the hot-reload watcher can act on, mapped to
+# (module name, JARVIS attribute, class name).
+#
+# The module name is carried explicitly rather than derived from the path.
+# Under the old flat layout "skills/os_control.py" -> "skills.os_control" by
+# string substitution, and that coincidence is what src-layout broke: the
+# same substitution now yields "src.jarvis.skills.os_control". That name is
+# not an error -- src/ has no __init__.py, but PEP 420 makes it an implicit
+# namespace package, so the name imports and loads the same file a second
+# time as a second module object. Reloading that copy leaves untouched the
+# class this instance actually holds, so hot reload would report success and
+# change nothing. A path and a module name are different things; this maps
+# between them instead of computing one from the other.
+SKILL_RELOAD_MAP = {
+    "src/jarvis/skills/os_control.py": ("jarvis.skills.os_control", "os_ctrl", "OSControl"),
+    "src/jarvis/skills/spotify_control.py": ("jarvis.skills.spotify_control", "spotify_ctrl", "SpotifyControl"),
+    "src/jarvis/skills/web_research.py": ("jarvis.skills.web_research", "web", "WebResearch"),
+    "src/jarvis/skills/gesture_control.py": ("jarvis.skills.gesture_control", "gesture_ctrl", "GestureController"),
+    "src/jarvis/core/intent_router.py": ("jarvis.core.intent_router", "router", "IntentRouter"),
+}
+
 
 
 
@@ -2019,17 +2040,9 @@ class JARVIS:
             norm_filepath = os.path.abspath(filepath)
             cwd = os.path.abspath(os.getcwd())
             rel_path = os.path.relpath(norm_filepath, cwd).replace("\\", "/")
-            mappings = {
-                "skills/os_control.py": ("os_ctrl", "OSControl"),
-                "skills/spotify_control.py": ("spotify_ctrl", "SpotifyControl"),
-                "skills/web_research.py": ("web", "WebResearch"),
-                "skills/gesture_control.py": ("gesture_ctrl", "GestureController"),
-                "core/intent_router.py": ("router", "IntentRouter")
-            }
-            if rel_path not in mappings:
+            if rel_path not in SKILL_RELOAD_MAP:
                 return False
-            attr_name, class_name = mappings[rel_path]
-            module_name = rel_path.replace(".py", "").replace("/", ".")
+            module_name, attr_name, class_name = SKILL_RELOAD_MAP[rel_path]
             if module_name in sys.modules:
                 importlib.reload(sys.modules[module_name])
             else:
