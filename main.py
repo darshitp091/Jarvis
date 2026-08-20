@@ -1,5 +1,9 @@
 import sys
 import os
+# src-layout bootstrap. The jarvis package lives under src/, which `python
+# main.py` does not put on sys.path. This must precede the first
+# `from jarvis...` import further down the file.
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "src"))
 os.environ["GLOG_minloglevel"] = "3"
 os.environ["ABSL_log_min_level"] = "3"
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
