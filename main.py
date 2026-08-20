@@ -132,10 +132,10 @@ from skills.app_control import AppControl
 from core.profile_manager import ProfileManager
 from skills.obsidian_control import ObsidianControl; _p("DBG: obsidian ok")
 from skills.shopping_assistant import ShoppingAssistant; _p("DBG: shopping_assistant ok")
-from services.db import Database, utc_now; _p("DBG: services.db ok")
-from services.scheduler import Scheduler; _p("DBG: scheduler ok")
-from services.calendar_service import CalendarService; _p("DBG: calendar_service ok")
-from services import timeparse; _p("DBG: timeparse ok")
+from jarvis.services.db import Database, utc_now; _p("DBG: services.db ok")
+from jarvis.services.scheduler import Scheduler; _p("DBG: scheduler ok")
+from jarvis.services.calendar_service import CalendarService; _p("DBG: calendar_service ok")
+from jarvis.services import timeparse; _p("DBG: timeparse ok")
 
 
 

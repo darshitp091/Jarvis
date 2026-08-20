@@ -22,7 +22,7 @@ from datetime import datetime, timedelta, timezone
 
 from loguru import logger
 
-from services.db import Database, from_iso, to_iso, utc_now
+from jarvis.services.db import Database, from_iso, to_iso, utc_now
 
 VALID_RECURRENCE = {"none", "minutely", "hourly", "daily", "weekly", "monthly", "yearly"}
 

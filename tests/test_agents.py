@@ -21,9 +21,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core.agency import Agency, AgentNotFound, Message
 from core.agents import CalendarAgent, FileManagerAgent, ReminderAgent, SwarmAgent
-from services.calendar_service import CalendarService
-from services.db import Database, utc_now
-from services.scheduler import Scheduler
+from jarvis.services.calendar_service import CalendarService
+from jarvis.services.db import Database, utc_now
+from jarvis.services.scheduler import Scheduler
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -242,7 +242,7 @@ def test_snooze_pushes_the_job_later(reminder_agent, jarvis):
     Comparing against the pre-snooze value would only hold when the fixture
     timezone matches the machine's local clock, which is not guaranteed.
     """
-    from services.db import from_iso
+    from jarvis.services.db import from_iso
 
     reminder_agent.receive_message(
         msg("create", {"action": "create", "query": "remind me to stand in 5 minutes"})

@@ -9,7 +9,7 @@ from datetime import datetime
 
 import pytest
 
-from services.timeparse import describe, parse_when
+from jarvis.services.timeparse import describe, parse_when
 
 # Wednesday, 15 May 2024, 14:30 local.
 NOW = datetime(2024, 5, 15, 14, 30)

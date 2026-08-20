@@ -127,7 +127,7 @@ class ReminderAgent(SwarmAgent):
         return subject
 
     def _create(self, params: dict) -> str:
-        from services import timeparse
+        from jarvis.services import timeparse
 
         query = params.get("query", "") or ""
         kind = params.get("kind", "reminder")
@@ -161,7 +161,7 @@ class ReminderAgent(SwarmAgent):
         return reply
 
     def _list(self) -> str:
-        from services import timeparse
+        from jarvis.services import timeparse
 
         jobs = [j for j in self.jarvis.scheduler.pending_jobs()
                 if j["kind"] in ("reminder", "alarm")]
@@ -177,7 +177,7 @@ class ReminderAgent(SwarmAgent):
 
     def _local(self, value) -> datetime:
         """Scheduler rows carry next_run_utc as an ISO string, so parse before converting."""
-        from services.db import from_iso
+        from jarvis.services.db import from_iso
 
         dt = from_iso(value) if isinstance(value, str) else value
         if self.jarvis.calendar:
@@ -278,7 +278,7 @@ class CalendarAgent(SwarmAgent):
         return self.unsupported(msg)
 
     def _now(self):
-        from services.db import utc_now
+        from jarvis.services.db import utc_now
         return utc_now()
 
     def _free_slots(self, cal, params: dict) -> str:
@@ -307,7 +307,7 @@ class CalendarAgent(SwarmAgent):
         return "\n".join(lines)
 
     def _add_event(self, cal, params: dict) -> str:
-        from services import timeparse
+        from jarvis.services import timeparse
 
         query = params.get("query", "") or ""
         parsed = timeparse.parse_when(query)
