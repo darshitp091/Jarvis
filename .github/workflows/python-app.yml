@@ -11,6 +11,12 @@ jobs:
   build-and-test:
     runs-on: windows-latest
 
+    # This job invokes python directly rather than through pytest, so it does
+    # not get pytest.ini's `pythonpath = src`. Without this, both import checks
+    # below fail with ModuleNotFoundError: No module named 'jarvis'.
+    env:
+      PYTHONPATH: src
+
     steps:
     - name: Checkout Repository
       uses: actions/checkout@v4
@@ -33,11 +39,11 @@ jobs:
 
     - name: Verify Core Imports & Intent Routing Engine
       run: |
-        python -X utf8 -c "from core.intent_router import IntentRouter; router = IntentRouter(); print('✅ IntentRouter initialized successfully!')"
+        python -X utf8 -c "from jarvis.core.intent_router import IntentRouter; router = IntentRouter(); print('✅ IntentRouter initialized successfully!')"
 
     - name: Verify File Manager & OneDrive Resolver Engine
       run: |
-        python -X utf8 -c "from skills.file_manager import FileManager; fm = FileManager(); print('✅ FileManager & OneDrive Resolver initialized successfully!')"
+        python -X utf8 -c "from jarvis.skills.file_manager import FileManager; fm = FileManager(); print('✅ FileManager & OneDrive Resolver initialized successfully!')"
 
   # Proves the suite has no Windows, GPU, or hardware dependency: this job
   # installs requirements-test.txt and nothing else. The Windows job above is
