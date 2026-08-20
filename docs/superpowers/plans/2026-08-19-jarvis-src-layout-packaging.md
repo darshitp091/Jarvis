@@ -1761,8 +1761,75 @@ Append an `## Execution record` section to this file covering: the actual measur
 
 Recorded here so they are not lost, and so their absence is a decision rather than an oversight:
 
-- **`main.py`'s `JARVIS` class** — 4,714 lines, 67 methods, a 1,663-line `_process_single_command`. Phase 3b.
+- **`main.py`'s `JARVIS` class** — 4,560 lines (measured at the phase's end; `main.py:164-4723`), 67 methods, a 1,663-line `_process_single_command`. Phase 3b. The count was 4,714 when this plan was written and 4,568 after Task 7; Task 7b's dict lookup replaced eight lines of module-name derivation inside `_reload_skill_instance`. Re-measure rather than quote this.
 - **The `hologram_control` duplicate dispatch branch.** `main.py` has `elif skill == "hologram_control"` at both line 2827 and line 2936 in the same chain. The second is unreachable, so `set_rotation` and `toggle_heatmap` silently do nothing — they reach line 2827, match neither `design` nor `explode`, and never set `response`. `explode` works only because 2827 happens to duplicate it. This is a live user-visible bug and it gets its own test-paired commit; fixing it inside a structural refactor would bury a behavior change in a move.
 - **Five latent router defects** pinned by `tests/test_intent_router.py` — two Hinglish word-order gaps and three rule-shadowing cases. Each gets its own test-paired commit.
 - **Two local branches carrying credentials.** `backup-before-rewrite` and `rewritten-history-safety` still track `.cache-jarvis-spotify` and `config/contacts_cache.json` at their tips. Neither has a remote, so an ordinary `git push` cannot leak them — but `git push --all` would. Untouched here by design; deleting a branch is the user's call.
 - **The Spotify refresh token is public and must be assumed compromised.** Only the user can revoke it, in the Spotify developer dashboard. No amount of untracking neutralizes an already-published credential.
+
+---
+
+## Execution record
+
+Executed 2026-08-19 to 2026-08-20 on branch `refactor/src-layout`, ten commits, `62f217b` through `3967f27`. Everything below is measured, not predicted; where a figure here disagrees with the task text above, this section is the correct one.
+
+The 76 `- [ ]` checkboxes above are all still unchecked, and that is not a record of unfinished work — progress was tracked in the git-ignored SDD ledger and in the commits themselves, and the boxes were never used. **This section, plus `git log 54363b7..3967f27`, is the completion record.** The checkboxes are left untouched rather than back-filled, because a box ticked after the fact carries no more information than a box left blank.
+
+### Headline results
+
+**The move is coverage-neutral, which is the claim Task 9 existed to test:** **9.58% before, 9.64% after** — 1,721 of 17,960 statements, then 1,732 of 17,961. That is +0.06pp on a denominator that grew by a single statement, well inside the ±0.5pp stop-band. The 11 newly covered statements are the package `__init__.py` files an import executes.
+
+The predicted "9.6%" in Task 9 was right to one decimal, which was luck rather than precision — the pre-fix reading it was derived from was itself wrong (see the R27 divergence below).
+
+Module count **87 = 81 + 6**, matching the prediction exactly. 76 files moved with rename detection intact. 123 import references rewritten, not the 119 predicted. **220 tests** at the end: the 215-test characterization baseline plus 5 from Task 7b, with no test deleted or weakened.
+
+### The nine-check verification gate
+
+Every check run and recorded. A gate where one check is skipped because the others passed is not a gate — and the one check that appeared to fail is the reason that rule earns its keep.
+
+| # | Check | Result |
+|---|-------|--------|
+| 1 | Full suite | **220 passed** |
+| 2 | `python -c "import main"` | silent success |
+| 3 | Every package module imports | **81/81** — but see R29 |
+| 4 | Clean-venv `pip install -e .` | `install ok` |
+| 5 | Coverage gate both directions | passes at 5, fails at 15 |
+| 6 | No stale flat-layout import remains | no output |
+| 7 | Six moved directories gone from the root | `ls: cannot access 'auth': No such file or directory` |
+| 8 | flake8 `E9,F63,F7,F82` | `0` |
+| 9 | Rename detection | **76 renames** |
+
+Check 3's 81 is the 75 moved modules plus the 6 `__init__.py` files; `face_model.xml` is data, not a module, so it does not appear. Checks 6 and 7 are the two whose expected output is *nothing* and *an error* respectively — both were run rather than assumed, because a silent check taken on faith is not evidence.
+
+### Task 8 Step 3: which branch was taken
+
+The step offered two branches depending on whether setuptools accepts a `[project.scripts]` entry pointing at a root-level `main.py` while `packages.find` roots at `src/`. **Neither branch described what actually happens.** setuptools does not reject the configuration and does not warn: `pip install -e .` succeeds, writes a working `jarvis.exe`, and that exe dies on first invocation with `ModuleNotFoundError: No module named 'main'`, because `where = ["src"]` makes `py-modules = ["main"]` resolve against `src/main.py`, which does not exist.
+
+Both `[project.scripts]` and `py-modules` were therefore removed, and the measured reason recorded inline in `pyproject.toml` so the next person does not re-add them. **This is a capability removed, not a detail omitted** — the `jarvis` command that `setup.py` advertised no longer ships. Phase 3b restores it properly via a real `jarvis.__main__`, which is where an entry point belongs once the package owns one. A command that ships broken is worse than one that is absent.
+
+### Divergences from the plan
+
+Ten in total, recorded as rulings R20–R29 during execution. They cluster, and the cluster is the lesson.
+
+**1. The plan's own verification commands were wrong more often than the tree was.** Four separate checks failed while the code they tested was correct:
+
+- **Gate check 3 could not have passed regardless of the tree's state.** Its script is invoked as `python - <<'PYEOF'`, reading from stdin, which puts the cwd on `sys.path` and not `src/`. It carries no `PYTHONPATH=src` and no `sys.path.insert(0, "src")`, so `import jarvis` cannot resolve. First run: `0/81`, every module reporting `ModuleNotFoundError: No module named 'jarvis'`. Re-run with `PYTHONPATH=src` and nothing else changed: `81/81`. The irony is exact — Task 10 Step 2 had just added that same `env: PYTHONPATH: src` block to CI for this same reason, two steps before its own gate tripped over the omission.
+- **Task 5 Step 3's grep expectation was miscounted**, and Task 4 carried two more of the same kind.
+- **Step 4's pywin32 check** (`pip list | grep -ci pywin32`) can only ever confirm the platform you are standing on. Replaced with a direct evaluation of the environment marker against both platform values, which is what the claim actually asserts.
+
+The rule that saved these: **a check that fails because a third-party package is missing, or because the package root is not on `sys.path`, is measuring its own harness.** It is not a pass and it is not a task failure — it is re-run correctly before any verdict is recorded. Three independent signals contradicted a broken tree in the check-3 case (check 4's clean-venv install, direct `PYTHONPATH=src` imports of `IntentRouter` and `FileManager`, and Task 9's coverage run enumerating all 87 modules), which is what made the harness the only hypothesis left standing.
+
+**2. Stale figures, four of them.** `main.py` was 4,714 lines when this plan was written; the `JARVIS` class is now 4,560. Import references were predicted at 119 and measured at 123. Task 9's draft `.coveragerc` header claimed "3,387 of ~17,963" statements against a measured 3,386 of 17,961. Task 7's drafted commit message quoted the by-then-stale class size. Every one was corrected against a live measurement before being committed. **Prose that asserts a number goes stale silently** — nothing fails, the comment simply starts lying. Re-measure at the moment of writing, and prefer a comment that says how to measure over one that states a figure.
+
+**3. Task 7b was right for the wrong reason, which is worse than being wrong.** The plan justified the explicit path→module mapping by asserting that `src.jarvis.skills.os_control` is *un-importable*. It is not. `src/` has no `__init__.py`, but PEP 420 makes it an implicit namespace package, and `python main.py` puts the repository root on `sys.path[0]` — so the derived name imports cleanly and loads the same file **a second time, as a second module object**. That is a strictly worse failure than an exception: reloading the duplicate leaves the class the running instance holds untouched, so hot reload reports success and changes nothing. The first version of the test asserted `ModuleNotFoundError` and failed with `DID NOT RAISE`, which is how the false premise surfaced. The rewritten test imports both names and asserts they are distinct module objects resolving to the same file, and counts what it proved so it cannot pass vacuously. **The fix was correct; only its stated rationale was false** — which is precisely the kind of error a test that asserts the rationale will catch and a test that asserts the outcome will not.
+
+**4. Task 8 Step 3 offered two branches and reality took neither.** Documented above. The general shape: when a step predicts "either the tool rejects this or it works", the third possibility — *it accepts the configuration and produces a broken artifact* — is the one worth testing for, because it is the only one that ships.
+
+**5. Task 5 required editing test files beyond their import lines.** Six tests broke, and the Global Constraints above permit only import-line edits to the 215-test baseline, with anything more declared "the finding, not a test to edit". The edits were **path string literals inside test bodies** naming moved files, not assertions or fixtures. That is the same class of change as an import reference — a literal naming a location that stopped existing — so the constraint's intent held even though its letter did not. No assertion was weakened and no test was deleted; the count went 215 → 215, then → 220 with Task 7b's five additions.
+
+### What Phase 3b should carry forward
+
+- Re-measure the `JARVIS` class before planning against it; do not quote 4,560 either.
+- The `hologram_control` duplicate dispatch branch (see Deferred) is a live user-visible bug in the file 3b rewrites. Fix it in its own test-paired commit **before** the decomposition, not during — otherwise a behavior change hides inside a move.
+- Restore the `jarvis` console script via a real `src/jarvis/__main__.py`. The entry point belongs to the package, not to a root-level module the package root cannot see.
+- The two-interpreter split is load-bearing and worth reproducing: a venv with only `requirements-test.txt` runs the suite and proves it has no Windows, GPU, or hardware dependency, while a full environment is needed for `import main`. A check that passes only in the full environment has proven less than it appears to.
