@@ -25,7 +25,7 @@ from datetime import date, datetime, time, timedelta, timezone
 
 from loguru import logger
 
-from services.db import Database, from_iso, to_iso, utc_now
+from jarvis.services.db import Database, from_iso, to_iso, utc_now
 
 try:  # Python 3.9+ standard library
     from zoneinfo import ZoneInfo

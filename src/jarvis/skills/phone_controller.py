@@ -898,7 +898,7 @@ class PhoneController:
         return None
 
     def _save_cached_ip(self, ip: str):
-        config_path = os.path.abspath("./auth/.adb_wireless_config")
+        config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "auth", ".adb_wireless_config")
         os.makedirs(os.path.dirname(config_path), exist_ok=True)
         try:
             with open(config_path, "w") as f:
@@ -907,7 +907,7 @@ class PhoneController:
             logger.error(f"Failed to save cached IP: {e}")
 
     def _get_cached_ip(self) -> str | None:
-        config_path = os.path.abspath("./auth/.adb_wireless_config")
+        config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "auth", ".adb_wireless_config")
         if os.path.exists(config_path):
             try:
                 with open(config_path, "r") as f:

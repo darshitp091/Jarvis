@@ -6,7 +6,7 @@ from PyQt6.QtGui import QFont, QColor
 
 # Add root folder to sys.path to resolve imports cleanly
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-from auth.local_auth import LocalAuth
+from jarvis.auth.local_auth import LocalAuth
 
 class JarvisSecureLock(QWidget):
     """A full-screen, impenetrable overlay representing JARVIS Sentry Mode."""

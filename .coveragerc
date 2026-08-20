@@ -1,31 +1,24 @@
 [run]
-# Discovery requires naming each directory. `source = .` alone auto-discovers
-# never-imported files only inside importable packages, so before this change
-# only services/ (the one directory with an __init__.py) was fully reported and
-# 66 modules were absent from the denominator entirely.
+# Every source module is now discoverable. src/jarvis is a real package tree
+# with __init__.py at every level, so coverage reports its files whether or not
+# a test imports them -- which is what makes the TOTAL mean "percentage of the
+# project exercised" rather than "percentage of what tests happened to import".
 #
-# That makes the list below a hand-maintained index, which is the sharp edge
-# this fix leaves behind: a top-level directory added later is invisible until
-# someone edits this file, and the symptom is a TOTAL that quietly rises rather
-# than an error anyone sees. Phase 3a removes the hazard rather than documenting
-# it, by giving every module one package tree to live in.
+# `.` picks up the six root-level scripts, main.py among them, none of which
+# moved. main.py alone is 3,386 of the 17,961 measured statements and is 0%
+# covered, so it dominates the total; read the per-file column, not just the
+# gate. A list of only src/jarvis measures 14,135 statements and reports a
+# HIGHER percentage than the honest one -- it looks like a fixed denominator
+# while omitting the largest file in the project.
 #
-# `.` stays in the list deliberately. It is the entry that picks up the six
-# root-level scripts including main.py, which is the single largest file in the
-# project at 3,386 statements. A list of only the package directories measures
-# 14,134 statements and looks like an honest denominator while omitting the
-# biggest thing in it.
-#
-# Phase 3a moves these directories under src/jarvis/. When it does, this list
-# collapses to `.` plus `src/jarvis`, and the total must be re-measured again.
+# The move did not change this number: 9.58% before, 9.64% after, on a
+# denominator that grew by one statement. The denominator was fixed in a
+# separate commit before any file moved, precisely so the move could be shown
+# to be coverage-neutral rather than credited or blamed for a shift that came
+# from the measurement changing underneath it.
 source =
     .
-    core
-    skills
-    ui
-    services
-    domains
-    auth
+    src/jarvis
 omit =
     # Virtualenvs, vendored code, and local scratch work are not this project.
     jarvis_env/*
@@ -41,7 +34,6 @@ omit =
     # shipped code is exercised.
     tests/*
     conftest.py
-    setup.py
 
 [report]
 # A partially-imported module still reports its executed lines, so missing

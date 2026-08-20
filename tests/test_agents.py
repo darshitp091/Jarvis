@@ -19,11 +19,11 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from core.agency import Agency, AgentNotFound, Message
-from core.agents import CalendarAgent, FileManagerAgent, ReminderAgent, SwarmAgent
-from services.calendar_service import CalendarService
-from services.db import Database, utc_now
-from services.scheduler import Scheduler
+from jarvis.core.agency import Agency, AgentNotFound, Message
+from jarvis.core.agents import CalendarAgent, FileManagerAgent, ReminderAgent, SwarmAgent
+from jarvis.services.calendar_service import CalendarService
+from jarvis.services.db import Database, utc_now
+from jarvis.services.scheduler import Scheduler
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -152,7 +152,7 @@ def test_request_runs_inline_on_the_calling_thread():
 
 def test_base_agent_rejects_unimplemented_actions():
     agency = Agency(max_workers=2)
-    from core.agency import Agent
+    from jarvis.core.agency import Agent
     agency.register_agent("Bare", Agent("Bare"))
     with pytest.raises(NotImplementedError):
         agency.request("Bare", "anything", {})
@@ -242,7 +242,7 @@ def test_snooze_pushes_the_job_later(reminder_agent, jarvis):
     Comparing against the pre-snooze value would only hold when the fixture
     timezone matches the machine's local clock, which is not guaranteed.
     """
-    from services.db import from_iso
+    from jarvis.services.db import from_iso
 
     reminder_agent.receive_message(
         msg("create", {"action": "create", "query": "remind me to stand in 5 minutes"})
@@ -406,7 +406,7 @@ def test_unsupported_file_action_is_rejected(jarvis):
 # -- name-based dispatch guards ------------------------------------------
 
 def test_name_dispatch_calls_the_matching_method(jarvis):
-    from core.agents import PhoneControllerAgent
+    from jarvis.core.agents import PhoneControllerAgent
 
     agent = PhoneControllerAgent("PhoneControllerAgent", jarvis)
 
@@ -420,7 +420,7 @@ def test_name_dispatch_calls_the_matching_method(jarvis):
 
 def test_name_dispatch_drops_params_the_method_does_not_accept(jarvis):
     """A stray router key must not raise TypeError inside the skill."""
-    from core.agents import PhoneControllerAgent
+    from jarvis.core.agents import PhoneControllerAgent
 
     agent = PhoneControllerAgent("PhoneControllerAgent", jarvis)
 
@@ -435,7 +435,7 @@ def test_name_dispatch_drops_params_the_method_does_not_accept(jarvis):
 
 
 def test_name_dispatch_refuses_private_attributes(jarvis):
-    from core.agents import PhoneControllerAgent
+    from jarvis.core.agents import PhoneControllerAgent
 
     agent = PhoneControllerAgent("PhoneControllerAgent", jarvis)
     result = agent.receive_message(msg("_secret", {"action": "_secret"}))
@@ -443,7 +443,7 @@ def test_name_dispatch_refuses_private_attributes(jarvis):
 
 
 def test_name_dispatch_rejects_non_callable_attributes(jarvis):
-    from core.agents import ImageEditorAgent
+    from jarvis.core.agents import ImageEditorAgent
 
     agent = ImageEditorAgent("ImageEditorAgent", jarvis)
     jarvis.image_editor.some_value = "not a function"
@@ -452,7 +452,7 @@ def test_name_dispatch_rejects_non_callable_attributes(jarvis):
 
 
 def test_domain_agent_reads_from_the_domains_dict(jarvis):
-    from core.agents import MedicalDomainAgent
+    from jarvis.core.agents import MedicalDomainAgent
 
     agent = MedicalDomainAgent("MedicalDomainAgent", jarvis)
     jarvis.domains["medical"].answer.return_value = "medical answer"
@@ -463,8 +463,8 @@ def test_domain_agent_reads_from_the_domains_dict(jarvis):
 
 def test_every_registered_agent_has_a_concrete_handler():
     """No agent may inherit the base NotImplementedError handler."""
-    import core.agents as agents_module
-    from core.agency import Agent
+    import jarvis.core.agents as agents_module
+    from jarvis.core.agency import Agent
 
     src = open(os.path.join(PROJECT_ROOT, "main.py"), encoding="utf-8").read()
     match = re.search(r"for agent_cls in \((.*?)\n        \):", src, re.S)
@@ -486,7 +486,7 @@ def test_every_registered_agent_has_a_concrete_handler():
 # -- the regression guard ----------------------------------------------
 
 def _router_skills() -> set:
-    src = open(os.path.join(PROJECT_ROOT, "core", "intent_router.py"), encoding="utf-8").read()
+    src = open(os.path.join(PROJECT_ROOT, "src", "jarvis", "core", "intent_router.py"), encoding="utf-8").read()
     return set(re.findall(r"""["']skill["']\s*:\s*["']([a-z_0-9]+)["']""", src))
 
 
@@ -561,7 +561,7 @@ def test_router_sends_event_creation_to_add_event_not_agenda():
     day word. The agenda rule used to match first, so JARVIS read the calendar
     back instead of creating the event, and nothing was ever saved.
     """
-    src = open(os.path.join(PROJECT_ROOT, "core", "intent_router.py"), encoding="utf-8").read()
+    src = open(os.path.join(PROJECT_ROOT, "src", "jarvis", "core", "intent_router.py"), encoding="utf-8").read()
 
     add_event_at = src.find('"action": "add_event"')
     agenda_at = src.find('"action": "agenda"')
@@ -584,7 +584,7 @@ def test_agents_module_has_no_logging_only_handlers():
     """Guards against agents regressing back into inert log-only stubs."""
     import ast
 
-    path = os.path.join(PROJECT_ROOT, "core", "agents.py")
+    path = os.path.join(PROJECT_ROOT, "src", "jarvis", "core", "agents.py")
     tree = ast.parse(open(path, encoding="utf-8").read())
     offenders = []
     for node in ast.walk(tree):

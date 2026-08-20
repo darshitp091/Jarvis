@@ -13,23 +13,24 @@ numpy>=2.0
 loguru>=0.7
 
 # requests is not in any module-level import of the code under test --
-# core/tts_engine.py imports it lazily inside a function. It is still required:
-# tests/test_tts_engine.py calls monkeypatch.setattr("requests.post", ...), and
-# that string form makes pytest import requests itself.
+# src/jarvis/core/tts_engine.py imports it lazily inside a function. It is still
+# required: tests/test_tts_engine.py calls
+# monkeypatch.setattr("requests.post", ...), and that string form makes pytest
+# import requests itself.
 requests>=2.32
 
 # Coverage measurement and the CI gate. Kept here rather than installed ad hoc
 # so the number CI enforces is reproducible locally with the same command.
 pytest-cov>=5.0
 
-# core/intent_router.py imports yaml at module level, so the router
+# src/jarvis/core/intent_router.py imports yaml at module level, so the router
 # characterization tests need it even though they never load a config file.
 pyyaml>=6.0
 
 # sounddevice and soundfile load PortAudio / libsndfile at import time, so
-# `import core.tts_engine` needs the shared libraries present. No audio device
-# is ever opened: tests/test_tts_engine.py monkeypatches every playback call
-# and every requests.post. On Debian/Ubuntu the libraries are
+# `import jarvis.core.tts_engine` needs the shared libraries present. No audio
+# device is ever opened: tests/test_tts_engine.py monkeypatches every playback
+# call and every requests.post. On Debian/Ubuntu the libraries are
 # `libportaudio2` and `libsndfile1`.
 sounddevice>=0.5
 soundfile>=0.13

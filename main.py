@@ -1,5 +1,9 @@
 import sys
 import os
+# src-layout bootstrap. The jarvis package lives under src/, which `python
+# main.py` does not put on sys.path. This must precede the first
+# `from jarvis...` import further down the file.
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "src"))
 os.environ["GLOG_minloglevel"] = "3"
 os.environ["ABSL_log_min_level"] = "3"
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
@@ -73,65 +77,86 @@ from loguru import logger; _p("DBG: loguru ok")
 logger.remove()
 logger.add("jarvis.log", level="INFO", rotation="10 MB", encoding="utf-8")
 from PyQt6.QtWidgets import QApplication; _p("DBG: PyQt6 ok")
-import core.llm_client
-core.llm_client.patch_ollama()
+import jarvis.core.llm_client
+jarvis.core.llm_client.patch_ollama()
 
-from core.audio_engine import AudioEngine
-from core.tts_engine import TTSEngine
-from core.wake_word import WakeWordDetector
-from core.intent_router import IntentRouter
-from core.brain import JarvisBrain
-from core.vision_engine import CameraEngine
-from ui.orb import JarvisOrb; _p("DBG: orb ok")
-from skills.screen_vision import ScreenVision; _p("DBG: screen_vision ok")
-from skills.os_control import OSControl; _p("DBG: os_control ok")
-from skills.web_research import WebResearch; _p("DBG: web_research ok")
-from skills.media_summarizer import MediaSummarizer; _p("DBG: media_summarizer ok")
-from skills.app_mapper import AppMapper; _p("DBG: app_mapper ok")
-from skills.spotify_control import SpotifyControl; _p("DBG: spotify_control ok")
-from skills.youtube_music import YouTubeMusicPlayer; _p("DBG: youtube_music ok")
-from ui.overlay_widgets import IronManHUDOverlay; _p("DBG: IronManHUDOverlay ok")
-from skills.macro_recorder import MacroRecorder; _p("DBG: MacroRecorder ok")
-from auth.local_auth import LocalAuth; _p("DBG: local_auth ok")
-from domains.medical import MedicalDomain; _p("DBG: medical ok")
-from domains.business import BusinessDomain; _p("DBG: business ok")
-from domains.finance import FinanceDomain; _p("DBG: finance ok")
-from domains.security import SecurityDomain; _p("DBG: security ok")
-from domains.development import DevelopmentDomain; _p("DBG: development ok")
-from domains.science import ScienceDomain; _p("DBG: science ok")
-from domains.engineering import EngineeringDomain; _p("DBG: engineering ok")
-from core.proactive_monitor import ProactiveMonitor
-from skills.workspace_context import WorkspaceContext
-from skills.self_healing_vision import SelfHealingVision
-from ui.dashboard import JarvisDashboard
-from skills.phone_controller import PhoneController
+from jarvis.core.audio_engine import AudioEngine
+from jarvis.core.tts_engine import TTSEngine
+from jarvis.core.wake_word import WakeWordDetector
+from jarvis.core.intent_router import IntentRouter
+from jarvis.core.brain import JarvisBrain
+from jarvis.core.vision_engine import CameraEngine
+from jarvis.ui.orb import JarvisOrb; _p("DBG: orb ok")
+from jarvis.skills.screen_vision import ScreenVision; _p("DBG: screen_vision ok")
+from jarvis.skills.os_control import OSControl; _p("DBG: os_control ok")
+from jarvis.skills.web_research import WebResearch; _p("DBG: web_research ok")
+from jarvis.skills.media_summarizer import MediaSummarizer; _p("DBG: media_summarizer ok")
+from jarvis.skills.app_mapper import AppMapper; _p("DBG: app_mapper ok")
+from jarvis.skills.spotify_control import SpotifyControl; _p("DBG: spotify_control ok")
+from jarvis.skills.youtube_music import YouTubeMusicPlayer; _p("DBG: youtube_music ok")
+from jarvis.ui.overlay_widgets import IronManHUDOverlay; _p("DBG: IronManHUDOverlay ok")
+from jarvis.skills.macro_recorder import MacroRecorder; _p("DBG: MacroRecorder ok")
+from jarvis.auth.local_auth import LocalAuth; _p("DBG: local_auth ok")
+from jarvis.domains.medical import MedicalDomain; _p("DBG: medical ok")
+from jarvis.domains.business import BusinessDomain; _p("DBG: business ok")
+from jarvis.domains.finance import FinanceDomain; _p("DBG: finance ok")
+from jarvis.domains.security import SecurityDomain; _p("DBG: security ok")
+from jarvis.domains.development import DevelopmentDomain; _p("DBG: development ok")
+from jarvis.domains.science import ScienceDomain; _p("DBG: science ok")
+from jarvis.domains.engineering import EngineeringDomain; _p("DBG: engineering ok")
+from jarvis.core.proactive_monitor import ProactiveMonitor
+from jarvis.skills.workspace_context import WorkspaceContext
+from jarvis.skills.self_healing_vision import SelfHealingVision
+from jarvis.ui.dashboard import JarvisDashboard
+from jarvis.skills.phone_controller import PhoneController
 import ollama; _p("DBG: ollama ok")
-from skills.file_manager import FileManager; _p("DBG: file_manager ok")
-from skills.data_analyzer import DataAnalyzer; _p("DBG: data_analyzer ok")
-from skills.productivity import ProductivityPlanner; _p("DBG: productivity ok")
-from skills.image_editor import ImageEditor; _p("DBG: image_editor ok")
-from skills.security_auditor import SecurityAuditor; _p("DBG: security_auditor ok")
-from skills.vision_tracker import VisionTracker; _p("DBG: vision_tracker ok")
-from skills.market_analyzer import MarketAnalyzer; _p("DBG: market_analyzer ok")
-from skills.gesture_control import GestureController; _p("DBG: gesture_control ok")
-from ui.air_canvas import AirCanvas; _p("DBG: air_canvas ok")
-from skills.code_runner import CodeRunner; _p("DBG: code_runner ok")
-from skills.product_comparator import ProductComparator; _p("DBG: product_comparator ok")
-from skills.food_comparator import FoodComparator; _p("DBG: food_comparator ok")
-from skills.coding_sandbox import AutonomousCodingSandbox, CompilerRepairEngine; _p("DBG: coding_sandbox ok")
-from ui.hologram import HologramSimWidget; _p("DBG: HologramSimWidget ok")
-from skills.polyglot_engineer import PolyglotEngineer; _p("DBG: PolyglotEngineer ok")
-from skills.research_prodigy import ResearchProdigy; _p("DBG: ResearchProdigy ok")
-from skills.emergency_sentinel import EmergencySentinel; _p("DBG: EmergencySentinel ok")
-from core.context_sentinel import ContextSentinel
-from skills.app_control import AppControl
-from core.profile_manager import ProfileManager
-from skills.obsidian_control import ObsidianControl; _p("DBG: obsidian ok")
-from skills.shopping_assistant import ShoppingAssistant; _p("DBG: shopping_assistant ok")
-from services.db import Database, utc_now; _p("DBG: services.db ok")
-from services.scheduler import Scheduler; _p("DBG: scheduler ok")
-from services.calendar_service import CalendarService; _p("DBG: calendar_service ok")
-from services import timeparse; _p("DBG: timeparse ok")
+from jarvis.skills.file_manager import FileManager; _p("DBG: file_manager ok")
+from jarvis.skills.data_analyzer import DataAnalyzer; _p("DBG: data_analyzer ok")
+from jarvis.skills.productivity import ProductivityPlanner; _p("DBG: productivity ok")
+from jarvis.skills.image_editor import ImageEditor; _p("DBG: image_editor ok")
+from jarvis.skills.security_auditor import SecurityAuditor; _p("DBG: security_auditor ok")
+from jarvis.skills.vision_tracker import VisionTracker; _p("DBG: vision_tracker ok")
+from jarvis.skills.market_analyzer import MarketAnalyzer; _p("DBG: market_analyzer ok")
+from jarvis.skills.gesture_control import GestureController; _p("DBG: gesture_control ok")
+from jarvis.ui.air_canvas import AirCanvas; _p("DBG: air_canvas ok")
+from jarvis.skills.code_runner import CodeRunner; _p("DBG: code_runner ok")
+from jarvis.skills.product_comparator import ProductComparator; _p("DBG: product_comparator ok")
+from jarvis.skills.food_comparator import FoodComparator; _p("DBG: food_comparator ok")
+from jarvis.skills.coding_sandbox import AutonomousCodingSandbox, CompilerRepairEngine; _p("DBG: coding_sandbox ok")
+from jarvis.ui.hologram import HologramSimWidget; _p("DBG: HologramSimWidget ok")
+from jarvis.skills.polyglot_engineer import PolyglotEngineer; _p("DBG: PolyglotEngineer ok")
+from jarvis.skills.research_prodigy import ResearchProdigy; _p("DBG: ResearchProdigy ok")
+from jarvis.skills.emergency_sentinel import EmergencySentinel; _p("DBG: EmergencySentinel ok")
+from jarvis.core.context_sentinel import ContextSentinel
+from jarvis.skills.app_control import AppControl
+from jarvis.core.profile_manager import ProfileManager
+from jarvis.skills.obsidian_control import ObsidianControl; _p("DBG: obsidian ok")
+from jarvis.skills.shopping_assistant import ShoppingAssistant; _p("DBG: shopping_assistant ok")
+from jarvis.services.db import Database, utc_now; _p("DBG: services.db ok")
+from jarvis.services.scheduler import Scheduler; _p("DBG: scheduler ok")
+from jarvis.services.calendar_service import CalendarService; _p("DBG: calendar_service ok")
+from jarvis.services import timeparse; _p("DBG: timeparse ok")
+
+# Files the hot-reload watcher can act on, mapped to
+# (module name, JARVIS attribute, class name).
+#
+# The module name is carried explicitly rather than derived from the path.
+# Under the old flat layout "skills/os_control.py" -> "skills.os_control" by
+# string substitution, and that coincidence is what src-layout broke: the
+# same substitution now yields "src.jarvis.skills.os_control". That name is
+# not an error -- src/ has no __init__.py, but PEP 420 makes it an implicit
+# namespace package, so the name imports and loads the same file a second
+# time as a second module object. Reloading that copy leaves untouched the
+# class this instance actually holds, so hot reload would report success and
+# change nothing. A path and a module name are different things; this maps
+# between them instead of computing one from the other.
+SKILL_RELOAD_MAP = {
+    "src/jarvis/skills/os_control.py": ("jarvis.skills.os_control", "os_ctrl", "OSControl"),
+    "src/jarvis/skills/spotify_control.py": ("jarvis.skills.spotify_control", "spotify_ctrl", "SpotifyControl"),
+    "src/jarvis/skills/web_research.py": ("jarvis.skills.web_research", "web", "WebResearch"),
+    "src/jarvis/skills/gesture_control.py": ("jarvis.skills.gesture_control", "gesture_ctrl", "GestureController"),
+    "src/jarvis/core/intent_router.py": ("jarvis.core.intent_router", "router", "IntentRouter"),
+}
 
 
 
@@ -251,7 +276,7 @@ class JARVIS:
         
         # Self-Healing Engine & Memory Consolidation QTimer
         _p("INIT: SelfHealingEngine")
-        from core.self_healing import SelfHealingEngine
+        from jarvis.core.self_healing import SelfHealingEngine
         self.healer = SelfHealingEngine()
         
         from PyQt6.QtCore import QTimer
@@ -340,7 +365,7 @@ class JARVIS:
         self.last_command_time = 0.0
 
         # Import cognitive tracker
-        from core.cognitive import CognitiveSentimentTracker
+        from jarvis.core.cognitive import CognitiveSentimentTracker
         self.sentiment_tracker = CognitiveSentimentTracker()
         self.cognitive_state = "calm"
 
@@ -352,53 +377,53 @@ class JARVIS:
         self.gesture_ctrl.hologram_widget = self.hologram_widget
 
         # Import and initialize NetworkMapper
-        from skills.network_mapper import NetworkMapper
+        from jarvis.skills.network_mapper import NetworkMapper
         self.network_mapper = NetworkMapper()
 
         # Import and initialize CADGenerator
-        from skills.cad_generator import CADGenerator
+        from jarvis.skills.cad_generator import CADGenerator
         self.cad_gen = CADGenerator()
 
         # Initialize AgentLabWidget
         _p("INIT: AgentLabWidget")
-        from ui.agent_lab import AgentLabWidget
+        from jarvis.ui.agent_lab import AgentLabWidget
         self.agent_lab = AgentLabWidget()
 
         # Initialize SensoryHealthAnalyzer
         _p("INIT: SensoryHealthAnalyzer")
-        from core.sensory_health import SensoryHealthAnalyzer
+        from jarvis.core.sensory_health import SensoryHealthAnalyzer
         self.sensory_health = SensoryHealthAnalyzer(self.camera)
 
         # Initialize P2PLinkNode
         _p("INIT: P2PLinkNode")
-        from core.p2p_link import P2PLinkNode
+        from jarvis.core.p2p_link import P2PLinkNode
         self.p2p_link = P2PLinkNode(tts_engine=self.tts)
         self.p2p_link.start()
 
         # Initialize AirTypistTracker
         _p("INIT: AirTypistTracker")
-        from core.air_typist import AirTypistTracker
+        from jarvis.core.air_typist import AirTypistTracker
         self.air_typist = AirTypistTracker(self.camera)
 
         # Initialize VoiceAuthenticator
         _p("INIT: VoiceAuthenticator")
-        from core.voice_auth import VoiceAuthenticator
+        from jarvis.core.voice_auth import VoiceAuthenticator
         self.voice_auth = VoiceAuthenticator()
 
         # Initialize GitSentinel
         _p("INIT: GitSentinel")
-        from skills.git_sentinel import GitSentinel
+        from jarvis.skills.git_sentinel import GitSentinel
         self.git_sentinel = GitSentinel()
 
         # Initialize SentryFirewall
         _p("INIT: SentryFirewall")
-        from skills.sentry_firewall import SentryFirewall
+        from jarvis.skills.sentry_firewall import SentryFirewall
         self.sentry_firewall = SentryFirewall()
 
         # Initialize Focus Dashboard and Focus Tracker
         _p("INIT: FocusTracker & Dashboard")
-        from ui.vitals_dashboard import VitalsDashboardWidget
-        from core.focus_tracker import FocusTracker
+        from jarvis.ui.vitals_dashboard import VitalsDashboardWidget
+        from jarvis.core.focus_tracker import FocusTracker
         self.vitals_dashboard = VitalsDashboardWidget()
         self.focus_tracker = FocusTracker(self.camera, self.sensory_health, self.vitals_dashboard, self)
         self.focus_tracker.start()
@@ -424,8 +449,8 @@ class JARVIS:
 
         # Initialize Multi-Agent Swarm Swarm (Multi-Working)
         _p("INIT: Multi-Agent Swarm Agency")
-        from core.agency import Agency
-        from core.agents import (
+        from jarvis.core.agency import Agency
+        from jarvis.core.agents import (
             ReminderAgent, CalendarAgent,
             AudioEngineAgent, TtsEngineAgent, WakeWordAgent, VoiceAuthAgent, IntentRouterAgent,
             BrainAgent, CognitiveAgent, ContextSentinelAgent, ProactiveMonitorAgent, FocusTrackerAgent,
@@ -672,7 +697,7 @@ class JARVIS:
         threading.Thread(target=prewarm, daemon=True).start()
 
     def _unlock_monitor(self):
-        state_file = os.path.abspath("./auth/.auth_state")
+        state_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "src", "jarvis", "auth", ".auth_state")
         while True:
             try:
                 if not self.is_authenticated:
@@ -2015,17 +2040,9 @@ class JARVIS:
             norm_filepath = os.path.abspath(filepath)
             cwd = os.path.abspath(os.getcwd())
             rel_path = os.path.relpath(norm_filepath, cwd).replace("\\", "/")
-            mappings = {
-                "skills/os_control.py": ("os_ctrl", "OSControl"),
-                "skills/spotify_control.py": ("spotify_ctrl", "SpotifyControl"),
-                "skills/web_research.py": ("web", "WebResearch"),
-                "skills/gesture_control.py": ("gesture_ctrl", "GestureController"),
-                "core/intent_router.py": ("router", "IntentRouter")
-            }
-            if rel_path not in mappings:
+            if rel_path not in SKILL_RELOAD_MAP:
                 return False
-            attr_name, class_name = mappings[rel_path]
-            module_name = rel_path.replace(".py", "").replace("/", ".")
+            module_name, attr_name, class_name = SKILL_RELOAD_MAP[rel_path]
             if module_name in sys.modules:
                 importlib.reload(sys.modules[module_name])
             else:
@@ -3868,7 +3885,7 @@ class JARVIS:
         self.orb.set_state("idle")
 
     def _execute_eyecare_toggle(self, enable: bool):
-        from ui.overlay_widgets import EyeCareOverlay
+        from jarvis.ui.overlay_widgets import EyeCareOverlay
         if enable:
             if not self.eyecare_overlay:
                 self.eyecare_overlay = EyeCareOverlay()
@@ -3881,7 +3898,7 @@ class JARVIS:
             logger.info("Eye care overlay deactivated.")
 
     def _execute_ruler_toggle(self, show: bool):
-        from ui.overlay_widgets import ScreenRuler
+        from jarvis.ui.overlay_widgets import ScreenRuler
         if show:
             if not self.screen_ruler:
                 self.screen_ruler = ScreenRuler()
@@ -3894,7 +3911,7 @@ class JARVIS:
             logger.info("Screen ruler deactivated.")
 
     def _execute_snipping_tool(self):
-        from ui.overlay_widgets import SnippingOverlay
+        from jarvis.ui.overlay_widgets import SnippingOverlay
         if self.snipping_overlay:
             self.snipping_overlay.close()
         self.snipping_overlay = SnippingOverlay()
@@ -3903,7 +3920,7 @@ class JARVIS:
         logger.info("Snipping tool activated.")
 
     def show_hud_target_highlighter(self, x: int, y: int, label: str):
-        from ui.overlay_widgets import TargetReticleOverlay
+        from jarvis.ui.overlay_widgets import TargetReticleOverlay
         overlay = TargetReticleOverlay(x, y, label)
         overlay.show()
         logger.info(f"Target highlighter activated at {x},{y} with label '{label}'")
@@ -3918,7 +3935,7 @@ class JARVIS:
 
     def _show_hud_notification(self, title: str, message: str):
         try:
-            from ui.hud_notification import HudNotificationManager
+            from jarvis.ui.hud_notification import HudNotificationManager
             HudNotificationManager.show_toast(title, message)
         except Exception as e:
             logger.error(f"Failed to show HUD notification: {e}")
@@ -3957,7 +3974,7 @@ class JARVIS:
         self.orb.set_state("speaking")
         self.tts.speak("Starting voice calibration process. I will need you to say 'Hey JARVIS' three times. Let's record the first attempt.")
         
-        from core.wake_word import compute_mean_mfcc, cosine_similarity
+        from jarvis.core.wake_word import compute_mean_mfcc, cosine_similarity
         import numpy as np
         import json
         import time
@@ -4117,7 +4134,7 @@ class JARVIS:
                         self.os_ctrl.wake_monitor()
                         
                         # Write unlocked to state file to close secure_lock.py
-                        state_file = os.path.abspath("./auth/.auth_state")
+                        state_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "src", "jarvis", "auth", ".auth_state")
                         try:
                             with open(state_file, "w") as f:
                                 f.write("unlocked")
@@ -4630,7 +4647,7 @@ class JARVIS:
         # Case B: PyAudio stream closed or device error -> re-init Audio & Wake engine
         elif any(w in err_msg.lower() for w in ["stream", "audio", "pyaudio", "input device"]):
             try:
-                from core.wake_word import WakeWordDetector
+                from jarvis.core.wake_word import WakeWordDetector
                 self.wake = WakeWordDetector()
                 healed = True
                 heal_desc = "Re-initialized PyAudio stream and WakeWordDetector."
@@ -4657,8 +4674,8 @@ class JARVIS:
         if len(self._error_history) >= 3:
             logger.warning("Sensory loop error rate high. Performing full subsystem reset...")
             try:
-                from core.wake_word import WakeWordDetector
-                from core.audio_engine import AudioEngine
+                from jarvis.core.wake_word import WakeWordDetector
+                from jarvis.core.audio_engine import AudioEngine
                 self.wake = WakeWordDetector()
                 self.audio = AudioEngine(silence_sec=self.config["audio"]["silence_threshold"])
                 self._error_history.clear()

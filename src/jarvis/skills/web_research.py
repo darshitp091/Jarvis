@@ -7,8 +7,8 @@ import threading
 import webbrowser
 import pyautogui
 from loguru import logger
-from skills.os_control import OSControl
-from skills.screen_vision import ScreenVision
+from jarvis.skills.os_control import OSControl
+from jarvis.skills.screen_vision import ScreenVision
 
 class WebResearch:
     """Advanced Web Research using Chromium and Visual Automation"""
@@ -432,7 +432,7 @@ class WebResearch:
     def whatsapp_message(self, phone: str, message: str) -> str:
         """Automates sending a WhatsApp message via WhatsApp Web in browser, supporting phone numbers or contact names."""
         import urllib.parse
-        from skills.phone_controller import PhoneController
+        from jarvis.skills.phone_controller import PhoneController
         
         phone_ctrl = PhoneController()
         resolved_number = None

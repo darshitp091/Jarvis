@@ -10,9 +10,9 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from services.calendar_service import CalendarService
-from services.db import Database, from_iso, to_iso, utc_now
-from services.scheduler import Scheduler, next_occurrence
+from jarvis.services.calendar_service import CalendarService
+from jarvis.services.db import Database, from_iso, to_iso, utc_now
+from jarvis.services.scheduler import Scheduler, next_occurrence
 
 
 @pytest.fixture()

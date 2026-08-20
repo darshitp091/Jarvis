@@ -12,7 +12,7 @@ import urllib.parse
 import webbrowser
 from loguru import logger
 
-from skills.product_comparator import ProductComparator
+from jarvis.skills.product_comparator import ProductComparator
 
 class ShoppingAssistant:
     """Autonomous E-Commerce & Product Shopping Controller."""

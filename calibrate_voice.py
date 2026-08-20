@@ -8,7 +8,7 @@ import json
 # Add project root to path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from core.wake_word import compute_mean_mfcc, cosine_similarity
+from jarvis.core.wake_word import compute_mean_mfcc, cosine_similarity
 
 def run_calibration():
     print("==========================================================")
