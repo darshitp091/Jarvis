@@ -76,14 +76,25 @@ jobs:
       # The denominator was wrong. `source = .` discovered never-imported files
       # only inside importable packages, and services/ was the only directory
       # with an __init__.py, so 66 of 81 source modules were absent from the
-      # measurement. Naming the directories explicitly grows the denominator
-      # from 6,690 statements to 17,960.
+      # measurement. Naming the source tree explicitly grows the denominator
+      # from 6,690 statements to 17,961.
       #
-      # The number of covered statements is unchanged at 1,721. Exactly the same
-      # tests exercise exactly the same lines; 25.72% divided them by 6,690
-      # statements, which is 37% of the real total. 9.58% is the same fact,
+      # Covered statements barely moved: 1,721 then, 1,732 now, the difference
+      # being the package __init__.py files that an import executes. Exactly the
+      # same tests exercise exactly the same lines; 25.72% divided them by 6,690
+      # statements, which is 37% of the real total. 9.64% is the same fact,
       # honestly divided.
       #
-      # 5 leaves 4.58pp of headroom. Ratchet upward as tests land; never lower
+      # --cov-precision=2 is load-bearing, not cosmetic. pytest-cov decides the
+      # exit code on `round(total, precision) < fail_under` but formats the
+      # printed message from the unrounded value, so at the default precision 0
+      # this exact suite against --cov-fail-under=10 prints
+      # "FAIL Required test coverage of 10% not reached. Total coverage: 9.64%"
+      # and exits 0 -- a green build with FAIL on screen. Measured on
+      # pytest-cov 7.1.0; the same command with --cov-precision=2 exits 1. The
+      # gate of 5 is not in that dead band, but 10 is the next ratchet a 9.64%
+      # reading invites, so the flag lands before the ratchet does.
+      #
+      # 5 leaves 4.64pp of headroom. Ratchet upward as tests land; never lower
       # it to make a red build pass.
-      run: pytest --cov --cov-report=term-missing --cov-fail-under=5
+      run: pytest --cov --cov-report=term-missing --cov-precision=2 --cov-fail-under=5
