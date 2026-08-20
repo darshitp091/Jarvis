@@ -87,15 +87,15 @@ from jarvis.core.intent_router import IntentRouter
 from jarvis.core.brain import JarvisBrain
 from jarvis.core.vision_engine import CameraEngine
 from ui.orb import JarvisOrb; _p("DBG: orb ok")
-from skills.screen_vision import ScreenVision; _p("DBG: screen_vision ok")
-from skills.os_control import OSControl; _p("DBG: os_control ok")
-from skills.web_research import WebResearch; _p("DBG: web_research ok")
-from skills.media_summarizer import MediaSummarizer; _p("DBG: media_summarizer ok")
-from skills.app_mapper import AppMapper; _p("DBG: app_mapper ok")
-from skills.spotify_control import SpotifyControl; _p("DBG: spotify_control ok")
-from skills.youtube_music import YouTubeMusicPlayer; _p("DBG: youtube_music ok")
+from jarvis.skills.screen_vision import ScreenVision; _p("DBG: screen_vision ok")
+from jarvis.skills.os_control import OSControl; _p("DBG: os_control ok")
+from jarvis.skills.web_research import WebResearch; _p("DBG: web_research ok")
+from jarvis.skills.media_summarizer import MediaSummarizer; _p("DBG: media_summarizer ok")
+from jarvis.skills.app_mapper import AppMapper; _p("DBG: app_mapper ok")
+from jarvis.skills.spotify_control import SpotifyControl; _p("DBG: spotify_control ok")
+from jarvis.skills.youtube_music import YouTubeMusicPlayer; _p("DBG: youtube_music ok")
 from ui.overlay_widgets import IronManHUDOverlay; _p("DBG: IronManHUDOverlay ok")
-from skills.macro_recorder import MacroRecorder; _p("DBG: MacroRecorder ok")
+from jarvis.skills.macro_recorder import MacroRecorder; _p("DBG: MacroRecorder ok")
 from jarvis.auth.local_auth import LocalAuth; _p("DBG: local_auth ok")
 from jarvis.domains.medical import MedicalDomain; _p("DBG: medical ok")
 from jarvis.domains.business import BusinessDomain; _p("DBG: business ok")
@@ -105,33 +105,33 @@ from jarvis.domains.development import DevelopmentDomain; _p("DBG: development o
 from jarvis.domains.science import ScienceDomain; _p("DBG: science ok")
 from jarvis.domains.engineering import EngineeringDomain; _p("DBG: engineering ok")
 from jarvis.core.proactive_monitor import ProactiveMonitor
-from skills.workspace_context import WorkspaceContext
-from skills.self_healing_vision import SelfHealingVision
+from jarvis.skills.workspace_context import WorkspaceContext
+from jarvis.skills.self_healing_vision import SelfHealingVision
 from ui.dashboard import JarvisDashboard
-from skills.phone_controller import PhoneController
+from jarvis.skills.phone_controller import PhoneController
 import ollama; _p("DBG: ollama ok")
-from skills.file_manager import FileManager; _p("DBG: file_manager ok")
-from skills.data_analyzer import DataAnalyzer; _p("DBG: data_analyzer ok")
-from skills.productivity import ProductivityPlanner; _p("DBG: productivity ok")
-from skills.image_editor import ImageEditor; _p("DBG: image_editor ok")
-from skills.security_auditor import SecurityAuditor; _p("DBG: security_auditor ok")
-from skills.vision_tracker import VisionTracker; _p("DBG: vision_tracker ok")
-from skills.market_analyzer import MarketAnalyzer; _p("DBG: market_analyzer ok")
-from skills.gesture_control import GestureController; _p("DBG: gesture_control ok")
+from jarvis.skills.file_manager import FileManager; _p("DBG: file_manager ok")
+from jarvis.skills.data_analyzer import DataAnalyzer; _p("DBG: data_analyzer ok")
+from jarvis.skills.productivity import ProductivityPlanner; _p("DBG: productivity ok")
+from jarvis.skills.image_editor import ImageEditor; _p("DBG: image_editor ok")
+from jarvis.skills.security_auditor import SecurityAuditor; _p("DBG: security_auditor ok")
+from jarvis.skills.vision_tracker import VisionTracker; _p("DBG: vision_tracker ok")
+from jarvis.skills.market_analyzer import MarketAnalyzer; _p("DBG: market_analyzer ok")
+from jarvis.skills.gesture_control import GestureController; _p("DBG: gesture_control ok")
 from ui.air_canvas import AirCanvas; _p("DBG: air_canvas ok")
-from skills.code_runner import CodeRunner; _p("DBG: code_runner ok")
-from skills.product_comparator import ProductComparator; _p("DBG: product_comparator ok")
-from skills.food_comparator import FoodComparator; _p("DBG: food_comparator ok")
-from skills.coding_sandbox import AutonomousCodingSandbox, CompilerRepairEngine; _p("DBG: coding_sandbox ok")
+from jarvis.skills.code_runner import CodeRunner; _p("DBG: code_runner ok")
+from jarvis.skills.product_comparator import ProductComparator; _p("DBG: product_comparator ok")
+from jarvis.skills.food_comparator import FoodComparator; _p("DBG: food_comparator ok")
+from jarvis.skills.coding_sandbox import AutonomousCodingSandbox, CompilerRepairEngine; _p("DBG: coding_sandbox ok")
 from ui.hologram import HologramSimWidget; _p("DBG: HologramSimWidget ok")
-from skills.polyglot_engineer import PolyglotEngineer; _p("DBG: PolyglotEngineer ok")
-from skills.research_prodigy import ResearchProdigy; _p("DBG: ResearchProdigy ok")
-from skills.emergency_sentinel import EmergencySentinel; _p("DBG: EmergencySentinel ok")
+from jarvis.skills.polyglot_engineer import PolyglotEngineer; _p("DBG: PolyglotEngineer ok")
+from jarvis.skills.research_prodigy import ResearchProdigy; _p("DBG: ResearchProdigy ok")
+from jarvis.skills.emergency_sentinel import EmergencySentinel; _p("DBG: EmergencySentinel ok")
 from jarvis.core.context_sentinel import ContextSentinel
-from skills.app_control import AppControl
+from jarvis.skills.app_control import AppControl
 from jarvis.core.profile_manager import ProfileManager
-from skills.obsidian_control import ObsidianControl; _p("DBG: obsidian ok")
-from skills.shopping_assistant import ShoppingAssistant; _p("DBG: shopping_assistant ok")
+from jarvis.skills.obsidian_control import ObsidianControl; _p("DBG: obsidian ok")
+from jarvis.skills.shopping_assistant import ShoppingAssistant; _p("DBG: shopping_assistant ok")
 from jarvis.services.db import Database, utc_now; _p("DBG: services.db ok")
 from jarvis.services.scheduler import Scheduler; _p("DBG: scheduler ok")
 from jarvis.services.calendar_service import CalendarService; _p("DBG: calendar_service ok")
@@ -356,11 +356,11 @@ class JARVIS:
         self.gesture_ctrl.hologram_widget = self.hologram_widget
 
         # Import and initialize NetworkMapper
-        from skills.network_mapper import NetworkMapper
+        from jarvis.skills.network_mapper import NetworkMapper
         self.network_mapper = NetworkMapper()
 
         # Import and initialize CADGenerator
-        from skills.cad_generator import CADGenerator
+        from jarvis.skills.cad_generator import CADGenerator
         self.cad_gen = CADGenerator()
 
         # Initialize AgentLabWidget
@@ -391,12 +391,12 @@ class JARVIS:
 
         # Initialize GitSentinel
         _p("INIT: GitSentinel")
-        from skills.git_sentinel import GitSentinel
+        from jarvis.skills.git_sentinel import GitSentinel
         self.git_sentinel = GitSentinel()
 
         # Initialize SentryFirewall
         _p("INIT: SentryFirewall")
-        from skills.sentry_firewall import SentryFirewall
+        from jarvis.skills.sentry_firewall import SentryFirewall
         self.sentry_firewall = SentryFirewall()
 
         # Initialize Focus Dashboard and Focus Tracker
