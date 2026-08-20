@@ -96,14 +96,14 @@ from skills.spotify_control import SpotifyControl; _p("DBG: spotify_control ok")
 from skills.youtube_music import YouTubeMusicPlayer; _p("DBG: youtube_music ok")
 from ui.overlay_widgets import IronManHUDOverlay; _p("DBG: IronManHUDOverlay ok")
 from skills.macro_recorder import MacroRecorder; _p("DBG: MacroRecorder ok")
-from auth.local_auth import LocalAuth; _p("DBG: local_auth ok")
-from domains.medical import MedicalDomain; _p("DBG: medical ok")
-from domains.business import BusinessDomain; _p("DBG: business ok")
-from domains.finance import FinanceDomain; _p("DBG: finance ok")
-from domains.security import SecurityDomain; _p("DBG: security ok")
-from domains.development import DevelopmentDomain; _p("DBG: development ok")
-from domains.science import ScienceDomain; _p("DBG: science ok")
-from domains.engineering import EngineeringDomain; _p("DBG: engineering ok")
+from jarvis.auth.local_auth import LocalAuth; _p("DBG: local_auth ok")
+from jarvis.domains.medical import MedicalDomain; _p("DBG: medical ok")
+from jarvis.domains.business import BusinessDomain; _p("DBG: business ok")
+from jarvis.domains.finance import FinanceDomain; _p("DBG: finance ok")
+from jarvis.domains.security import SecurityDomain; _p("DBG: security ok")
+from jarvis.domains.development import DevelopmentDomain; _p("DBG: development ok")
+from jarvis.domains.science import ScienceDomain; _p("DBG: science ok")
+from jarvis.domains.engineering import EngineeringDomain; _p("DBG: engineering ok")
 from core.proactive_monitor import ProactiveMonitor
 from skills.workspace_context import WorkspaceContext
 from skills.self_healing_vision import SelfHealingVision
@@ -676,7 +676,7 @@ class JARVIS:
         threading.Thread(target=prewarm, daemon=True).start()
 
     def _unlock_monitor(self):
-        state_file = os.path.abspath("./auth/.auth_state")
+        state_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "src", "jarvis", "auth", ".auth_state")
         while True:
             try:
                 if not self.is_authenticated:
@@ -4121,7 +4121,7 @@ class JARVIS:
                         self.os_ctrl.wake_monitor()
                         
                         # Write unlocked to state file to close secure_lock.py
-                        state_file = os.path.abspath("./auth/.auth_state")
+                        state_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "src", "jarvis", "auth", ".auth_state")
                         try:
                             with open(state_file, "w") as f:
                                 f.write("unlocked")
