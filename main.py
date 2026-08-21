@@ -3708,7 +3708,6 @@ class JARVIS:
                             f"Construct a PyQt6 GUI application based on this drawing description: {drawing_description}"
                         )
                         try:
-                            import os
                             os.unlink(image_path)
                         except Exception:
                             pass
