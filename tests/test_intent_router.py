@@ -13,6 +13,11 @@ Two cases are marked KNOWN GAP: real Hinglish word-order defects that return
 None and fall through to the LLM router. They are pinned as-is deliberately.
 Fixing them belongs in its own test-paired commit, not mixed into the baseline
 the refactor is measured against.
+
+Cases that have since been fixed keep their history in the docstring of the
+test they used to live in, because the cause is usually more instructive than
+the symptom -- "run this python code" opened a YouTube video because "yt" was
+matched as a bare substring and hides inside "python".
 """
 
 import os
@@ -96,6 +101,7 @@ ROUTES = [
     ("open swarm lab",        "agent_lab",         "open_lab"),
     ("turn on gaze pointer",  "air_typist",        "start"),
     ("execute code",          "app_control",       "run_code"),
+    ("run this python code",  "code_runner",       "run_code"),
     ("solve air canvas",      "coding_sandbox",    "execute_task"),
     ("customization protocol", "customizer",       "enter"),
     ("explorer show hidden",  "file_manager",      "toggle_show_hidden_files"),
@@ -280,18 +286,24 @@ def test_known_hinglish_word_order_gaps_return_none(router, cmd, why):
 
 
 @pytest.mark.parametrize("cmd,skill,action,expected_instead", [
-    ("run this python code",   "web_research", "open_youtube_video", "code_runner"),
     ("start recording macro",  "os_control",   "launch",             "macro_recorder"),
     ("order food from swiggy", "shopping",     "search_product",     "food_ordering"),
 ])
 def test_known_rule_shadowing(router, cmd, skill, action, expected_instead):
     """KNOWN GAP -- pinned, not endorsed.
 
-    An earlier rule claims these before the intended one is reached.
-    "run this python code" opening a YouTube video is the clearest defect of the
-    three. Recorded as current behavior for the same reason as the Hinglish gaps:
-    Phase 2 preserves behavior, and fixing a route inside the baseline destroys
-    the reference the Phase 3 refactor is measured against.
+    An earlier rule claims these before the intended one is reached. Recorded as
+    current behavior for the same reason as the Hinglish gaps: Phase 2 preserves
+    behavior, and fixing a route inside the baseline destroys the reference the
+    Phase 3 refactor is measured against.
+
+    A third case lived here -- "run this python code" opening a YouTube video,
+    the clearest defect of the three -- and has been fixed, so it now has a row
+    in ROUTES instead. Its cause is worth remembering while reading the two
+    below: the video intercept tested `"yt" in cmd` as a bare substring, and
+    "yt" hides inside "python", "anything", "everything", "bytes" and
+    "analytics". The rule that steals a command is not always the rule that
+    looks related to it.
 
     An explicitly ordered rule list is exactly what makes this class of bug
     visible, which is the substantive win of the Phase 3 split rather than a
@@ -307,6 +319,86 @@ def test_known_rule_shadowing(router, cmd, skill, action, expected_instead):
     assert out["params"].get("action") == action
 
 
+@pytest.mark.parametrize("cmd", [
+    "tell me anything about mars",
+    "everything is fine",
+    "check disk bytes",
+    "show me the analytics report",
+])
+def test_words_merely_containing_yt_are_not_video_requests(router, cmd):
+    """Regression guard for the substring that stole unrelated commands.
+
+    The video intercept used to test `"yt" in cmd`, and "yt" is a substring of
+    "python", "anything", "everything", "bytes" and "analytics". Every phrase
+    here was routed to the YouTube player as a result, which is what made the
+    "run this python code" defect a class rather than one bad phrase: none of
+    these mentions video at all. Declining them is correct -- they fall through
+    to the LLM router, which is what None means here.
+    """
+    out = router._regex_route(cmd)
+    assert out is None or out["params"].get("action") != "open_youtube_video", (
+        f"{cmd!r} was claimed by the video intercept as {out}; the trigger has "
+        "gone back to matching \"yt\" as a bare substring"
+    )
+
+
+@pytest.mark.parametrize("cmd", [
+    "yt pe koi gaana chalao",
+    "play video of cats",
+    "summarize this video",
+])
+def test_real_video_requests_still_reach_the_player(router, cmd):
+    """The other half of that fix, and the reason it is a fix and not a deletion.
+
+    Narrowing the trigger to a word boundary is only correct if the abbreviation
+    people actually type keeps working. Without this test the guard above could
+    be satisfied by removing "yt" from the trigger list altogether.
+    """
+    out = router._regex_route(cmd)
+    assert out is not None, f"{cmd!r} no longer matches any rule"
+    assert out["skill"] == "web_research"
+    assert out["params"].get("action") == "open_youtube_video"
+
+
+def test_run_code_flags_a_missing_code_payload(router):
+    """"run this python code" names a language but supplies nothing to run.
+
+    An empty temp file executes successfully and prints nothing, so routing this
+    to run_code unguarded would be a silent no-op -- the same failure shape as
+    the dead hologram branch. The router marks the gap and main.py asks for the
+    code instead. The flag is pinned in both states because the dispatcher
+    branches on it: dropping it restores the no-op with no test noticing.
+    """
+    missing = router._regex_route("run this python code")
+    assert missing["params"]["code_text"] == ""
+    assert missing["params"]["needs_code_text"] is True
+
+    supplied = router._regex_route("run python code print(1)")
+    assert supplied["params"]["code_text"] == "print(1)"
+    assert supplied["params"]["needs_code_text"] is False
+
+
+def test_known_gap_code_payloads_lose_their_punctuation(router):
+    """KNOWN GAP -- pinned, not endorsed. Pre-existing, and wider than run_code.
+
+    _regex_route strips `. , ? ! " '` from the whole command before any rule
+    sees it, so a code payload arrives already mangled: console.log becomes
+    consolelog. Every rule that captures free text out of `cmd` inherits this,
+    which is why it is recorded here rather than patched inside the code_runner
+    rule -- the normalization is the defect, and moving it touches every rule at
+    once. Until then, dictated code is usable only when it happens to contain no
+    punctuation.
+
+    When that normalization is fixed this test SHOULD fail. That is the signal.
+    """
+    out = router._regex_route("execute js code console.log(2)")
+    assert out["skill"] == "code_runner"
+    assert out["params"]["code_text"] == "consolelog(2)", (
+        "the punctuation strip at the top of _regex_route has changed; if code "
+        "payloads now survive intact, delete this test and pin the real value"
+    )
+
+
 # --------------------------------------------------------- coverage accounting
 
 # Skills that appear in intent_router.py but that _regex_route cannot reach.
@@ -314,13 +406,12 @@ def test_known_rule_shadowing(router, cmd, skill, action, expected_instead):
 # claimed by an earlier rule, so they are reachable only via the LLM router.
 #
 # This is not a wish list -- it is a measured property of the current rule
-# ordering, and it is the reason the table above stops at 30 of 42. Shrinking
+# ordering, and it is the reason the table above stops at 31 of 42. Shrinking
 # this set is real work with real user-visible value; see the follow-ups table
 # in the plan.
 LLM_ONLY_SKILLS = {
     "ambiguous",          # deliberate: the disambiguation branch, not a route
     "conversation",       # deliberate: the explicit fall-through skill
-    "code_runner",        # shadowed -- "run this python code" -> web_research
     "macro_recorder",     # shadowed -- "start recording macro" -> os_control
     "food_ordering",      # shadowed -- "order food from swiggy" -> shopping
     "data_analyzer",

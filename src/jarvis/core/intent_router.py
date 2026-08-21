@@ -607,9 +607,19 @@ class IntentRouter:
             return {"skill": "os_control", "params": {"action": "create_shortcut", "target_path": shortcut_match.group(1).strip(), "shortcut_path": shortcut_match.group(2).strip()}, "domain": "general"}
 
         # --- Code Runner operations ---
-        run_code_match = re.search(r"^(?:run|execute)\s+(python|javascript|js|batch|bat)\s+code\s+(.+)", cmd)
+        # Filler between the verb and the language is optional ("run this
+        # python code"), and so is the code itself: that phrasing names a
+        # language but supplies nothing to run. Handing it to run_code anyway
+        # would write an empty temp file, execute it successfully and print
+        # nothing -- a silent no-op. The gap is reported the same way a missing
+        # song name is at the YouTube intercept below: as a flag the caller
+        # checks so it can ask instead of pretending it ran something.
+        run_code_match = re.search(
+            r"^(?:run|execute)\s+(?:this\s+|that\s+|the\s+|ye\s+|yeh\s+)?"
+            r"(python|javascript|js|batch|bat)\s+code\b\s*(.*)", cmd)
         if run_code_match:
-            return {"skill": "code_runner", "params": {"action": "run_code", "language": run_code_match.group(1), "code_text": run_code_match.group(2).strip()}, "domain": "general"}
+            code_text = run_code_match.group(2).strip()
+            return {"skill": "code_runner", "params": {"action": "run_code", "language": run_code_match.group(1), "code_text": code_text, "needs_code_text": not code_text}, "domain": "general"}
 
         git_match = re.search(r"^git\s+(status|commit|push|pull|branch)(?:\s+(.+))?$", cmd)
         if git_match:
@@ -814,7 +824,19 @@ class IntentRouter:
             return {"skill": "media_summarize", "params": {"url": youtube_match.group(1)}, "domain": "general"}
 
         # 4b. Web Research & YouTube Video Player (Early intercept)
-        is_video_request = any(w in cmd for w in ["play video", "watch video", "open video", "youtube video", "recipe video", "search youtube", "youtube par", "youtube mein", "youtube pe", "video", "youtube", "yutub", "yt", "वीडियो", "यूट्यूब"]) and not any(w in cmd for w in ["spotify", "music only", "audio only", "mpv", "background"])
+        # "yt" is the one trigger matched on a word boundary rather than as a
+        # substring, because it is the only one short enough to hide inside
+        # ordinary words: `"yt" in cmd` also fires for "python", "anything",
+        # "everything", "bytes" and "analytics". That sent "run this python
+        # code" -- and any request merely mentioning "anything" -- to the
+        # YouTube player instead of the skill actually asked for. Every other
+        # trigger is 5+ characters and stays a substring test so that plurals
+        # and compounds ("videos", "youtubepe") keep matching.
+        video_triggers = ["play video", "watch video", "open video", "youtube video",
+                          "recipe video", "search youtube", "youtube par",
+                          "youtube mein", "youtube pe", "video", "youtube", "yutub",
+                          "वीडियो", "यूट्यूब"]
+        is_video_request = (any(w in cmd for w in video_triggers) or re.search(r"\byt\b", cmd)) and not any(w in cmd for w in ["spotify", "music only", "audio only", "mpv", "background"])
         if is_video_request:
             q = cmd
             q = re.sub(r'[,\?\!\.\"\']', '', q).strip()

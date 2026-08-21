@@ -3615,7 +3615,14 @@ class JARVIS:
                 elif skill == "code_runner":
                     action = params.get("action", "")
                     if action == "run_code":
-                        response = self.code_runner.run_code(params.get("language", "python"), params.get("code_text", ""))
+                        run_code_text = params.get("code_text", "") or ""
+                        if params.get("needs_code_text") or not run_code_text.strip():
+                            # An empty file runs successfully and prints nothing,
+                            # so ask for the code rather than report a no-op.
+                            run_lang = params.get("language", "python")
+                            response = f"Sir, {run_lang} code toh bataiye -- kya chalau?"
+                        else:
+                            response = self.code_runner.run_code(params.get("language", "python"), run_code_text)
                     elif action == "git_command":
                         response = self.code_runner.git_command(params.get("git_action", "status"), params.get("args", ""))
                     elif action == "docker_command":
