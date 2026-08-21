@@ -100,8 +100,8 @@ class IntentRouter:
         # be caught by the "remember"/"yaad rakhna" note trigger. The time phrase
         # itself is parsed downstream by services.timeparse, so these rules only
         # need to identify the intent and hand over the original text.
-        if re.search(r"\b(?:cancel|delete|remove|hata\s*do|band\s*karo)\b.*\b(?:reminder|reminders|alarm|alarms)\b", cmd) \
-           or re.search(r"\b(?:reminder|alarm)\b.*\b(?:cancel|delete|remove|hata\s*do|band\s*karo)\b", cmd):
+        if re.search(r"\b(?:cancel|delete|remove|hata\s*do|band\s*karo)\b.*\b(?:reminders?|alarms?)\b", cmd) \
+           or re.search(r"\b(?:reminders?|alarms?)\b.*\b(?:cancel|delete|remove|hata\s*do|band\s*karo)\b", cmd):
             num = re.search(r"\b(?:number|no|id)?\s*(\d+)\b", cmd)
             return {
                 "skill": "reminder",
@@ -149,8 +149,16 @@ class IntentRouter:
            or re.search(r"\b(?:meeting|appointment)\b.*\b(?:schedule|calendar|book)\b", cmd):
             return {"skill": "calendar", "params": {"action": "add_event", "query": text}, "domain": "general"}
 
+        # Hinglish puts the time expression between the possessive and the noun --
+        # "mera kal ka schedule", "meri aaj ki agenda" -- so the possessive branch
+        # tolerates a few connector words instead of demanding the noun next to it.
+        # The filler list is closed on purpose: `\w+` there would also swallow
+        # "mera naya calendar banao", which is not an agenda request.
+        possessive_agenda = (r"\b(?:what(?:'s|s)?\s+(?:on\s+)?my|mera|meri)\s+"
+                             r"(?:(?:aaj|kal|parso|is|agle|agli|hafte|mahine|din|ka|ki|ke)\s+){0,3}"
+                             r"(?:day|agenda|schedule|calendar)\b")
         if (not creates_event and re.search(r"\b(?:agenda|schedule|calendar)\b.*\b(?:today|tomorrow|aaj|kal)\b", cmd)) \
-           or re.search(r"\b(?:what(?:'s|s)?\s+(?:on\s+)?my|mera|meri)\s+(?:day|agenda|schedule|calendar)\b", cmd) \
+           or re.search(possessive_agenda, cmd) \
            or re.search(r"\b(?:brief\s+me|daily\s+briefing|din\s+ka\s+plan)\b", cmd):
             day = "tomorrow" if re.search(r"\b(?:tomorrow|kal)\b", cmd) else "today"
             return {"skill": "calendar", "params": {"action": "agenda", "day": day}, "domain": "general"}
@@ -607,9 +615,19 @@ class IntentRouter:
             return {"skill": "os_control", "params": {"action": "create_shortcut", "target_path": shortcut_match.group(1).strip(), "shortcut_path": shortcut_match.group(2).strip()}, "domain": "general"}
 
         # --- Code Runner operations ---
-        run_code_match = re.search(r"^(?:run|execute)\s+(python|javascript|js|batch|bat)\s+code\s+(.+)", cmd)
+        # Filler between the verb and the language is optional ("run this
+        # python code"), and so is the code itself: that phrasing names a
+        # language but supplies nothing to run. Handing it to run_code anyway
+        # would write an empty temp file, execute it successfully and print
+        # nothing -- a silent no-op. The gap is reported the same way a missing
+        # song name is at the YouTube intercept below: as a flag the caller
+        # checks so it can ask instead of pretending it ran something.
+        run_code_match = re.search(
+            r"^(?:run|execute)\s+(?:this\s+|that\s+|the\s+|ye\s+|yeh\s+)?"
+            r"(python|javascript|js|batch|bat)\s+code\b\s*(.*)", cmd)
         if run_code_match:
-            return {"skill": "code_runner", "params": {"action": "run_code", "language": run_code_match.group(1), "code_text": run_code_match.group(2).strip()}, "domain": "general"}
+            code_text = run_code_match.group(2).strip()
+            return {"skill": "code_runner", "params": {"action": "run_code", "language": run_code_match.group(1), "code_text": code_text, "needs_code_text": not code_text}, "domain": "general"}
 
         git_match = re.search(r"^git\s+(status|commit|push|pull|branch)(?:\s+(.+))?$", cmd)
         if git_match:
@@ -654,8 +672,16 @@ class IntentRouter:
         if shop_search_match:
             return {"skill": "shopping", "params": {"action": "search_product", "query": shop_search_match.group(1).strip(), "platform": shop_search_match.group(2).strip()}, "domain": "general"}
         
+        # Categories this rule declines so that a later, more specific rule can
+        # claim them. Matched on word boundaries: as bare substrings "phone"
+        # also fires inside "headphones", which left "purchase headphones"
+        # matching no rule at all. Food platforms are declined because
+        # food_ordering owns them ~750 lines further down; without that, the
+        # generic "order (.+)" here claimed every food order first and
+        # food_ordering's own "order ..." rule was unreachable dead code.
+        non_shopping = r"\b(?:phone|course|ticket|stock|crypto)s?\b|\b(?:swiggy|zomato)\b"
         buy_prod_match = re.search(r"(?:buy|purchase|order)\s+(.+)", cmd)
-        if buy_prod_match and not any(w in cmd for w in ["phone", "course", "ticket", "stock", "crypto"]):
+        if buy_prod_match and not re.search(non_shopping, cmd):
             return {"skill": "shopping", "params": {"action": "search_product", "query": buy_prod_match.group(1).strip(), "platform": "amazon"}, "domain": "general"}
 
         if any(c in cmd for c in ["add to cart", "cart mein dalo", "cart me dalo", "add this to cart", "cart mein add karo"]):
@@ -727,8 +753,12 @@ class IntentRouter:
         if whatsapp_match:
             return {"skill": "web_research", "params": {"action": "whatsapp_message", "phone": whatsapp_match.group(1).strip(), "message": whatsapp_match.group(2).strip()}, "domain": "general"}
 
+        # A generic web search for food. It declines when a delivery platform is
+        # named, because food_ordering owns those. This rule was itself dead code
+        # until the shopping rule above stopped claiming every "order ..." first;
+        # unblocking one rule exposed the next one competing for the same phrase.
         food_match = re.search(r"^(?:search|find|order)\s+food\s+(?:for\s+)?(.+)", cmd)
-        if food_match:
+        if food_match and not re.search(r"\b(?:swiggy|zomato)\b", cmd):
             return {"skill": "web_research", "params": {"action": "search_food", "query": food_match.group(1).strip()}, "domain": "general"}
 
         track_pkg_match = re.search(r"^track\s+(fedex|ups|usps|dhl)\s+(?:package\s+)?(?:number\s+)?(\S+)", cmd)
@@ -814,7 +844,19 @@ class IntentRouter:
             return {"skill": "media_summarize", "params": {"url": youtube_match.group(1)}, "domain": "general"}
 
         # 4b. Web Research & YouTube Video Player (Early intercept)
-        is_video_request = any(w in cmd for w in ["play video", "watch video", "open video", "youtube video", "recipe video", "search youtube", "youtube par", "youtube mein", "youtube pe", "video", "youtube", "yutub", "yt", "वीडियो", "यूट्यूब"]) and not any(w in cmd for w in ["spotify", "music only", "audio only", "mpv", "background"])
+        # "yt" is the one trigger matched on a word boundary rather than as a
+        # substring, because it is the only one short enough to hide inside
+        # ordinary words: `"yt" in cmd` also fires for "python", "anything",
+        # "everything", "bytes" and "analytics". That sent "run this python
+        # code" -- and any request merely mentioning "anything" -- to the
+        # YouTube player instead of the skill actually asked for. Every other
+        # trigger is 5+ characters and stays a substring test so that plurals
+        # and compounds ("videos", "youtubepe") keep matching.
+        video_triggers = ["play video", "watch video", "open video", "youtube video",
+                          "recipe video", "search youtube", "youtube par",
+                          "youtube mein", "youtube pe", "video", "youtube", "yutub",
+                          "वीडियो", "यूट्यूब"]
+        is_video_request = (any(w in cmd for w in video_triggers) or re.search(r"\byt\b", cmd)) and not any(w in cmd for w in ["spotify", "music only", "audio only", "mpv", "background"])
         if is_video_request:
             q = cmd
             q = re.sub(r'[,\?\!\.\"\']', '', q).strip()
@@ -1004,9 +1046,16 @@ class IntentRouter:
             return {"skill": "polyglot_engineer", "params": {"action": "review_code", "language": review_match.group(1).strip()}, "domain": "general"}
 
         # Advanced Iron Man Features: Macro Recorder
-        macro_rec_match = re.search(r"^(?:start\s+)?recording\s+macro\s+(.+)", cmd)
+        # The name is optional, and omitting it used to be a routing bug rather
+        # than a default: "start recording macro" failed this rule, fell 60 lines
+        # down to the generic app launcher and tried to open an application
+        # called "recording macro". Stop already defaulted a nameless macro to
+        # "default_macro", so start disagreeing with stop meant the pair could
+        # not be driven by voice without inventing a name. Both ends now use the
+        # same default.
+        macro_rec_match = re.search(r"^(?:start\s+)?(?:recording\s+macro|macro\s+recording)\b\s*(.*)", cmd)
         if macro_rec_match:
-            return {"skill": "macro_recorder", "params": {"action": "start", "name": macro_rec_match.group(1).strip()}, "domain": "general"}
+            return {"skill": "macro_recorder", "params": {"action": "start", "name": macro_rec_match.group(1).strip() or "default_macro"}, "domain": "general"}
             
         if any(p in cmd for p in ["stop recording macro", "stop macro recording", "stop recording"]):
             name = "default_macro"
@@ -1381,8 +1430,14 @@ class IntentRouter:
             return {"skill": "product_comparison", "params": {"query": item, "budget": None}, "domain": "general"}
 
         # --- Food Ordering & Comparison ---
-        # Match: "order [food]"
-        if cmd.startswith("order "):
+        # Match: "order [food]". The shopping rule far above declines a handful of
+        # non-food categories so a later rule can claim them, and this one used to
+        # accept whatever fell through -- so "order a new phone" landed here and
+        # was ordered as food. It now shares that exclusion list minus the food
+        # platforms, which are the whole reason a food order reaches this line.
+        # A phone order consequently matches neither rule and goes to the LLM,
+        # which is the honest outcome for a phrase no regex here understands.
+        if cmd.startswith("order ") and not re.search(r"\b(?:phone|course|ticket|stock|crypto)s?\b", cmd):
             dish = cmd.replace("order ", "").strip()
             return {"skill": "food_ordering", "params": {"query": dish}, "domain": "general"}
             
