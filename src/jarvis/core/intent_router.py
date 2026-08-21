@@ -1026,9 +1026,16 @@ class IntentRouter:
             return {"skill": "polyglot_engineer", "params": {"action": "review_code", "language": review_match.group(1).strip()}, "domain": "general"}
 
         # Advanced Iron Man Features: Macro Recorder
-        macro_rec_match = re.search(r"^(?:start\s+)?recording\s+macro\s+(.+)", cmd)
+        # The name is optional, and omitting it used to be a routing bug rather
+        # than a default: "start recording macro" failed this rule, fell 60 lines
+        # down to the generic app launcher and tried to open an application
+        # called "recording macro". Stop already defaulted a nameless macro to
+        # "default_macro", so start disagreeing with stop meant the pair could
+        # not be driven by voice without inventing a name. Both ends now use the
+        # same default.
+        macro_rec_match = re.search(r"^(?:start\s+)?(?:recording\s+macro|macro\s+recording)\b\s*(.*)", cmd)
         if macro_rec_match:
-            return {"skill": "macro_recorder", "params": {"action": "start", "name": macro_rec_match.group(1).strip()}, "domain": "general"}
+            return {"skill": "macro_recorder", "params": {"action": "start", "name": macro_rec_match.group(1).strip() or "default_macro"}, "domain": "general"}
             
         if any(p in cmd for p in ["stop recording macro", "stop macro recording", "stop recording"]):
             name = "default_macro"

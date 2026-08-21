@@ -109,6 +109,7 @@ ROUTES = [
     ("git sentinel check",    "git_sentinel",      "check"),
     ("explode hologram",      "hologram_control",  "explode"),
     ("pichla hata",           "image_editor",      "remove_background"),
+    ("start recording macro", "macro_recorder",    "start"),
     ("suggest buy",           "market_analyzer",   "analyze"),
     ("scan network",          "network_mapper",    "scan_and_project"),
     ("open notepad",          "os_control",        "launch"),
@@ -286,24 +287,26 @@ def test_known_hinglish_word_order_gaps_return_none(router, cmd, why):
 
 
 @pytest.mark.parametrize("cmd,skill,action,expected_instead", [
-    ("start recording macro",  "os_control",   "launch",             "macro_recorder"),
     ("order food from swiggy", "shopping",     "search_product",     "food_ordering"),
 ])
 def test_known_rule_shadowing(router, cmd, skill, action, expected_instead):
     """KNOWN GAP -- pinned, not endorsed.
 
-    An earlier rule claims these before the intended one is reached. Recorded as
+    An earlier rule claims this before the intended one is reached. Recorded as
     current behavior for the same reason as the Hinglish gaps: Phase 2 preserves
     behavior, and fixing a route inside the baseline destroys the reference the
     Phase 3 refactor is measured against.
 
-    A third case lived here -- "run this python code" opening a YouTube video,
-    the clearest defect of the three -- and has been fixed, so it now has a row
-    in ROUTES instead. Its cause is worth remembering while reading the two
-    below: the video intercept tested `"yt" in cmd` as a bare substring, and
-    "yt" hides inside "python", "anything", "everything", "bytes" and
-    "analytics". The rule that steals a command is not always the rule that
-    looks related to it.
+    Two cases have left this table, and their causes are worth carrying:
+
+    - "run this python code" opened a YouTube video because the video intercept
+      tested `"yt" in cmd` as a bare substring, and "yt" hides inside "python",
+      "anything" and "everything". The rule that steals a command is not always
+      the rule that looks related to it.
+    - "start recording macro" tried to launch an app named "recording macro"
+      because the macro rule demanded a name the phrase does not contain, so it
+      failed and a later, greedier rule picked up the remains. A rule need not
+      run before yours to shadow it -- it only needs yours to decline.
 
     An explicitly ordered rule list is exactly what makes this class of bug
     visible, which is the substantive win of the Phase 3 split rather than a
@@ -399,6 +402,80 @@ def test_known_gap_code_payloads_lose_their_punctuation(router):
     )
 
 
+@pytest.mark.parametrize("cmd,name", [
+    ("start recording macro",        "default_macro"),
+    ("recording macro",              "default_macro"),
+    ("start macro recording",        "default_macro"),
+    ("start recording macro backup", "backup"),
+])
+def test_macro_recording_starts_with_or_without_a_name(router, cmd, name):
+    """Start now agrees with stop about what a nameless macro is called.
+
+    The start rule demanded a name, so the nameless phrasings failed it and fell
+    through to the generic app launcher, which cheerfully tried to open an
+    application called "recording macro". Stop had defaulted to "default_macro"
+    all along, which made the recorder undrivable by voice: the phrase that
+    begins a recording and the phrase that ends it disagreed about the name.
+    Both defaults are pinned because the pair is only useful if they match.
+    """
+    out = router._regex_route(cmd)
+    assert out is not None, f"{cmd!r} no longer matches any rule"
+    assert out["skill"] == "macro_recorder"
+    assert out["params"]["action"] == "start"
+    assert out["params"]["name"] == name
+
+
+@pytest.mark.parametrize("cmd,name", [
+    ("stop recording macro",        "default_macro"),
+    ("stop recording",              "default_macro"),
+    ("stop recording macro backup", "backup"),
+])
+def test_macro_recording_stop_is_unchanged(router, cmd, name):
+    """The half that already worked, pinned so the start fix cannot break it.
+
+    The start rule is tested first in the same chain and is anchored at `^`, so
+    a phrase beginning with "stop" must never reach it. Loosening the start
+    pattern is exactly the kind of change that would.
+    """
+    out = router._regex_route(cmd)
+    assert out is not None
+    assert out["skill"] == "macro_recorder"
+    assert out["params"]["action"] == "stop"
+    assert out["params"]["name"] == name
+
+
+def test_generic_app_launch_still_works_after_the_macro_fix(router):
+    """The launcher that was catching the macro phrase must keep its own job.
+
+    "start recording macro" was reaching os_control because the launcher accepts
+    any 1-3 word tail after "start". Narrowing what escapes to it is only
+    correct if what legitimately belongs to it still arrives.
+    """
+    out = router._regex_route("start spotify")
+    assert out["skill"] == "os_control"
+    assert out["params"]["action"] == "launch"
+    assert out["params"]["app"] == "spotify"
+
+
+def test_known_gap_playing_a_macro_is_claimed_by_spotify(router):
+    """KNOWN GAP -- pinned, not endorsed. Found while fixing the start rule.
+
+    `^(?:play|execute|run)\\s+macro\\s+(.+)` sits ~10 lines below the start rule
+    but an earlier Spotify rule owns "play", so "play macro backup" starts music
+    instead. macro_recorder is out of LLM_ONLY_SKILLS because start reaches it;
+    that is not the same as the skill being wholly reachable, and this test
+    exists so the difference is written down rather than implied.
+
+    When the Spotify rule stops swallowing it this test SHOULD fail.
+    """
+    out = router._regex_route("play macro backup")
+    assert out is not None
+    assert out["skill"] == "spotify", (
+        f"'play macro backup' now routes to {out['skill']}; if it reaches "
+        "macro_recorder the shadowing was fixed -- move it into ROUTES"
+    )
+
+
 # --------------------------------------------------------- coverage accounting
 
 # Skills that appear in intent_router.py but that _regex_route cannot reach.
@@ -406,13 +483,17 @@ def test_known_gap_code_payloads_lose_their_punctuation(router):
 # claimed by an earlier rule, so they are reachable only via the LLM router.
 #
 # This is not a wish list -- it is a measured property of the current rule
-# ordering, and it is the reason the table above stops at 31 of 42. Shrinking
+# ordering, and it is the reason the table above stops at 32 of 42. Shrinking
 # this set is real work with real user-visible value; see the follow-ups table
 # in the plan.
+#
+# A skill leaving this set means one route into it was proven, not that all of
+# its actions are reachable: macro_recorder is reached by "start recording
+# macro" while "play macro backup" is still taken by Spotify. See
+# test_known_gap_playing_a_macro_is_claimed_by_spotify.
 LLM_ONLY_SKILLS = {
     "ambiguous",          # deliberate: the disambiguation branch, not a route
     "conversation",       # deliberate: the explicit fall-through skill
-    "macro_recorder",     # shadowed -- "start recording macro" -> os_control
     "food_ordering",      # shadowed -- "order food from swiggy" -> shopping
     "data_analyzer",
     "media_summarize",
