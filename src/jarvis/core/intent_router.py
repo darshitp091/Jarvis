@@ -149,8 +149,16 @@ class IntentRouter:
            or re.search(r"\b(?:meeting|appointment)\b.*\b(?:schedule|calendar|book)\b", cmd):
             return {"skill": "calendar", "params": {"action": "add_event", "query": text}, "domain": "general"}
 
+        # Hinglish puts the time expression between the possessive and the noun --
+        # "mera kal ka schedule", "meri aaj ki agenda" -- so the possessive branch
+        # tolerates a few connector words instead of demanding the noun next to it.
+        # The filler list is closed on purpose: `\w+` there would also swallow
+        # "mera naya calendar banao", which is not an agenda request.
+        possessive_agenda = (r"\b(?:what(?:'s|s)?\s+(?:on\s+)?my|mera|meri)\s+"
+                             r"(?:(?:aaj|kal|parso|is|agle|agli|hafte|mahine|din|ka|ki|ke)\s+){0,3}"
+                             r"(?:day|agenda|schedule|calendar)\b")
         if (not creates_event and re.search(r"\b(?:agenda|schedule|calendar)\b.*\b(?:today|tomorrow|aaj|kal)\b", cmd)) \
-           or re.search(r"\b(?:what(?:'s|s)?\s+(?:on\s+)?my|mera|meri)\s+(?:day|agenda|schedule|calendar)\b", cmd) \
+           or re.search(possessive_agenda, cmd) \
            or re.search(r"\b(?:brief\s+me|daily\s+briefing|din\s+ka\s+plan)\b", cmd):
             day = "tomorrow" if re.search(r"\b(?:tomorrow|kal)\b", cmd) else "today"
             return {"skill": "calendar", "params": {"action": "agenda", "day": day}, "domain": "general"}

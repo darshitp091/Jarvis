@@ -9,9 +9,9 @@ They must pass UNCHANGED after the refactor. If a value here needs updating to
 make the refactor pass, the refactor changed behavior -- that is the finding,
 not a test to edit.
 
-Tests whose name begins `test_known_gap_` record defects, not intentions. Two
-are real Hinglish word-order failures that return None and fall through to the
-LLM router; the rest were found while fixing neighbouring rules. They are pinned
+Tests whose name begins `test_known_gap_` record defects, not intentions. The
+ones still standing were all found while fixing neighbouring rules -- the five
+defects this file was originally written to pin are now fixed. They are pinned
 as-is deliberately, and each says in its docstring what fixing it would look
 like. Fixing one belongs in its own test-paired commit, not mixed into the
 baseline the refactor is measured against.
@@ -90,6 +90,7 @@ ROUTES = [
     # Calendar. add_event precedes agenda; see the dedicated test below.
     ("schedule a meeting with Roshan tomorrow at 4 pm", "calendar", "add_event"),
     ("what's on my agenda today",                       "calendar", "agenda"),
+    ("mera kal ka schedule batao",                      "calendar", "agenda"),
     ("next meeting kab hai",                            "calendar", "next_event"),
     ("am i free tomorrow afternoon",                     "calendar", "free_slots"),
 
@@ -220,6 +221,30 @@ def test_agenda_resolves_the_day_word(router):
     assert router._regex_route("agenda for tomorrow")["params"]["day"] == "tomorrow"
 
 
+def test_agenda_accepts_a_time_word_inside_the_possessive(router):
+    """The possessive branch used to require the noun immediately after "mera",
+    which only ever matches the English phrasing. Hinglish puts the time
+    expression in between -- "mera kal ka schedule" -- so every such request
+    fell through to the LLM.
+
+    The filler list is closed rather than `\\w+` so that "mera naya calendar
+    banao" stays out: that is a request to make a calendar, not to read one.
+    """
+    out = router._regex_route("mera kal ka schedule batao")
+    assert out["skill"] == "calendar"
+    assert out["params"] == {"action": "agenda", "day": "tomorrow"}
+    assert router._regex_route("meri aaj ki agenda batao")["params"]["day"] == "today"
+    assert router._regex_route("mera naya calendar banao") is None
+
+
+def test_event_creation_still_beats_the_widened_possessive(router):
+    """"mera kal ka meeting schedule karo" satisfies the widened agenda branch
+    too. add_event runs first and must keep winning, or the Hinglish fix would
+    have traded one silent failure for another."""
+    out = router._regex_route("mera kal ka meeting schedule karo")
+    assert out["params"]["action"] == "add_event"
+
+
 def test_note_capture_strips_the_trigger_phrase(router):
     out = router._regex_route("remember this: wifi password is hunter2")
     assert out["params"]["content"] == "wifi password is hunter2"
@@ -275,30 +300,16 @@ def test_general_question_falls_through_to_the_llm(router):
 
 # ------------------------------------------------------------------ KNOWN GAPS
 
-@pytest.mark.parametrize("cmd,why", [
-    (
-        "mera kal ka schedule batao",
-        "the agenda rule needs 'mera' immediately followed by 'schedule', but "
-        "Hinglish puts 'kal ka' between them",
-    ),
-])
-def test_known_hinglish_word_order_gaps_return_none(router, cmd, why):
-    """KNOWN GAP -- pinned, not endorsed.
-
-    These are real defects: valid Hinglish that should route but does not, so it
-    falls through to the LLM router which may or may not recover. They are
-    recorded as current behavior because Phase 2 preserves behavior; fixing them
-    inside the characterization baseline would destroy the reference the Phase 3
-    refactor is measured against.
-
-    Fix each in its own commit, paired with the assertion flipped to the correct
-    route. When that happens this test SHOULD fail -- that is the signal the fix
-    landed, and this case moves up into ROUTES.
-    """
-    assert router._regex_route(cmd) is None, (
-        f"{cmd!r} now routes -- if that was deliberate, move it into ROUTES with "
-        f"its real expected value and drop this case. Gap was: {why}"
-    )
+# Both cases that once filled a `test_known_hinglish_word_order_gaps_return_none`
+# table are fixed, so the table is gone rather than left standing empty. The one
+# mechanism behind them is worth keeping, because every Hinglish rule in this file
+# can reproduce it: English puts the verb before its object and the possessive
+# beside its noun, and Hinglish does neither. "reminders hata do" trails the verb,
+# and "mera kal ka schedule" wedges the time expression between "mera" and
+# "schedule". A rule written by reading the English phrasing aloud therefore
+# accepts the English word order only, and the Hinglish half of the interface --
+# the primary half for this assistant -- silently falls through to the LLM. Any
+# rule matching a Hinglish verb needs to say where the verb may sit.
 
 
 # All three cases that once filled a `test_known_rule_shadowing` table have been
