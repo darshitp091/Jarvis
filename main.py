@@ -2854,6 +2854,16 @@ class JARVIS:
                         self.hologram_widget.animate_explode(enable)
                         state = "exploded" if enable else "assembled"
                         response = f"Holographic model successfully {state}, sir."
+                    elif action == "set_rotation":
+                        speed = params.get("speed", "slow")
+                        self.hologram_widget.set_rotation_speed(speed)
+                        response = f"Adjusting rotation parameters to {speed}, sir."
+                    elif action == "toggle_heatmap":
+                        enable = params.get("enable", True)
+                        self.hologram_widget.toggle_heatmap(enable)
+                        response = "Visualizing simulated load heatmap layer, sir." if enable else "Hiding heatmap layer, sir."
+                    else:
+                        response = "Unsupported hologram action, sir."
 
                 elif skill == "agent_lab":
                     action = params.get("action", "")
@@ -2949,21 +2959,6 @@ class JARVIS:
                         response = self.air_typist.start()
                     elif action == "stop":
                         response = self.air_typist.stop()
-
-                elif skill == "hologram_control":
-                    action = params.get("action", "")
-                    if action == "explode":
-                        enable = params.get("enable", True)
-                        self.hologram_widget.animate_explode(enable)
-                        response = "Expanding holographic structure coordinates, sir." if enable else "Collapsing coordinates to baseline state, sir."
-                    elif action == "set_rotation":
-                        speed = params.get("speed", "slow")
-                        self.hologram_widget.set_rotation_speed(speed)
-                        response = f"Adjusting rotation parameters to {speed}, sir."
-                    elif action == "toggle_heatmap":
-                        enable = params.get("enable", True)
-                        self.hologram_widget.toggle_heatmap(enable)
-                        response = "Visualizing simulated load heatmap layer, sir." if enable else "Hiding heatmap layer, sir."
 
                 elif skill == "git_sentinel":
                     action = params.get("action", "")
