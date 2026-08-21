@@ -100,8 +100,8 @@ class IntentRouter:
         # be caught by the "remember"/"yaad rakhna" note trigger. The time phrase
         # itself is parsed downstream by services.timeparse, so these rules only
         # need to identify the intent and hand over the original text.
-        if re.search(r"\b(?:cancel|delete|remove|hata\s*do|band\s*karo)\b.*\b(?:reminder|reminders|alarm|alarms)\b", cmd) \
-           or re.search(r"\b(?:reminder|alarm)\b.*\b(?:cancel|delete|remove|hata\s*do|band\s*karo)\b", cmd):
+        if re.search(r"\b(?:cancel|delete|remove|hata\s*do|band\s*karo)\b.*\b(?:reminders?|alarms?)\b", cmd) \
+           or re.search(r"\b(?:reminders?|alarms?)\b.*\b(?:cancel|delete|remove|hata\s*do|band\s*karo)\b", cmd):
             num = re.search(r"\b(?:number|no|id)?\s*(\d+)\b", cmd)
             return {
                 "skill": "reminder",

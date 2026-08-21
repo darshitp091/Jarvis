@@ -80,6 +80,7 @@ ROUTES = [
     # Reminders. Cancel and list precede create, so a cancel phrase containing
     # "reminder" is not mistaken for a new reminder.
     ("cancel reminder number 3",      "reminder", "cancel"),
+    ("sabhi reminders hata do",       "reminder", "cancel"),
     ("snooze for 15 minutes",         "reminder", "snooze"),
     ("snooze",                        "reminder", "snooze"),
     ("what are my reminders",         "reminder", "list"),
@@ -165,6 +166,22 @@ def test_cancel_extracts_the_job_number(router):
         "params": {"action": "cancel", "job_id": 3, "all": False},
         "domain": "general",
     }
+
+
+def test_cancel_reaches_the_rule_with_the_noun_before_the_verb(router):
+    """Hinglish puts the verb last -- "reminders hata do" rather than "cancel the
+    reminders" -- so the cancel rule carries a second, noun-first branch. That
+    branch listed only the singular nouns, and `\\breminder\\b` cannot match
+    inside "reminders", so every plural phrasing fell through to the LLM.
+    """
+    assert router._regex_route("sabhi reminders hata do") == {
+        "skill": "reminder",
+        "params": {"action": "cancel", "job_id": None, "all": True},
+        "domain": "general",
+    }
+    # Singular still works, and so does the verb-first English order.
+    assert router._regex_route("reminder cancel karo")["params"]["action"] == "cancel"
+    assert router._regex_route("delete all reminders")["params"]["all"] is True
 
 
 def test_snooze_defaults_to_ten_minutes_when_unspecified(router):
@@ -259,11 +276,6 @@ def test_general_question_falls_through_to_the_llm(router):
 # ------------------------------------------------------------------ KNOWN GAPS
 
 @pytest.mark.parametrize("cmd,why", [
-    (
-        "sabhi reminders hata do",
-        "the cancel rule needs the verb before the noun, and \\breminder\\b "
-        "cannot match inside 'reminders'",
-    ),
     (
         "mera kal ka schedule batao",
         "the agenda rule needs 'mera' immediately followed by 'schedule', but "
