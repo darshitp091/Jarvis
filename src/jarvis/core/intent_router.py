@@ -664,8 +664,16 @@ class IntentRouter:
         if shop_search_match:
             return {"skill": "shopping", "params": {"action": "search_product", "query": shop_search_match.group(1).strip(), "platform": shop_search_match.group(2).strip()}, "domain": "general"}
         
+        # Categories this rule declines so that a later, more specific rule can
+        # claim them. Matched on word boundaries: as bare substrings "phone"
+        # also fires inside "headphones", which left "purchase headphones"
+        # matching no rule at all. Food platforms are declined because
+        # food_ordering owns them ~750 lines further down; without that, the
+        # generic "order (.+)" here claimed every food order first and
+        # food_ordering's own "order ..." rule was unreachable dead code.
+        non_shopping = r"\b(?:phone|course|ticket|stock|crypto)s?\b|\b(?:swiggy|zomato)\b"
         buy_prod_match = re.search(r"(?:buy|purchase|order)\s+(.+)", cmd)
-        if buy_prod_match and not any(w in cmd for w in ["phone", "course", "ticket", "stock", "crypto"]):
+        if buy_prod_match and not re.search(non_shopping, cmd):
             return {"skill": "shopping", "params": {"action": "search_product", "query": buy_prod_match.group(1).strip(), "platform": "amazon"}, "domain": "general"}
 
         if any(c in cmd for c in ["add to cart", "cart mein dalo", "cart me dalo", "add this to cart", "cart mein add karo"]):
@@ -737,8 +745,12 @@ class IntentRouter:
         if whatsapp_match:
             return {"skill": "web_research", "params": {"action": "whatsapp_message", "phone": whatsapp_match.group(1).strip(), "message": whatsapp_match.group(2).strip()}, "domain": "general"}
 
+        # A generic web search for food. It declines when a delivery platform is
+        # named, because food_ordering owns those. This rule was itself dead code
+        # until the shopping rule above stopped claiming every "order ..." first;
+        # unblocking one rule exposed the next one competing for the same phrase.
         food_match = re.search(r"^(?:search|find|order)\s+food\s+(?:for\s+)?(.+)", cmd)
-        if food_match:
+        if food_match and not re.search(r"\b(?:swiggy|zomato)\b", cmd):
             return {"skill": "web_research", "params": {"action": "search_food", "query": food_match.group(1).strip()}, "domain": "general"}
 
         track_pkg_match = re.search(r"^track\s+(fedex|ups|usps|dhl)\s+(?:package\s+)?(?:number\s+)?(\S+)", cmd)
@@ -1410,8 +1422,14 @@ class IntentRouter:
             return {"skill": "product_comparison", "params": {"query": item, "budget": None}, "domain": "general"}
 
         # --- Food Ordering & Comparison ---
-        # Match: "order [food]"
-        if cmd.startswith("order "):
+        # Match: "order [food]". The shopping rule far above declines a handful of
+        # non-food categories so a later rule can claim them, and this one used to
+        # accept whatever fell through -- so "order a new phone" landed here and
+        # was ordered as food. It now shares that exclusion list minus the food
+        # platforms, which are the whole reason a food order reaches this line.
+        # A phone order consequently matches neither rule and goes to the LLM,
+        # which is the honest outcome for a phrase no regex here understands.
+        if cmd.startswith("order ") and not re.search(r"\b(?:phone|course|ticket|stock|crypto)s?\b", cmd):
             dish = cmd.replace("order ", "").strip()
             return {"skill": "food_ordering", "params": {"query": dish}, "domain": "general"}
             

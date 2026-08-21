@@ -9,14 +9,16 @@ They must pass UNCHANGED after the refactor. If a value here needs updating to
 make the refactor pass, the refactor changed behavior -- that is the finding,
 not a test to edit.
 
-Two cases are marked KNOWN GAP: real Hinglish word-order defects that return
-None and fall through to the LLM router. They are pinned as-is deliberately.
-Fixing them belongs in its own test-paired commit, not mixed into the baseline
-the refactor is measured against.
+Tests whose name begins `test_known_gap_` record defects, not intentions. Two
+are real Hinglish word-order failures that return None and fall through to the
+LLM router; the rest were found while fixing neighbouring rules. They are pinned
+as-is deliberately, and each says in its docstring what fixing it would look
+like. Fixing one belongs in its own test-paired commit, not mixed into the
+baseline the refactor is measured against.
 
-Cases that have since been fixed keep their history in the docstring of the
-test they used to live in, because the cause is usually more instructive than
-the symptom -- "run this python code" opened a YouTube video because "yt" was
+Cases that have since been fixed keep their history in a comment or docstring
+where they used to live, because the cause is usually more instructive than the
+symptom -- "run this python code" opened a YouTube video because "yt" was
 matched as a bare substring and hides inside "python".
 """
 
@@ -105,6 +107,7 @@ ROUTES = [
     ("solve air canvas",      "coding_sandbox",    "execute_task"),
     ("customization protocol", "customizer",       "enter"),
     ("explorer show hidden",  "file_manager",      "toggle_show_hidden_files"),
+    ("order food from swiggy", "food_ordering",    None),
     ("show vitals",           "focus_tracker",     "open_dashboard"),
     ("git sentinel check",    "git_sentinel",      "check"),
     ("explode hologram",      "hologram_control",  "explode"),
@@ -286,40 +289,52 @@ def test_known_hinglish_word_order_gaps_return_none(router, cmd, why):
     )
 
 
-@pytest.mark.parametrize("cmd,skill,action,expected_instead", [
-    ("order food from swiggy", "shopping",     "search_product",     "food_ordering"),
+# All three cases that once filled a `test_known_rule_shadowing` table have been
+# fixed, so the table is gone rather than left standing empty. Their causes are
+# kept, because each is a distinct mechanism and any rule added to this file can
+# reproduce one of them:
+#
+# - "run this python code" opened a YouTube video. The video intercept tested
+#   `"yt" in cmd` as a bare substring, and "yt" hides inside "python",
+#   "anything" and "everything". The rule that steals a command is not always
+#   the rule that looks related to it.
+# - "start recording macro" tried to launch an app named "recording macro". The
+#   macro rule demanded a name the phrase does not contain, so it declined and a
+#   later, greedier rule took the remains. A rule need not run before yours to
+#   shadow it -- it only needs yours to decline.
+# - "order food from swiggy" searched Amazon. A generic `order (.+)` rule sat
+#   ~750 lines above food_ordering's own "order ..." rule, leaving that rule
+#   unreachable dead code. Fixing it promoted a third rule that had been queued
+#   behind the same phrase, which is the shape of this whole class: unblocking
+#   one rule hands the phrase to the next one in line, not to the right one.
+#
+# An explicitly ordered rule list is what makes all three visible at a glance,
+# which is the substantive win of the Phase 3 split rather than a side effect.
+
+
+@pytest.mark.parametrize("cmd,why", [
+    ("order pizza",
+     "no platform is named, and the generic order rule is ~750 lines earlier"),
+    ("search biryani on swiggy",
+     "swiggy is in the shopping rule's platform list as well as food_ordering's"),
 ])
-def test_known_rule_shadowing(router, cmd, skill, action, expected_instead):
+def test_known_gap_food_without_a_named_platform_goes_to_shopping(router, cmd, why):
     """KNOWN GAP -- pinned, not endorsed.
 
-    An earlier rule claims this before the intended one is reached. Recorded as
-    current behavior for the same reason as the Hinglish gaps: Phase 2 preserves
-    behavior, and fixing a route inside the baseline destroys the reference the
-    Phase 3 refactor is measured against.
-
-    Two cases have left this table, and their causes are worth carrying:
-
-    - "run this python code" opened a YouTube video because the video intercept
-      tested `"yt" in cmd` as a bare substring, and "yt" hides inside "python",
-      "anything" and "everything". The rule that steals a command is not always
-      the rule that looks related to it.
-    - "start recording macro" tried to launch an app named "recording macro"
-      because the macro rule demanded a name the phrase does not contain, so it
-      failed and a later, greedier rule picked up the remains. A rule need not
-      run before yours to shadow it -- it only needs yours to decline.
-
-    An explicitly ordered rule list is exactly what makes this class of bug
-    visible, which is the substantive win of the Phase 3 split rather than a
-    side effect of it.
+    Naming swiggy or zomato now reaches food_ordering, but *food* is not a signal
+    the router can read: "order pizza" is indistinguishable from "order shoes" to
+    a regex, and the shopping rule comes first. Closing this needs a food lexicon
+    or the LLM rather than another ordering tweak, so it is recorded instead of
+    patched -- and recorded rather than left silent, because "food_ordering is
+    now reachable" is true and would otherwise be mistaken for "food orders now
+    work".
     """
     out = router._regex_route(cmd)
     assert out is not None
-    assert out["skill"] == skill, (
-        f"{cmd!r} now routes to {out['skill']} instead of {skill}. If it now "
-        f"reaches {expected_instead}, the shadowing was fixed -- move this case "
-        "into ROUTES and drop it from LLM_ONLY_SKILLS."
+    assert out["skill"] == "shopping", (
+        f"{cmd!r} now routes to {out['skill']} instead of shopping ({why}); if it "
+        "reaches food_ordering the gap closed -- move it into ROUTES"
     )
-    assert out["params"].get("action") == action
 
 
 @pytest.mark.parametrize("cmd", [
@@ -476,6 +491,67 @@ def test_known_gap_playing_a_macro_is_claimed_by_spotify(router):
     )
 
 
+@pytest.mark.parametrize("cmd", [
+    "order food from swiggy",
+    "order biryani from zomato",
+])
+def test_orders_naming_a_delivery_platform_reach_food_ordering(router, cmd):
+    """A named delivery platform decides which skill owns the phrase.
+
+    swiggy and zomato appeared in the shopping rule's platform list *and* in
+    food_ordering's, and the shopping rule ran first, so food_ordering's own
+    "order ..." rule was unreachable. Both skills claiming the same platforms is
+    the underlying defect; declining them in the generic rule is the fix.
+    """
+    out = router._regex_route(cmd)
+    assert out is not None, f"{cmd!r} no longer matches any rule"
+    assert out["skill"] == "food_ordering"
+
+
+def test_generic_food_search_still_reaches_web_research(router):
+    """The rule that surfaced mid-fix must keep the phrasing that is really its.
+
+    `^(?:search|find|order)\\s+food\\s+(.+)` was dead code behind the generic
+    order rule. It now declines when a delivery platform is named -- and only
+    then, so an ordinary food search is unaffected.
+    """
+    out = router._regex_route("search food for biryani")
+    assert out["skill"] == "web_research"
+    assert out["params"]["action"] == "search_food"
+    assert out["params"]["query"] == "biryani"
+
+
+def test_shopping_exclusions_do_not_fire_inside_longer_words(router):
+    """"purchase headphones" matched no rule at all before this.
+
+    The shopping rule declines a few non-product categories so later rules can
+    claim them, and the list was tested with `in`: "phone" fires inside
+    "headphones", so the rule declined, nothing downstream wanted it, and the
+    request fell out of the router entirely. Same defect as the "yt" substring,
+    in a different rule -- which is why both are pinned rather than just fixed.
+    """
+    out = router._regex_route("purchase headphones")
+    assert out is not None, "'purchase headphones' matches no rule again"
+    assert out["skill"] == "shopping"
+    assert out["params"]["query"] == "headphones"
+
+
+@pytest.mark.parametrize("cmd", ["order a new phone", "order tickets"])
+def test_non_food_orders_are_not_ordered_as_food(router, cmd):
+    """The excluded categories must not simply fall through to food_ordering.
+
+    The shopping rule declines these, and food_ordering's "order ..." rule used
+    to accept whatever fell through -- so "order a new phone" was ordered as
+    food. Both rules now decline, and returning None is the honest answer: no
+    regex here understands the phrase, so the LLM router should see it.
+    Plurals are covered because the pre-fix `in` test matched "tickets" through
+    "ticket", and a word-boundary rewrite would silently have dropped that.
+    """
+    assert router._regex_route(cmd) is None, (
+        f"{cmd!r} is claimed by a regex rule again: {router._regex_route(cmd)}"
+    )
+
+
 # --------------------------------------------------------- coverage accounting
 
 # Skills that appear in intent_router.py but that _regex_route cannot reach.
@@ -483,18 +559,18 @@ def test_known_gap_playing_a_macro_is_claimed_by_spotify(router):
 # claimed by an earlier rule, so they are reachable only via the LLM router.
 #
 # This is not a wish list -- it is a measured property of the current rule
-# ordering, and it is the reason the table above stops at 32 of 42. Shrinking
+# ordering, and it is the reason the table above stops at 33 of 42. Shrinking
 # this set is real work with real user-visible value; see the follow-ups table
 # in the plan.
 #
 # A skill leaving this set means one route into it was proven, not that all of
 # its actions are reachable: macro_recorder is reached by "start recording
-# macro" while "play macro backup" is still taken by Spotify. See
-# test_known_gap_playing_a_macro_is_claimed_by_spotify.
+# macro" while "play macro backup" is still taken by Spotify, and food_ordering
+# is reached by naming swiggy or zomato while "order pizza" still goes shopping.
+# See the two test_known_gap_* cases that pin exactly that difference.
 LLM_ONLY_SKILLS = {
     "ambiguous",          # deliberate: the disambiguation branch, not a route
     "conversation",       # deliberate: the explicit fall-through skill
-    "food_ordering",      # shadowed -- "order food from swiggy" -> shopping
     "data_analyzer",
     "media_summarize",
     "memory_ops",
