@@ -85,9 +85,9 @@ from jarvis.core.wake_word import WakeWordDetector
 from jarvis.core.intent_router import IntentRouter
 from jarvis.core.brain import JarvisBrain
 from jarvis.core.vision_engine import CameraEngine
-# Imported as a module rather than by name: the eight methods below that
+# Imported as a module rather than by name: the ten methods below that
 # delegate here read as delegations at a glance, which is the point.
-from jarvis.core import task_narration, text_normalize
+from jarvis.core import alerts, task_narration, text_normalize
 from jarvis.ui.orb import JarvisOrb; _p("DBG: orb ok")
 from jarvis.skills.screen_vision import ScreenVision; _p("DBG: screen_vision ok")
 from jarvis.skills.os_control import OSControl; _p("DBG: os_control ok")
@@ -949,20 +949,13 @@ class JARVIS:
                 time.sleep(0.5)
 
     def _flush_alerts(self):
-        if not self.is_authenticated:
-            return
-        
-        alerts_to_speak = []
-        with self.alert_lock:
-            if self.alert_queue:
-                alerts_to_speak = list(self.alert_queue)
-                self.alert_queue.clear()
-                
-        for alert in alerts_to_speak:
-            logger.info(f"Flushing alert: {alert}")
-            self.orb.set_state("speaking")
-            self.tts.speak(alert)
-        self.orb.set_state("idle")
+        return alerts.flush_alerts(
+            is_authenticated=self.is_authenticated,
+            alert_lock=self.alert_lock,
+            alert_queue=self.alert_queue,
+            orb=self.orb,
+            tts=self.tts,
+        )
 
     def _startup_voice(self):
         if not self.is_authenticated:
