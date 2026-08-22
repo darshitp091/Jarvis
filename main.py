@@ -1297,42 +1297,24 @@ class JARVIS:
 
         if len(cleaned_cmds) > 1:
             logger.info(f"Chained commands detected: {cleaned_cmds}")
-            
+
             # Generate the human-like plan announcement
             descs = [self._get_friendly_task_desc(c, is_hinglish) for c in cleaned_cmds]
-            if is_hinglish:
-                if len(cleaned_cmds) == 2:
-                    plan_intro = f"Ji sir, pehle main {descs[0]}, aur phir {descs[1]}."
-                elif len(cleaned_cmds) == 3:
-                    plan_intro = f"Abhi karti hu, sir. Pehle main {descs[0]}, uske baad {descs[1]}, aur finally {descs[2]}."
-                else:
-                    plan_intro = f"Bilkul sir, mere paas {len(cleaned_cmds)} tasks ki list hai: pehle main {descs[0]} aur phir baki sab karti hu."
-            else:
-                if len(cleaned_cmds) == 2:
-                    plan_intro = f"Right away, sir. First, I will {descs[0]}, and then I will {descs[1]}."
-                elif len(cleaned_cmds) == 3:
-                    plan_intro = f"Right away, sir. First, I will {descs[0]}, next, I will {descs[1]}, and finally, I will {descs[2]}."
-                else:
-                    plan_intro = f"Right away, sir. I have a chain of {len(cleaned_cmds)} tasks to execute: first, I will {descs[0]}, and then proceed with the rest."
-                
+            plan_intro = task_narration.plan_announcement(descs, is_hinglish)
+
             self.orb.set_state("speaking")
             self.tts.speak(plan_intro)
             self.orb.set_state("idle")
-            
+
             for idx, cmd_clean in enumerate(cleaned_cmds):
                 logger.info(f"Executing chained command {idx+1}/{len(cleaned_cmds)}: '{cmd_clean}'")
-                
+
                 # Speak transitional phrase between tasks only for non-immediate actions
-                is_immediate_action = any(phrase in cmd_clean.lower() for phrase in ["play", "volume", "music", "song", "mute", "unmute", "lock", "sentry", "secure"])
-                if idx > 0 and not is_immediate_action:
-                    if is_hinglish:
-                        transition = f"Chaliye sir, ab main {descs[idx]}."
-                    else:
-                        transition = f"Now, I am going to {descs[idx]}, sir."
+                if idx > 0 and not task_narration.is_immediate_action(cmd_clean):
                     self.orb.set_state("speaking")
-                    self.tts.speak(transition)
+                    self.tts.speak(task_narration.task_transition(descs[idx], is_hinglish))
                     self.orb.set_state("idle")
-                
+
                 # Execute command with is_chained=True
                 self._process_single_command(cmd_clean, speak_filler=False, is_chained=True)
                 time.sleep(1.0)
