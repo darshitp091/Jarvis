@@ -25,6 +25,7 @@ importable -- and therefore testable -- in an environment without a local Ollama
 binding, which is the environment CI runs in.
 """
 import os
+import time
 import yaml
 import requests
 import json
@@ -349,3 +350,75 @@ def query_llm(messages: list, system_prompt: str = None, provider: str = "mistra
     except Exception as e:
         logger.error(f"Local Ollama query failed: {e}")
         return "I am currently unable to process your request, sir."
+
+
+# ---------------------------------------------------------------------------
+# Ollama process supervision, moved verbatim out of JARVIS._ensure_ollama_server.
+#
+# It lives here because this is the module that ends up talking to Ollama, twice
+# over: query_llm's step 4 calls ollama.chat, and cloudflare_chat_wrapper falls
+# back to the real binding when Cloudflare is unconfigured or fails. Both of
+# those assume a server on port 11434 that nothing in this module was starting
+# -- main.py called this at boot and the connection between the two facts was
+# not written down anywhere. Now it is: this is the function that makes the
+# fallback in both of them possible.
+#
+# The three imports inside the body are as they were in main.py. os is already
+# imported at module level, so the local one is redundant, but it is the first
+# statement of the body and therefore shadows nothing that runs before it --
+# unlike the mid-function `import os` that took 661ff99 to find.
+# ---------------------------------------------------------------------------
+def ensure_ollama_server():
+    """Checks if Ollama server is running on port 11434, and if not, launches it in the background."""
+    import socket
+    import subprocess
+    import os
+    
+    def is_running():
+        try:
+            with socket.create_connection(("localhost", 11434), timeout=1):
+                return True
+        except OSError:
+            return False
+
+    if is_running():
+        logger.info("Ollama background server is already active.")
+        return
+
+    logger.info("Ollama server not active. Attempting to launch background server...")
+    try:
+        # Resolve executable path on Windows
+        ollama_cmd = "ollama"
+        if os.name == 'nt':
+            user_profile = os.environ.get("USERPROFILE", "")
+            fallback_path = os.path.join(user_profile, "AppData", "Local", "Programs", "Ollama", "ollama.exe")
+            if os.path.exists(fallback_path):
+                ollama_cmd = fallback_path
+
+        startupinfo = None
+        if os.name == 'nt':
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            startupinfo.wShowWindow = 0  # SW_HIDE
+            
+        creationflags = 0
+        if os.name == 'nt':
+            creationflags = subprocess.CREATE_NEW_PROCESS_GROUP | 0x08000000 # DETACHED_PROCESS
+            
+        subprocess.Popen(
+            [ollama_cmd, "serve"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            startupinfo=startupinfo,
+            creationflags=creationflags
+        )
+        
+        # Wait up to 10 seconds for the server to bind and respond
+        for attempt in range(10):
+            if is_running():
+                logger.info("Ollama server successfully launched and active.")
+                return
+            time.sleep(1)
+        logger.warning("Ollama server launched but did not respond on port 11434 within 10 seconds.")
+    except Exception as e:
+        logger.error(f"Failed to auto-start Ollama server: {e}")

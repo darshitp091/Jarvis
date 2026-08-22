@@ -609,59 +609,7 @@ class JARVIS:
         threading.Thread(target=job, daemon=True).start()
 
     def _ensure_ollama_server(self):
-        """Checks if Ollama server is running on port 11434, and if not, launches it in the background."""
-        import socket
-        import subprocess
-        import os
-        
-        def is_running():
-            try:
-                with socket.create_connection(("localhost", 11434), timeout=1):
-                    return True
-            except OSError:
-                return False
-
-        if is_running():
-            logger.info("Ollama background server is already active.")
-            return
-
-        logger.info("Ollama server not active. Attempting to launch background server...")
-        try:
-            # Resolve executable path on Windows
-            ollama_cmd = "ollama"
-            if os.name == 'nt':
-                user_profile = os.environ.get("USERPROFILE", "")
-                fallback_path = os.path.join(user_profile, "AppData", "Local", "Programs", "Ollama", "ollama.exe")
-                if os.path.exists(fallback_path):
-                    ollama_cmd = fallback_path
-
-            startupinfo = None
-            if os.name == 'nt':
-                startupinfo = subprocess.STARTUPINFO()
-                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-                startupinfo.wShowWindow = 0  # SW_HIDE
-                
-            creationflags = 0
-            if os.name == 'nt':
-                creationflags = subprocess.CREATE_NEW_PROCESS_GROUP | 0x08000000 # DETACHED_PROCESS
-                
-            subprocess.Popen(
-                [ollama_cmd, "serve"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                startupinfo=startupinfo,
-                creationflags=creationflags
-            )
-            
-            # Wait up to 10 seconds for the server to bind and respond
-            for attempt in range(10):
-                if is_running():
-                    logger.info("Ollama server successfully launched and active.")
-                    return
-                time.sleep(1)
-            logger.warning("Ollama server launched but did not respond on port 11434 within 10 seconds.")
-        except Exception as e:
-            logger.error(f"Failed to auto-start Ollama server: {e}")
+        llm_client.ensure_ollama_server()
 
     def _duck_audio(self):
         """Ducks the background music volume when JARVIS speaks."""
