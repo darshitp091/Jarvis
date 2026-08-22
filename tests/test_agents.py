@@ -9,6 +9,7 @@ silently unreachable: the router emitted a skill name that main.py never handled
 so the command fell through to the chat LLM and looked like it worked.
 """
 
+import ast
 import os
 import re
 import sys
@@ -495,6 +496,72 @@ def _dispatched_skills() -> set:
     return set(re.findall(r"""skill\s*==\s*["']([a-z_0-9]+)["']""", src))
 
 
+# `conversation` is the router's own fallback, and the dispatch chain's final
+# `else` is its handler: `response = self._generate_response(text, domain)`.
+# Falling through to the chat LLM is the intended outcome for it, not the
+# failure this guard hunts -- so it is excluded here by name rather than by
+# accident, and test_the_conversation_fallthrough_is_still_there proves the
+# `else` it relies on has not been removed.
+#
+# It was excluded by accident until the Phase 3b move of _get_friendly_task_desc
+# out of main.py. That method compared `skill == "conversation"` to decide
+# whether to retry routing on a mishearing -- never a dispatch, but enough for
+# the regex above to see one. The move took the string with it and the guard
+# failed, which is the only reason anybody found out.
+FALLS_THROUGH_BY_DESIGN = frozenset({"conversation"})
+
+
+def _skill_dispatch_else():
+    """The `else` block of main.py's if/elif chain over `skill`, as source.
+
+    Found through the AST rather than by line number so it survives the file
+    shrinking. Two chains test `skill ==` -- the `ambiguous` clarification guard
+    and the dispatcher -- and only the dispatcher has a terminal `else`, so
+    "the chain with an else" identifies it without hard-coding a skill name.
+    """
+    with open(os.path.join(PROJECT_ROOT, "main.py"), encoding="utf-8") as fh:
+        tree = ast.parse(fh.read())
+
+    def tests_skill(node):
+        t = getattr(node, "test", None)
+        return (isinstance(node, ast.If) and isinstance(t, ast.Compare)
+                and isinstance(t.left, ast.Name) and t.left.id == "skill"
+                and len(t.ops) == 1 and isinstance(t.ops[0], ast.Eq))
+
+    chains = []
+    for node in ast.walk(tree):
+        if not tests_skill(node):
+            continue
+        links = 1
+        while len(node.orelse) == 1 and tests_skill(node.orelse[0]):
+            node = node.orelse[0]
+            links += 1
+        if node.orelse:                      # a terminal else, not another elif
+            chains.append((links, node.orelse))
+
+    # Walking finds every link, and each one looks like a chain head from
+    # inside; only the true head reports the full length.
+    assert chains, "main.py has no if/elif chain over `skill` with a final else"
+    links, orelse = max(chains)
+    assert links >= 35, (
+        "the dispatch chain this helper found has only %d branches, so it is "
+        "probably not the dispatcher; point it at the new one" % links
+    )
+    return "\n".join(ast.unparse(stmt) for stmt in orelse)
+
+
+def test_the_conversation_fallthrough_is_still_there():
+    """What FALLS_THROUGH_BY_DESIGN is worth, and nothing more.
+
+    Excluding a skill from the handler guard is only honest while the thing it
+    falls through to still exists. Delete the chain's final `else` and every
+    unrecognised skill starts returning the empty `response` initialised above
+    the retry loop -- silence, which is exactly the failure mode the guard was
+    written for.
+    """
+    assert "self._generate_response(text, domain)" in _skill_dispatch_else()
+
+
 def test_source_scanning_guards_are_not_vacuous():
     """Both helpers below scrape source with a regex, and
     test_every_router_skill_has_a_handler asserts on
@@ -516,8 +583,9 @@ def test_source_scanning_guards_are_not_vacuous():
     a registry lookup -- empties the left-hand set with the file still present
     and readable.
 
-    Floors are well under the measured counts (42 router, 44 dispatched) so
-    ordinary edits do not trip them.
+    Floors are well under the measured counts (42 router, 42 dispatched) so
+    ordinary edits do not trip them. `conversation` is in the router count and
+    not the dispatched one; see FALLS_THROUGH_BY_DESIGN.
     """
     router = _router_skills()
     dispatched = _dispatched_skills()
@@ -541,7 +609,7 @@ def test_every_router_skill_has_a_handler():
     skill="reminder"/"calendar" but main.py had no branch for either, so
     "remind me to call mom at 6pm" produced a friendly reply and no reminder.
     """
-    unhandled = sorted(_router_skills() - _dispatched_skills())
+    unhandled = sorted(_router_skills() - _dispatched_skills() - FALLS_THROUGH_BY_DESIGN)
     assert not unhandled, (
         "intent_router emits these skills but main.py never dispatches them, "
         f"so they silently fall through to conversation: {unhandled}"

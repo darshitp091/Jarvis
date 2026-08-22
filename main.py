@@ -76,7 +76,7 @@ logger.remove()
 logger.add("jarvis.log", level="INFO", rotation="10 MB", encoding="utf-8")
 from PyQt6.QtWidgets import QApplication; _p("DBG: PyQt6 ok")
 from jarvis.core import llm_client
-from jarvis.skills import outgoing_reply
+from jarvis.skills import diagnostics, outgoing_reply
 llm_client.patch_ollama()
 
 from jarvis.core.audio_engine import AudioEngine
@@ -87,7 +87,7 @@ from jarvis.core.brain import JarvisBrain
 from jarvis.core.vision_engine import CameraEngine
 # Imported as a module rather than by name: the eight methods below that
 # delegate here read as delegations at a glance, which is the point.
-from jarvis.core import text_normalize
+from jarvis.core import task_narration, text_normalize
 from jarvis.ui.orb import JarvisOrb; _p("DBG: orb ok")
 from jarvis.skills.screen_vision import ScreenVision; _p("DBG: screen_vision ok")
 from jarvis.skills.os_control import OSControl; _p("DBG: os_control ok")
@@ -1163,35 +1163,7 @@ class JARVIS:
                                                phone=self.phone)
 
     def _execute_stark_diagnostics(self) -> str:
-        """Runs system hardware checks and formats them into a witty, sarcastic Hinglish MCU diagnostic briefing."""
-        logger.info("Executing Stark diagnostic sweep...")
-        try:
-            import psutil
-            cpu = psutil.cpu_percent()
-            ram = psutil.virtual_memory().percent
-            battery = psutil.sensors_battery()
-            bat_percent = battery.percent if battery else 100
-            power_plugged = battery.power_plugged if battery else True
-        except ImportError:
-            cpu, ram, bat_percent, power_plugged = 12.5, 45.2, 85, True
-
-        gpu_info = ""
-        try:
-            import GPUtil
-            gpus = GPUtil.getGPUs()
-            if gpus:
-                gpu_info = f"GPU load {gpus[0].load*100:.1f}% hai aur temperature {gpus[0].temperature}°C."
-        except Exception:
-            pass
-
-        bat_status = "charging par hai" if power_plugged else "battery par chal raha hai"
-        response = (
-            f"Sir, diagnostics sweep complete ho gaya hai. [laugh] Main arc reactor—sorry, "
-            f"aapke laptop ki battery check kar chuki hu, ye abhi {bat_percent}% par hai aur {bat_status}. "
-            f"CPU utilization {cpu}% hai aur memory load {ram}% par chal raha hai. "
-            f"{gpu_info} Overall, coding system bilkul active aur nominal hai, sir!"
-        )
-        return response
+        return diagnostics.stark_diagnostics()
 
     def _generate_response(self, text: str, domain: str = "general") -> str:
         memories = self.brain.format_memories_for_prompt(text)
@@ -1299,119 +1271,12 @@ class JARVIS:
 
     def _get_friendly_task_desc(self, text: str, is_hinglish: bool = False) -> str:
         """Returns a human-like description of a command's intent."""
-        import re
-        intent = self.router.route(text, self.active_presentation_topic)
-        skill = intent.get("skill", "conversation")
-        params = intent.get("params", {})
-        
-        # Loop 4: Self-Corrective STT & Phonetic Routing Loop
-        if skill == "conversation":
-            candidates = self._get_phonetic_candidates(text)
-            for cand in candidates:
-                cand_intent = self.router.route(cand, self.active_presentation_topic)
-                cand_skill = cand_intent.get("skill", "conversation")
-                if cand_skill != "conversation":
-                    intent = cand_intent
-                    skill = cand_skill
-                    params = intent.get("params", {})
-                    domain = intent.get("domain", "general")
-                    break
-        if is_hinglish:
-            if skill == "os_control":
-                action = params.get("action", "")
-                if action == "clean_disk":
-                    return "system ki temporary files clear karungi"
-                elif action == "empty_recycle_bin":
-                    return "recycle bin ki trash files empty karungi"
-                elif action == "secure":
-                    return "laptop screen lock karungi"
-                elif action == "unlock":
-                    return "system unlock karungi"
-                elif action == "launch":
-                    return f"{params.get('app', 'app')} open karungi"
-                elif action == "close":
-                    return f"{params.get('app', 'app')} close karungi"
-                elif action == "set_brightness":
-                    return f"brightness adjusted {params.get('percent', 50)} percent karungi"
-            elif skill == "spotify" or skill == "youtube_music":
-                action = params.get("action", "")
-                if action == "play":
-                    return f"Spotify par {params.get('query', 'gaana')} play karungi"
-                elif action == "pause":
-                    return "music pause karungi"
-            elif skill == "system_monitor":
-                return "system resource check karungi"
-            # Conversational fallbacks in Hinglish
-            text_lower = text.lower()
-            if "whatsapp" in text_lower:
-                return "WhatsApp par message send karungi"
-            elif any(w in text_lower for w in ["presentation", "ppt", "slide"]):
-                return "presentation generate karungi"
-            elif any(w in text_lower for w in ["search", "google", "research"]):
-                return "web search karungi"
-            return f"'{text}' command run karungi"
-        else:
-            if skill == "os_control":
-                action = params.get("action", "")
-                if action == "clean_disk":
-                    return "clear the system temporary files"
-                elif action == "empty_recycle_bin":
-                    return "empty the recycle bin"
-                elif action == "secure":
-                    return "lock the screen"
-                elif action == "unlock":
-                    return "unlock the screen"
-                elif action == "launch":
-                    return f"launch the {params.get('app', 'requested application')}"
-                elif action == "close":
-                    return f"close {params.get('app', 'the application')}"
-                elif action == "set_brightness":
-                    return f"adjust system brightness to {params.get('percent', 50)} percent"
-                
-            elif skill == "sentry_firewall":
-                action = params.get("action", "")
-                if action == "quarantine":
-                    return f"quarantine and block remote endpoint {params.get('ip', 'IP')}"
-                elif action == "remove_quarantine":
-                    return f"remove firewall block for {params.get('ip', 'IP')}"
-                elif action == "list_blocks":
-                    return "list active firewall quarantine blocks"
-                    
-            elif skill == "hologram_control":
-                action = params.get("action", "")
-                if action == "explode":
-                    enable = params.get("enable", True)
-                    return "explode the hologram assembly" if enable else "collapse the hologram assembly"
-                elif action == "toggle_heatmap":
-                    enable = params.get("enable", True)
-                    return "show the load heatmap" if enable else "hide the load heatmap"
-                elif action == "set_rotation":
-                    return f"set hologram rotation speed to {params.get('speed', 'slow')}"
-                    
-            elif skill == "system_monitor":
-                return "check system resources"
-                
-            elif skill == "spotify" or skill == "youtube_music":
-                action = params.get("action", "")
-                if action == "play":
-                    return f"play {params.get('query', 'music')}"
-                elif action == "pause":
-                    return "pause the music player"
-                    
-            text_lower = text.lower()
-            if "whatsapp" in text_lower:
-                return "open WhatsApp and draft a message"
-            elif any(w in text_lower for w in ["spotify", "music", "song", "gaana", "gaane"]):
-                return "play the requested song"
-            elif any(w in text_lower for w in ["presentation", "ppt", "slide", "slides"]):
-                return "create the requested presentation"
-            elif any(w in text_lower for w in ["search", "google", "find", "research"]):
-                return "conduct a web search"
-                
-            words = text.split()
-            if len(words) > 5:
-                return " ".join(words[:5]) + "..."
-            return text
+        return task_narration.friendly_task_desc(
+            text, is_hinglish,
+            router=self.router,
+            active_presentation_topic=self.active_presentation_topic,
+            get_phonetic_candidates=self._get_phonetic_candidates,
+        )
 
     def _detect_language(self, text: str) -> str:
         return text_normalize.detect_language(text)
