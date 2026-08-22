@@ -13,10 +13,12 @@ Enter. Both functions then return a Hinglish sentence telling the user the
 message has been sent. That sentence is the only thing the user hears, and it is
 not evidence.
 
-The last ~50 lines of each function are near-identical, differing in one variable
-name and one log string. That duplication came along with the move so that the
-gate could prove the move; it is removed in the commit after this one, which the
-tests here exist to make safe.
+Those last two steps are `_record_and_send`, which the two entry points now share.
+They arrived here each carrying its own copy -- fifty lines apart in one place,
+the word "direct" in an error message -- because the equivalence gate that
+checked the move out of main.py can prove a move and nothing else. The copies are
+gone as of the commit after that one; what makes their removal checkable is
+tests/test_outgoing_reply.py, which covers both callers rather than the helper.
 """
 import json
 import os
@@ -56,6 +58,27 @@ def draft_and_send_style_reply(sender: str, channel: str, msg_body: str,
     except Exception as e:
         logger.error(f"Failed to draft style response using local LLM: {e}")
         
+    _record_and_send(sender, channel, draft, phone=phone)
+
+    return f"Sir, maine aapki taraf se {channel} par {sender} ko reply bhej diya hai. Message tha: '{draft}'."
+
+def log_direct_reply(sender: str, channel: str, reply_text: str, *, phone) -> str:
+    """Logs a direct text response to config/outgoing_replies.json on behalf of the user."""
+    logger.info(f"Logging direct response on behalf of user to {sender} on {channel}: {reply_text}...")
+    
+    _record_and_send(sender, channel, reply_text, phone=phone)
+
+    return f"Sir, maine {channel} par {sender} ko bol diya hai: '{reply_text}'."
+
+
+def _record_and_send(sender: str, channel: str, text: str, *, phone) -> None:
+    """Record the reply as sent, then try to actually send it on WhatsApp.
+
+    Everything both entry points do once they have their text, and none of it
+    reports back: the record is written with status "SENT" before any send is
+    attempted, the ADB branch is a `pass`, and every failure here is logged and
+    swallowed. The callers return their confirmation sentence either way.
+    """
     # Log/Save the message to outgoing JSON database (as if it was sent)
     out_db_path = "config/outgoing_replies.json"
     try:
@@ -68,13 +91,13 @@ def draft_and_send_style_reply(sender: str, channel: str, msg_body: str,
             "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
             "channel": channel,
             "recipient": sender,
-            "message_body": draft,
+            "message_body": text,
             "status": "SENT"
         })
         
         with open(out_db_path, "w", encoding="utf-8") as f:
             json.dump(replies, f, indent=2, ensure_ascii=False)
-        logger.success(f"Message logged to outgoing database: {draft}")
+        logger.success(f"Message logged to outgoing database: {text}")
     except Exception as err:
         logger.error(f"Failed to save outgoing message: {err}")
 
@@ -95,7 +118,7 @@ def draft_and_send_style_reply(sender: str, channel: str, msg_body: str,
                 import webbrowser
                 import pyautogui
                 import threading
-                encoded_text = urllib.parse.quote(draft)
+                encoded_text = urllib.parse.quote(text)
                 desktop_url = f"whatsapp://send?phone={clean_phone}&text={encoded_text}"
                 try:
                     logger.info(f"Opening desktop WhatsApp deep-link: {desktop_url}")
@@ -106,61 +129,3 @@ def draft_and_send_style_reply(sender: str, channel: str, msg_body: str,
                     threading.Thread(target=auto_press_enter, daemon=True).start()
                 except Exception as err:
                     logger.error(f"Failed to open desktop WhatsApp: {err}")
-
-    return f"Sir, maine aapki taraf se {channel} par {sender} ko reply bhej diya hai. Message tha: '{draft}'."
-
-def log_direct_reply(sender: str, channel: str, reply_text: str, *, phone) -> str:
-    """Logs a direct text response to config/outgoing_replies.json on behalf of the user."""
-    logger.info(f"Logging direct response on behalf of user to {sender} on {channel}: {reply_text}...")
-    
-    out_db_path = "config/outgoing_replies.json"
-    try:
-        replies = []
-        if os.path.exists(out_db_path):
-            with open(out_db_path, "r", encoding="utf-8") as f:
-                replies = json.load(f)
-        
-        replies.append({
-            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
-            "channel": channel,
-            "recipient": sender,
-            "message_body": reply_text,
-            "status": "SENT"
-        })
-        
-        with open(out_db_path, "w", encoding="utf-8") as f:
-            json.dump(replies, f, indent=2, ensure_ascii=False)
-        logger.success(f"Message logged to outgoing database: {reply_text}")
-    except Exception as err:
-        logger.error(f"Failed to save direct outgoing message: {err}")
-
-    # Automate WhatsApp Desktop or Android ADB sending
-    if "WhatsApp" in channel:
-        resolved_num = phone.get_contact_by_name(sender)
-        if resolved_num:
-            clean_phone = "".join(c for c in resolved_num if c.isdigit())
-            if len(clean_phone) == 10:
-                clean_phone = "91" + clean_phone
-            
-            if phone.is_device_connected():
-                # Send via ADB is already handled in phone skill if active
-                pass
-            else:
-                # Send via WhatsApp Desktop deep-link
-                import urllib.parse
-                import webbrowser
-                import pyautogui
-                import threading
-                encoded_text = urllib.parse.quote(reply_text)
-                desktop_url = f"whatsapp://send?phone={clean_phone}&text={encoded_text}"
-                try:
-                    logger.info(f"Opening desktop WhatsApp deep-link: {desktop_url}")
-                    webbrowser.open(desktop_url)
-                    def auto_press_enter():
-                        time.sleep(4.5)
-                        pyautogui.press('enter')
-                    threading.Thread(target=auto_press_enter, daemon=True).start()
-                except Exception as err:
-                    logger.error(f"Failed to open desktop WhatsApp: {err}")
-
-    return f"Sir, maine {channel} par {sender} ko bol diya hai: '{reply_text}'."

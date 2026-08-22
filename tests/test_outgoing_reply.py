@@ -497,47 +497,30 @@ def test_an_empty_draft_is_sent_as_an_empty_message(cwd, clock, brain, desktop):
     assert desktop.browser.opened[0].endswith("&text=")
 
 
-# --- the duplication ---------------------------------------------------------
+# --- the duplication, and what replaced it -----------------------------------
 
-def test_the_two_functions_share_their_last_fifty_lines(cwd):
-    """The reason these tests exist before the dedup, stated as an assertion.
+def test_both_entry_points_route_through_one_helper():
+    """The successor to the test that compared the two copies statement by statement.
 
-    Everything after the drafting step in draft_and_send_style_reply is
-    log_direct_reply's body with `draft` in place of `reply_text`. Across roughly
-    fifty lines the two copies differ in exactly one place -- the word "direct"
-    in an error message -- which is what makes the duplication so easy to miss
-    and so easy to let drift. These two tests fail the moment it does, and the
-    next commit collapses the copies into one function, taking them with it.
+    Until the commit that added _record_and_send, the tail of each function was
+    the other's -- fifty lines differing in one place, the word "direct" in an
+    error message. Both now delegate instead, and this fails if either grows its
+    own copy back. That is the easy mistake to make here, because each function
+    reads perfectly well on its own once it has been inlined.
     """
-    log_a, send_a = _shared_blocks("draft_and_send_style_reply")
-    log_b, send_b = _shared_blocks("log_direct_reply")
-
-    assert ast.unparse(_rename_draft(send_a)) == ast.unparse(send_b), \
-        "the WhatsApp send block has drifted"
-
-    left = ast.unparse(_rename_draft(log_a))
-    right = ast.unparse(log_b).replace("save direct outgoing", "save outgoing")
-    assert left == right, "the outgoing-log block has drifted beyond the one word"
-
-
-def _shared_blocks(name):
-    """The log block and the send block: the two statements before the return."""
     source = io.open(outgoing_reply.__file__, encoding="utf-8").read()
-    fn = next(n for n in ast.parse(source).body
-              if isinstance(n, ast.FunctionDef) and n.name == name)
-    log_block, send_block = fn.body[-3:-1]
-    return log_block, send_block
+    fns = {n.name: n for n in ast.parse(source).body
+           if isinstance(n, ast.FunctionDef)}
 
-
-class _RenameDraft(ast.NodeTransformer):
-    def visit_Name(self, node):
-        if node.id == "draft":
-            return ast.copy_location(ast.Name(id="reply_text", ctx=node.ctx), node)
-        return node
-
-
-def _rename_draft(node):
-    return _RenameDraft().visit(node)
+    for name, variable in (("draft_and_send_style_reply", "draft"),
+                           ("log_direct_reply", "reply_text")):
+        call = fns[name].body[-2].value
+        assert ast.unparse(call.func) == "_record_and_send"
+        assert [ast.unparse(a) for a in call.args] == ["sender", "channel", variable]
+        assert {k.arg: ast.unparse(k.value) for k in call.keywords} == {"phone": "phone"}
+        body = ast.unparse(fns[name])
+        assert "out_db_path" not in body, "%s writes the database itself again" % name
+        assert "get_contact_by_name" not in body, "%s sends the message itself again" % name
 
 
 # --- the delegations in main.py ---------------------------------------------
