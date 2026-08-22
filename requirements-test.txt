@@ -34,3 +34,16 @@ pyyaml>=6.0
 # `libportaudio2` and `libsndfile1`.
 sounddevice>=0.5
 soundfile>=0.13
+
+# The linter, replacing flake8. Not a test dependency in the strict sense, but
+# it belongs with the tools CI runs so that `ruff check .` locally means what it
+# means in CI -- the rule set itself lives in pyproject.toml's [tool.ruff].
+#
+# The floor is the version the rule set was measured against, 0.12.0, and it is
+# a floor with teeth: ruff's default rule set changes between releases, which is
+# precisely why pyproject.toml pins select/ignore explicitly instead of relying
+# on a default. The CI lint job repeats this floor rather than reading this file
+# (it deliberately installs a short package list, not the whole test env); keep
+# the two in step.
+ruff>=0.12
+

@@ -116,6 +116,120 @@ def _skill_chain(fn: ast.FunctionDef):
     return chains[0]
 
 
+def _module_level_import_names(tree: ast.Module) -> set:
+    """Names bound by imports at module level -- and only module level."""
+    names = set()
+    for node in tree.body:
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                names.add((alias.asname or alias.name).split(".")[0])
+        elif isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                names.add(alias.asname or alias.name)
+    return names
+
+
+def _own_scope(fn):
+    """Yield the nodes in `fn`'s own scope.
+
+    Nested `def`s, lambdas and classes are separate scopes: an import inside one
+    of them does not make the name local to `fn`, so descending into them would
+    manufacture false positives.
+    """
+    stack = list(fn.body)
+    while stack:
+        node = stack.pop()
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef,
+                             ast.Lambda, ast.ClassDef)):
+            continue
+        yield node
+        stack.extend(ast.iter_child_nodes(node))
+
+
+def _earliest_local_imports(fn) -> dict:
+    """name -> lowest line number at which `fn` imports it itself.
+
+    A min() rather than a first-seen: `_own_scope` walks a stack, so traversal
+    order is not source order. Using the first name encountered reports an
+    import that is not the earliest one, which flags correct code as broken --
+    it did exactly that on `WakeWordDetector`, imported at 4652 and used at
+    4653, before this was a min().
+    """
+    earliest = {}
+    for node in _own_scope(fn):
+        if isinstance(node, ast.Import):
+            pairs = [((a.asname or a.name).split(".")[0], node.lineno)
+                     for a in node.names]
+        elif isinstance(node, ast.ImportFrom):
+            pairs = [(a.asname or a.name, node.lineno) for a in node.names]
+        else:
+            continue
+        for name, line in pairs:
+            earliest[name] = min(earliest.get(name, line), line)
+    return earliest
+
+
+def test_no_function_uses_a_module_import_it_later_shadows():
+    """A local `import x` makes `x` local to the *whole* function body.
+
+    Python decides a function's local names when it compiles the body, not as it
+    runs. So one redundant `import os` buried near the end of a function turns
+    every earlier `os.` in that same function into `UnboundLocalError` -- the
+    module-level `import os` is no longer reachable from there.
+
+    `_process_single_command` is ~1,660 lines long, which is what let this hide:
+    the local `import os` sat 1,360 lines below the first use. Two sites were
+    broken. Line numbers below are as of commit 661ff99, the fix, and drift as
+    main.py changes -- the test finds the sites itself and needs none of them.
+
+    `os.path.abspath` at 2351 was inside `try/except Exception`, so saving a code
+    snippet opened VS Code, silently failed to open Explorer and logged it as an
+    auto-open failure -- the reported cause was never the real one.
+    `os.path.basename` at 2973 was in git_sentinel's break-detected path -- the
+    whole point of the feature -- so the only branch that worked was the one
+    where nothing was wrong.
+
+    Neither linter catches both, which is why this test exists rather than a
+    selector. The flake8 gate this repo used until 0ba0bcd reported 0 with
+    `--select=E9,F63,F7,F82`, which covers F823 by prefix. ruff, which replaced
+    it, reports F823 at 2351 and misses 2973. A tool that finds half a defect
+    class does not close it.
+
+    Restricted to names that are also imported at module level, which is the
+    shape that produces a silent failure -- the code reads as correct and the
+    import it needs really is there, just shadowed.
+    """
+    tree = _parse_main()
+    module_names = _module_level_import_names(tree)
+
+    offenders = set()
+    for fn in ast.walk(tree):
+        if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        local = _earliest_local_imports(fn)
+        if not local:
+            continue
+        for node in _own_scope(fn):
+            if not (isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load)):
+                continue
+            shadowed_at = local.get(node.id)
+            if node.id in module_names and shadowed_at and node.lineno < shadowed_at:
+                offenders.add((fn.name, node.id, node.lineno, shadowed_at))
+
+    if offenders:
+        detail = "; ".join(
+            f"{fn}() uses `{name}` at line {use} but imports it locally at "
+            f"line {imp}"
+            for fn, name, use, imp in sorted(offenders, key=lambda t: t[2])
+        )
+        raise AssertionError(
+            f"{len(offenders)} use(s) of a module-level import shadowed by a "
+            f"later local import in the same function, each an "
+            f"UnboundLocalError at runtime: {detail}. Delete the redundant "
+            f"local import -- the module-level one already covers it."
+        )
+
+
 def test_no_skill_is_dispatched_twice_in_the_same_chain():
     """The general guard. A repeated skill makes its later branch dead code."""
     _chain, named = _skill_chain(_dispatch_method(_parse_main()))
