@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/jarvis_logo.png" alt="JARVIS Logo" width="200" style="border-radius: 50%; box-shadow: 0 0 25px rgba(0, 162, 232, 0.6);" />
+  <img src="assets/jarvis.png" alt="JARVIS Logo" width="800" style="border-radius: 50%; box-shadow: 0 0 25px rgba(0, 162, 232, 0.6);" />
 </p>
 
 # 🎙️ JARVIS — AI Voice Assistant & Spatial Gesture OS Controller
