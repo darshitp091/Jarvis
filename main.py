@@ -12,7 +12,6 @@ import threading
 import traceback
 import yaml
 import time
-import json
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -76,8 +75,9 @@ from loguru import logger; _p("DBG: loguru ok")
 logger.remove()
 logger.add("jarvis.log", level="INFO", rotation="10 MB", encoding="utf-8")
 from PyQt6.QtWidgets import QApplication; _p("DBG: PyQt6 ok")
-import jarvis.core.llm_client
-jarvis.core.llm_client.patch_ollama()
+from jarvis.core import llm_client
+from jarvis.skills import outgoing_reply
+llm_client.patch_ollama()
 
 from jarvis.core.audio_engine import AudioEngine
 from jarvis.core.tts_engine import TTSEngine
@@ -85,6 +85,9 @@ from jarvis.core.wake_word import WakeWordDetector
 from jarvis.core.intent_router import IntentRouter
 from jarvis.core.brain import JarvisBrain
 from jarvis.core.vision_engine import CameraEngine
+# Imported as a module rather than by name: the eight methods below that
+# delegate here read as delegations at a glance, which is the point.
+from jarvis.core import text_normalize
 from jarvis.ui.orb import JarvisOrb; _p("DBG: orb ok")
 from jarvis.skills.screen_vision import ScreenVision; _p("DBG: screen_vision ok")
 from jarvis.skills.os_control import OSControl; _p("DBG: os_control ok")
@@ -606,59 +609,7 @@ class JARVIS:
         threading.Thread(target=job, daemon=True).start()
 
     def _ensure_ollama_server(self):
-        """Checks if Ollama server is running on port 11434, and if not, launches it in the background."""
-        import socket
-        import subprocess
-        import os
-        
-        def is_running():
-            try:
-                with socket.create_connection(("localhost", 11434), timeout=1):
-                    return True
-            except OSError:
-                return False
-
-        if is_running():
-            logger.info("Ollama background server is already active.")
-            return
-
-        logger.info("Ollama server not active. Attempting to launch background server...")
-        try:
-            # Resolve executable path on Windows
-            ollama_cmd = "ollama"
-            if os.name == 'nt':
-                user_profile = os.environ.get("USERPROFILE", "")
-                fallback_path = os.path.join(user_profile, "AppData", "Local", "Programs", "Ollama", "ollama.exe")
-                if os.path.exists(fallback_path):
-                    ollama_cmd = fallback_path
-
-            startupinfo = None
-            if os.name == 'nt':
-                startupinfo = subprocess.STARTUPINFO()
-                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-                startupinfo.wShowWindow = 0  # SW_HIDE
-                
-            creationflags = 0
-            if os.name == 'nt':
-                creationflags = subprocess.CREATE_NEW_PROCESS_GROUP | 0x08000000 # DETACHED_PROCESS
-                
-            subprocess.Popen(
-                [ollama_cmd, "serve"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                startupinfo=startupinfo,
-                creationflags=creationflags
-            )
-            
-            # Wait up to 10 seconds for the server to bind and respond
-            for attempt in range(10):
-                if is_running():
-                    logger.info("Ollama server successfully launched and active.")
-                    return
-                time.sleep(1)
-            logger.warning("Ollama server launched but did not respond on port 11434 within 10 seconds.")
-        except Exception as e:
-            logger.error(f"Failed to auto-start Ollama server: {e}")
+        llm_client.ensure_ollama_server()
 
     def _duck_audio(self):
         """Ducks the background music volume when JARVIS speaks."""
@@ -1023,193 +974,8 @@ class JARVIS:
             logger.info("JARVIS initialized silently on startup. Standing by for wake word.")
 
     def query_llm(self, messages: list, system_prompt: str = None, provider: str = "mistral", model: str = None) -> str:
-        """Queries the active LLM provider (mistral, ofoxai, groq, or local Ollama fallback)."""
-        query_messages = []
-        if system_prompt:
-            query_messages.append({"role": "system", "content": system_prompt})
-        query_messages.extend(messages)
-
-        # 1. Mistral AI Provider
-        if provider == "mistral":
-            mistral_cfg = self.config.get("mistral", {})
-            api_key = mistral_cfg.get("api_key", "")
-            target_model = model or mistral_cfg.get("models", {}).get("brain", "mistral-large-2512")
-            
-            if api_key and not api_key.startswith("YOUR_"):
-                import requests
-                url = "https://api.mistral.ai/v1/chat/completions"
-                headers = {
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json"
-                }
-                data = {
-                    "model": target_model,
-                    "messages": query_messages,
-                    "temperature": 0.2,
-                    "stream": True
-                }
-                try:
-                    logger.info(f"Querying Mistral API using model '{target_model}' (streaming enabled)...")
-                    response = requests.post(url, headers=headers, json=data, stream=True, timeout=25)
-                    if response.status_code == 200:
-                        reply_parts = []
-                        print("JARVIS: ", end="", flush=True)
-                        for line in response.iter_lines():
-                            if line:
-                                decoded_line = line.decode('utf-8').strip()
-                                if decoded_line.startswith("data:"):
-                                    data_content = decoded_line[5:].strip()
-                                    if data_content == "[DONE]":
-                                        break
-                                    try:
-                                        chunk_json = json.loads(data_content)
-                                        delta = chunk_json["choices"][0].get("delta", {})
-                                        if "content" in delta:
-                                            text_chunk = delta["content"]
-                                            print(text_chunk, end="", flush=True)
-                                            reply_parts.append(text_chunk)
-                                    except Exception:
-                                        pass
-                        print()
-                        reply = "".join(reply_parts)
-                        logger.info("Successfully received streamed response from Mistral.")
-                        return reply
-                    else:
-                        logger.error(f"Mistral API returned error status {response.status_code}: {response.text}")
-                except Exception as e:
-                    logger.error(f"Mistral API connection failed: {e}")
-
-        # 2. OfoxAI Provider
-        elif provider == "ofoxai":
-            ofox_cfg = self.config.get("ofoxai", {})
-            api_key = ofox_cfg.get("api_key", "")
-            target_model = model or ofox_cfg.get("model", "z-ai/glm-4.7-flash:free")
-            
-            if api_key and not api_key.startswith("YOUR_"):
-                try:
-                    logger.info(f"Querying OfoxAI API using model '{target_model}'...")
-                    from openai import OpenAI
-                    client = OpenAI(
-                        base_url="https://api.ofox.ai/v1",
-                        api_key=api_key
-                    )
-                    ofox_messages = []
-                    if system_prompt:
-                        ofox_messages.append({"role": "system", "content": system_prompt})
-                    
-                    for msg in messages:
-                        content = msg["content"]
-                        if isinstance(content, list):
-                            text_content = ""
-                            for part in content:
-                                if part.get("type") == "text":
-                                    text_content += part.get("text", "")
-                            ofox_messages.append({"role": msg["role"], "content": text_content})
-                        else:
-                            ofox_messages.append(msg)
-
-                    response_stream = client.chat.completions.create(
-                        model=target_model,
-                        messages=ofox_messages,
-                        temperature=0.1,
-                        max_tokens=300,
-                        stream=True,
-                        timeout=25
-                    )
-                    reply_parts = []
-                    print("JARVIS: ", end="", flush=True)
-                    for chunk in response_stream:
-                        if chunk.choices and chunk.choices[0].delta.content:
-                            text_chunk = chunk.choices[0].delta.content
-                            print(text_chunk, end="", flush=True)
-                            reply_parts.append(text_chunk)
-                    print()
-                    reply = "".join(reply_parts)
-                    logger.info("Successfully received streamed response from OfoxAI.")
-                    return reply
-                except Exception as e:
-                    logger.error(f"OfoxAI API connection failed: {e}")
-
-        # 3. Groq API Provider Fallback
-        groq_cfg = self.config.get("groq", {})
-        groq_api_key = groq_cfg.get("api_key", "")
-        groq_model = groq_cfg.get("model", "llama-3.3-70b-versatile")
-        
-        if groq_api_key and not groq_api_key.startswith("YOUR_"):
-            import requests
-            url = "https://api.groq.com/openai/v1/chat/completions"
-            headers = {
-                "Authorization": f"Bearer {groq_api_key}",
-                "Content-Type": "application/json"
-            }
-            # Flatten/convert messages if multimodal
-            groq_messages = []
-            for msg in query_messages:
-                content = msg["content"]
-                if isinstance(content, list):
-                    text_content = ""
-                    for part in content:
-                        if part.get("type") == "text":
-                            text_content += part.get("text", "")
-                    groq_messages.append({"role": msg["role"], "content": text_content})
-                else:
-                    groq_messages.append(msg)
-
-            data = {
-                "model": groq_model,
-                "messages": groq_messages,
-                "temperature": 0.3
-            }
-            try:
-                logger.info(f"Querying Groq API using model '{groq_model}'...")
-                response = requests.post(url, headers=headers, json=data, timeout=25)
-                if response.status_code == 200:
-                    result = response.json()
-                    reply = result["choices"][0]["message"]["content"]
-                    logger.info("Successfully received response from Groq.")
-                    return reply
-                else:
-                    logger.error(f"Groq API returned error status {response.status_code}: {response.text}")
-            except Exception as e:
-                logger.error(f"Groq API connection failed: {e}")
-                
-        # 4. Local Ollama Fallback (with base64 image extraction)
-        try:
-            logger.info("Falling back to local Ollama brain...")
-            import ollama
-            model_name = self.models.get("main_brain", "yasserrmd/Human-Like-Qwen2.5-1.5B-Instruct:latest")
-            
-            ollama_messages = []
-            for msg in query_messages:
-                content = msg["content"]
-                images = []
-                text_content = ""
-                
-                if isinstance(content, list):
-                    for part in content:
-                        if part.get("type") == "text":
-                            text_content += part.get("text", "")
-                        elif part.get("type") == "image_url":
-                            url_val = part.get("image_url", {}).get("url", "")
-                            if "base64," in url_val:
-                                base64_data = url_val.split("base64,")[1]
-                                images.append(base64_data)
-                else:
-                    text_content = content
-                    
-                ollama_msg = {"role": msg["role"], "content": text_content}
-                if images:
-                    ollama_msg["images"] = images
-                ollama_messages.append(ollama_msg)
-                     
-            response = ollama.chat(
-                model=model_name,
-                messages=ollama_messages
-            )
-            return response["message"]["content"]
-        except Exception as e:
-            logger.error(f"Local Ollama query failed: {e}")
-            return "I am currently unable to process your request, sir."
+        return llm_client.query_llm(messages, system_prompt, provider, model,
+                                    config=self.config, models=self.models)
 
     def _visual_assistant_loop(self):
         """Continuously monitors what the user is doing on the screen and offers proactive suggestions."""
@@ -1388,144 +1154,13 @@ class JARVIS:
         return f"Presentation '{topic_filename}.pptx' generated inside presentations folder, sir."
 
     def _draft_and_send_style_reply(self, sender: str, channel: str, msg_body: str, user_instruction: str) -> str:
-        """Drafts a reply on behalf of the user using LLM styled after past tone, and records it to config/outgoing_replies.json."""
-        logger.info(f"Drafting style-matched reply on behalf of user to {sender} on {channel}...")
-        
-        system_prompt = (
-            "You are JARVIS. You draft text messages on behalf of the user (Darshit) matching his communication style. "
-            "Darshit usually replies in a very natural, concise Hinglish WhatsApp style (e.g. 'haan abhi busy hu, free hoke call karta hu' or 'ab kya hua bro?'). "
-            "Draft a response matching what Darshit instructed. Output ONLY the raw reply content, no quotes, no greeting, no punctuation formatting."
-        )
-        
-        user_prompt = (
-            f"Incoming Message from {sender} on {channel}: '{msg_body}'\n"
-            f"User's Instruction: '{user_instruction}'\n\n"
-            "Draft the casual message to send:"
-        )
-        
-        draft = "Sir, thodi der me message karti hu."
-        try:
-            import ollama
-            response = ollama.chat(
-                model=self.models["main_brain"],
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                options={"temperature": 0.5}
-            )
-            draft = response["message"]["content"].strip().strip('"').strip("'")
-        except Exception as e:
-            logger.error(f"Failed to draft style response using local LLM: {e}")
-            
-        # Log/Save the message to outgoing JSON database (as if it was sent)
-        out_db_path = "config/outgoing_replies.json"
-        try:
-            replies = []
-            if os.path.exists(out_db_path):
-                with open(out_db_path, "r", encoding="utf-8") as f:
-                    replies = json.load(f)
-            
-            replies.append({
-                "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
-                "channel": channel,
-                "recipient": sender,
-                "message_body": draft,
-                "status": "SENT"
-            })
-            
-            with open(out_db_path, "w", encoding="utf-8") as f:
-                json.dump(replies, f, indent=2, ensure_ascii=False)
-            logger.success(f"Message logged to outgoing database: {draft}")
-        except Exception as err:
-            logger.error(f"Failed to save outgoing message: {err}")
-
-        # Automate WhatsApp Desktop or Android ADB sending
-        if "WhatsApp" in channel:
-            resolved_num = self.phone.get_contact_by_name(sender)
-            if resolved_num:
-                clean_phone = "".join(c for c in resolved_num if c.isdigit())
-                if len(clean_phone) == 10:
-                    clean_phone = "91" + clean_phone
-                
-                if self.phone.is_device_connected():
-                    # Send via ADB is already handled in phone skill if active
-                    pass
-                else:
-                    # Send via WhatsApp Desktop deep-link
-                    import urllib.parse
-                    import webbrowser
-                    import pyautogui
-                    import threading
-                    encoded_text = urllib.parse.quote(draft)
-                    desktop_url = f"whatsapp://send?phone={clean_phone}&text={encoded_text}"
-                    try:
-                        logger.info(f"Opening desktop WhatsApp deep-link: {desktop_url}")
-                        webbrowser.open(desktop_url)
-                        def auto_press_enter():
-                            time.sleep(4.5)
-                            pyautogui.press('enter')
-                        threading.Thread(target=auto_press_enter, daemon=True).start()
-                    except Exception as err:
-                        logger.error(f"Failed to open desktop WhatsApp: {err}")
-
-        return f"Sir, maine aapki taraf se {channel} par {sender} ko reply bhej diya hai. Message tha: '{draft}'."
+        return outgoing_reply.draft_and_send_style_reply(
+            sender, channel, msg_body, user_instruction,
+            models=self.models, phone=self.phone)
 
     def _log_direct_reply(self, sender: str, channel: str, reply_text: str) -> str:
-        """Logs a direct text response to config/outgoing_replies.json on behalf of the user."""
-        logger.info(f"Logging direct response on behalf of user to {sender} on {channel}: {reply_text}...")
-        
-        out_db_path = "config/outgoing_replies.json"
-        try:
-            replies = []
-            if os.path.exists(out_db_path):
-                with open(out_db_path, "r", encoding="utf-8") as f:
-                    replies = json.load(f)
-            
-            replies.append({
-                "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
-                "channel": channel,
-                "recipient": sender,
-                "message_body": reply_text,
-                "status": "SENT"
-            })
-            
-            with open(out_db_path, "w", encoding="utf-8") as f:
-                json.dump(replies, f, indent=2, ensure_ascii=False)
-            logger.success(f"Message logged to outgoing database: {reply_text}")
-        except Exception as err:
-            logger.error(f"Failed to save direct outgoing message: {err}")
-
-        # Automate WhatsApp Desktop or Android ADB sending
-        if "WhatsApp" in channel:
-            resolved_num = self.phone.get_contact_by_name(sender)
-            if resolved_num:
-                clean_phone = "".join(c for c in resolved_num if c.isdigit())
-                if len(clean_phone) == 10:
-                    clean_phone = "91" + clean_phone
-                
-                if self.phone.is_device_connected():
-                    # Send via ADB is already handled in phone skill if active
-                    pass
-                else:
-                    # Send via WhatsApp Desktop deep-link
-                    import urllib.parse
-                    import webbrowser
-                    import pyautogui
-                    import threading
-                    encoded_text = urllib.parse.quote(reply_text)
-                    desktop_url = f"whatsapp://send?phone={clean_phone}&text={encoded_text}"
-                    try:
-                        logger.info(f"Opening desktop WhatsApp deep-link: {desktop_url}")
-                        webbrowser.open(desktop_url)
-                        def auto_press_enter():
-                            time.sleep(4.5)
-                            pyautogui.press('enter')
-                        threading.Thread(target=auto_press_enter, daemon=True).start()
-                    except Exception as err:
-                        logger.error(f"Failed to open desktop WhatsApp: {err}")
-
-        return f"Sir, maine {channel} par {sender} ko bol diya hai: '{reply_text}'."
+        return outgoing_reply.log_direct_reply(sender, channel, reply_text,
+                                               phone=self.phone)
 
     def _execute_stark_diagnostics(self) -> str:
         """Runs system hardware checks and formats them into a witty, sarcastic Hinglish MCU diagnostic briefing."""
@@ -1647,51 +1282,7 @@ class JARVIS:
             logger.error(f"Error compressing dialogue history: {e}")
 
     def clean_to_plain_text(self, text: str) -> str:
-        """Strips markdown formatting, bullet points, numbers, links, and asterisks for conversational speech/viewing."""
-        import re
-        if not text:
-            return ""
-        # 1. Remove parenthetical descriptions (e.g. (pauses), (smiling), (breathes softly))
-        text = re.sub(r"\([^)]*\)", "", text)
-
-        # 2. Remove markdown images
-        text = re.sub(r"!\[.*?\]\(.*?\)", "", text)
-        
-        # 3. Remove markdown links (keep text, discard URL)
-        text = re.sub(r"\[(.*?)\]\(.*?\)", r"\1", text)
-        text = re.sub(r"<(https?://\S+)>", "", text)
-        text = re.sub(r"\bhttps?://\S+", "", text)
-        
-        # 4. Remove bold/italic asterisks and underscores
-        text = text.replace("**", "").replace("*", "").replace("__", "").replace("_", "")
-        
-        # 5. Remove markdown headers
-        text = re.sub(r"^#+\s+", "", text, flags=re.MULTILINE)
-        
-        # 6. Clean bullet points at start of lines
-        text = re.sub(r"^[ \t]*[-\*+]\s+", "", text, flags=re.MULTILINE)
-        
-        # 7. Clean numbered list markers at start of lines or sentences
-        text = re.sub(r"^[ \t]*\d+\.\s+", "", text, flags=re.MULTILINE)
-        
-        # 8. Join lines into smooth flowing paragraphs
-        paragraphs = []
-        for line in text.split("\n"):
-            line = line.strip()
-            if line:
-                paragraphs.append(line)
-        
-        combined = " ".join(paragraphs)
-        combined = re.sub(r"\s+", " ", combined).strip()
-
-        # 9. Interactive Turn Truncation:
-        # If the text contains an interactive question, truncate the text immediately after the question mark.
-        question_match = re.search(r"(\b(?:shall\s+we|would\s+you\s+like|should\s+i|can\s+i|do\s+you\s+want)\b[^?]*\?)", combined, flags=re.IGNORECASE)
-        if question_match:
-            idx = combined.find(question_match.group(1)) + len(question_match.group(1))
-            combined = combined[:idx].strip()
-
-        return combined
+        return text_normalize.clean_to_plain_text(text)
 
     def on_orb_state_changed(self, state: str):
         if state == "interrupt":
@@ -1704,11 +1295,7 @@ class JARVIS:
         return True
 
     def split_chained_commands(self, text: str) -> list[str]:
-        import re
-        pattern = r"\b(?:and\s+then|then|after\s+that|and\s+after\s+that|uske\s+baad|iske\s+baad|phir|aur\s+phir|aur\s+uske\s+baad)\b"
-        splits = re.split(pattern, text, flags=re.IGNORECASE)
-        commands = [c.strip() for c in splits if c.strip()]
-        return commands
+        return text_normalize.split_chained_commands(text)
 
     def _get_friendly_task_desc(self, text: str, is_hinglish: bool = False) -> str:
         """Returns a human-like description of a command's intent."""
@@ -1827,23 +1414,7 @@ class JARVIS:
             return text
 
     def _detect_language(self, text: str) -> str:
-        """Detects whether user input is predominantly English or Hinglish/Hindi."""
-        has_devanagari = any('\u0900' <= c <= '\u097F' for c in text)
-        if has_devanagari:
-            return "hinglish"
-        text_clean = text.lower().strip()
-        words = set(text_clean.split())
-        hinglish_keywords = {
-            "karo", "kardo", "khol", "kholo", "kholna", "kholne", "hai", "hain", "nhi", "nahi",
-            "par", "pe", "mein", "me", "ke", "ki", "ka", "ko", "se", "andar", "bahar",
-            "saari", "saariya", "sab", "sub", "kuch", "kuchh", "batayein", "batao", "bata",
-            "sunao", "chalao", "bajao", "raha", "rahi", "hu", "hoon", "thi", "tha",
-            "kya", "kaise", "kyun", "kab", "kahan", "konsa", "so", "jao", "jaao",
-            "rehne", "chhod", "hatao", "dekho", "dikhao", "madad", "chahiye", "banana", "karna",
-            "khi", "khali", "uske", "baad", "phir", "fir", "unko", "usko", "unse", "isse"
-        }
-        match_count = len(words.intersection(hinglish_keywords))
-        return "hinglish" if match_count >= 1 else "english"
+        return text_normalize.detect_language(text)
 
     def process_command(self, text: str):
         """Processes a single command, or splits and executes a chain of sequential commands with human-like transitions."""
@@ -1905,132 +1476,10 @@ class JARVIS:
             self._process_single_command(text)
 
     def transliterate_devanagari_to_roman(self, text: str) -> str:
-        """Transliterates Devanagari Hindi text to Roman script Hinglish phonetically."""
-        consonants = {
-            'क': 'k', 'ख': 'kh', 'ग': 'g', 'घ': 'gh', 'ङ': 'n',
-            'च': 'ch', 'छ': 'chh', 'ज': 'j', 'झ': 'jh', 'ञ': 'n',
-            'ट': 't', 'ठ': 'th', 'ड': 'd', 'ढ': 'dh', 'ण': 'n',
-            'त': 't', 'थ': 'th', 'द': 'd', 'ध': 'dh', 'न': 'n',
-            'प': 'p', 'फ': 'f', 'ब': 'b', 'भ': 'bh', 'म': 'm',
-            'य': 'y', 'र': 'r', 'ल': 'l', 'व': 'v', 'श': 'sh',
-            'ष': 'sh', 'स': 's', 'ह': 'h', 'क्ष': 'ksh', 'त्र': 'tr',
-            'ज्ञ': 'gy', 'ड़': 'd', 'ढ़': 'dh'
-        }
-        vowels = {
-            'अ': 'a', 'आ': 'aa', 'इ': 'i', 'ई': 'ee', 'उ': 'u', 'ऊ': 'oo',
-            'ऋ': 'ri', 'ए': 'e', 'ऐ': 'ai', 'ओ': 'o', 'औ': 'au',
-            'ा': 'a', 'ि': 'i', 'ी': 'ee', 'ु': 'u', 'ू': 'oo',
-            'े': 'e', 'ै': 'ai', 'ो': 'o', 'ौ': 'au',
-            'ं': 'n', 'ः': 'h', 'ँ': 'n', '्': ''
-        }
-        common_words = {
-            "एक": "ek", "काम": "kaam", "करो": "karo", "कर": "kar", "दे": "de", "दो": "do",
-            "दिखाओ": "dikhao", "दिखा": "dikha", "खोल": "khol", "खोलना": "kholo",
-            "बजाओ": "bajao", "बजा": "baja", "चलाओ": "chalao", "चला": "chala",
-            "मुझे": "mujhe", "मेरा": "mera", "मेरी": "meri", "तुम": "tum", "तुम्हारा": "tumhara",
-            "आप": "aap", "आपका": "aapka", "है": "hai", "हूँ": "hoon", "था": "tha",
-            "थी": "thi", "थे": "the", "रहना": "rahna", "रहा": "raha", "रही": "rahi",
-            "रहे": "rahe", "करते": "karte", "करती": "karti", "करता": "karta",
-            "कहाँ": "kahan", "कब": "kab", "क्यों": "kyun", "कैसे": "kaise", "क्या": "kya",
-            "कौन": "kaun", "कुछ": "kuch", "sab": "sab", "और": "aur", "भी": "bhi",
-            "तो": "toh", "ye": "yeh", "वह": "woh", "अंडर": "under", "बजेट": "budget",
-            "लेप्टोप": "laptop", "लैपटॉप": "laptop", "ब्राउज़र": "browser", "ब्रूवजर": "browser",
-            "क्रोम": "chrome", "स्पोटिफ़ाई": "spotify", "स्पॉटीफाई": "spotify",
-            "गाने": "gaane", "गाना": "gaana", "बजादो": "bajado", "प्ले": "play",
-            "को": "ko", "pe": "pe", "pehle": "pehle", "par": "par", "मम्मी": "mommy", "पापा": "papa"
-        }
-        words = text.split()
-        translated_words = []
-        for w in words:
-            clean_w = w.strip(",.!?\"'")
-            punctuation = w[len(clean_w):] if w.endswith(clean_w) else ""
-            lead_punctuation = w[:w.find(clean_w)] if clean_w in w else ""
-            if clean_w in common_words:
-                translated_words.append(lead_punctuation + common_words[clean_w] + punctuation)
-            elif any('\u0900' <= c <= '\u097F' for c in clean_w):
-                roman = ""
-                i = 0
-                while i < len(clean_w):
-                    char = clean_w[i]
-                    next_char = clean_w[i+1] if i + 1 < len(clean_w) else ""
-                    if next_char == '्':
-                        if char in consonants:
-                            roman += consonants[char]
-                        i += 2
-                        continue
-                    if char in consonants:
-                        roman += consonants[char]
-                        if next_char in vowels and next_char not in ['अ', 'आ', 'इ', 'ई', 'उ', 'ऊ', 'ऋ', 'ए', 'ऐ', 'ओ', 'औ']:
-                            roman += vowels[next_char]
-                            i += 2
-                        else:
-                            if next_char not in vowels and next_char != '':
-                                roman += 'a'
-                            i += 1
-                    elif char in vowels:
-                        roman += vowels[char]
-                        i += 1
-                    else:
-                        roman += char
-                        i += 1
-                translated_words.append(lead_punctuation + roman + punctuation)
-            else:
-                translated_words.append(w)
-        return " ".join(translated_words)
+        return text_normalize.transliterate_devanagari_to_roman(text)
 
     def _get_phonetic_candidates(self, text: str) -> list[str]:
-        mappings = {
-            "risakhal": "recycle",
-            "vine": "bin",
-            "tresh": "trash",
-            "fayas": "files",
-            "dilet": "delete",
-            "temathareree": "temporary",
-            "kesh": "cache",
-            "rimo": "remove",
-            "leptob": "laptop",
-            "leptop": "laptop",
-            "aplication": "application",
-            "opun": "open",
-            "apen": "open",
-            "play music": "play some music",
-            "spotifai": "spotify",
-            "spotifaee": "spotify",
-            "dish clean up": "disk cleanup",
-            "dish clean": "disk cleanup",
-            "mailware": "malware",
-            "garo": "karo",
-            "buja": "baja"
-        }
-        words = text.lower().split()
-        modified = False
-        candidates = []
-        
-        # Word replacement candidate
-        replaced_words = []
-        for w in words:
-            clean_w = w.strip(",.!?\"'")
-            punctuation = w[len(clean_w):] if w.endswith(clean_w) else ""
-            lead_punctuation = w[:w.find(clean_w)] if clean_w in w else ""
-            if clean_w in mappings:
-                replaced_words.append(lead_punctuation + mappings[clean_w] + punctuation)
-                modified = True
-            else:
-                replaced_words.append(w)
-        if modified:
-            candidates.append(" ".join(replaced_words))
-            
-        # Substring replacement candidate
-        phrase = text.lower()
-        phrase_modified = False
-        for k, v in mappings.items():
-            if k in phrase:
-                phrase = phrase.replace(k, v)
-                phrase_modified = True
-        if phrase_modified:
-            candidates.append(phrase)
-            
-        return list(set(candidates))
+        return text_normalize.get_phonetic_candidates(text)
 
     def _reload_skill_instance(self, filepath: str) -> bool:
         try:
@@ -2063,14 +1512,7 @@ class JARVIS:
         setattr(self, attr_name, new_inst)
 
     def _clean_name_address(self, text: str) -> str:
-        """Strips casual friendly address words ('jarvis', 'jarvis bhai', 'hey jarvis', etc.) from user input."""
-        import re
-        if not text:
-            return text
-        pattern = r"\b(hey|sun|sunn|chalo|arre|arrey|oh|bhai)?\s*jarvis\s*(bhai|ji|bro|yaara)?\b"
-        cleaned = re.sub(pattern, "", text, flags=re.IGNORECASE).strip()
-        cleaned = re.sub(r"\s+", " ", cleaned).strip(",. ")
-        return cleaned if cleaned else text
+        return text_normalize.clean_name_address(text)
 
     def _speak_and_store(self, response: str):
         """Speaks a response, updates the orb, and records it to memory."""
@@ -2080,43 +1522,10 @@ class JARVIS:
         self.brain.store(response, role="assistant")
 
     def _parse_volume_reply(self, text: str):
-        """Extracts a 0-100 volume level from a Hinglish/English reply. None if not understood."""
-        import re
-        t = re.sub(r'[,\?\!\.\"\']', '', text.lower()).strip()
-
-        num = re.search(r'(\d{1,3})', t)
-        if num:
-            return max(0, min(100, int(num.group(1))))
-
-        if any(w in t for w in ["mute", "silent", "band kar", "zero"]):
-            return 0
-        if any(w in t for w in ["bahut kam", "sabse kam", "very low", "lowest", "ekdum kam"]):
-            return 10
-        if any(w in t for w in ["kam", "low", "dhime", "dhima", "dheeme", "halka", "halke"]):
-            return 25
-        if any(w in t for w in ["medium", "normal", "thik", "theek", "aadha", "half", "beech"]):
-            return 50
-        if any(w in t for w in ["full", "max", "maximum", "poora", "pura", "tez", "loud", "high"]):
-            return 100
-        return None
+        return text_normalize.parse_volume_reply(text)
 
     def _clean_song_name_reply(self, text: str) -> str:
-        """Extracts just the song/video name out of a spoken reply."""
-        import re
-        t = re.sub(r'[,\?\!\.\"\']', '', text.lower()).strip()
-
-        # User leaves the choice to JARVIS.
-        if any(p in t for p in ["koi bhi", "kuch bhi", "jo bhi", "tumhari pasand", "tumhari marzi",
-                                "your choice", "anything", "tum decide"]):
-            return "trending songs this week"
-
-        t = re.sub(
-            r'\b(?:play|chalao|chalado|chala|bajao|bajado|baja|sunao|suna|dikhao|dikha|do|de|karo|'
-            r'please|plz|youtube|yt|pe|par|mein|ka|ki|ke|ko|gaana|gana|gaane|song|songs|video|'
-            r'naam|hai|wala|wali|sir)\b',
-            '', t
-        )
-        return re.sub(r'\s+', ' ', t).strip()
+        return text_normalize.clean_song_name_reply(text)
 
     def _play_youtube_request(self, query: str, volume_percent=None) -> str:
         """Sets the system volume (if asked for), resolves the video, and plays it."""
