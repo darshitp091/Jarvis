@@ -181,3 +181,62 @@ def test_the_injected_state_is_keyword_only():
     assert all(p.kind is p.KEYWORD_ONLY for p in params.values())
     assert sorted(params) == ["alert_lock", "alert_queue", "is_authenticated",
                               "orb", "tts"]
+
+
+def _methods_containing(source_fragment):
+    """Names of the JARVIS methods whose source contains `source_fragment`."""
+    cls = next(n for n in _main_tree().body
+               if isinstance(n, ast.ClassDef) and n.name == "JARVIS")
+    return sorted(n.name for n in cls.body
+                  if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+                  and source_fragment in ast.unparse(n))
+
+
+def test_no_method_in_main_empties_the_queue_itself():
+    """The defect this test exists for, and it was live for as long as the queue was.
+
+    Four places in main.py append to `alert_queue`. Exactly one place emptied
+    it -- the wake-word path, which copied the list, cleared it, and then never
+    read the copy. `_flush_alerts` was the method that would have spoken them,
+    and it was never called from anywhere. So no alert raised while JARVIS was
+    asleep, locked, or already talking was ever spoken: they were drained and
+    discarded on the next wake word.
+
+    Guarding the fix by naming its call site would only prove that one site
+    exists. This guards the invariant that makes the defect unreachable instead
+    -- draining the queue and speaking it are one act, and the only code that
+    performs it is `flush_alerts`, whose tests above are what prove it speaks.
+    So main.py may append, and may ask for a flush, and may not empty the queue.
+    """
+    assert _methods_containing("alert_queue.clear()") == []
+    assert _methods_containing("alert_queue.pop") == []
+    # Rebinding it would orphan the four producers as surely as clearing it
+    # drops the alerts. __init__ is where the list legitimately comes from.
+    assert _methods_containing("self.alert_queue = ") == ["__init__"]
+
+
+def test_something_actually_calls_the_flush():
+    """The other half. The invariant above was satisfied by nobody flushing at all."""
+    callers = _methods_containing("self._flush_alerts()")
+    assert callers, "_flush_alerts is dead code again; queued alerts go unspoken"
+
+
+def test_the_flush_happens_after_the_greeting_and_before_listening():
+    """Order matters: the orb ends up "idle", and "listening" has to come after.
+
+    `flush_alerts` sets the orb to idle even for an empty queue
+    (test_an_empty_queue_still_moves_the_orb_to_idle), so a flush placed after
+    the "listening" state would leave the orb wrong while recording.
+    """
+    cls = next(n for n in _main_tree().body
+               if isinstance(n, ast.ClassDef) and n.name == "JARVIS")
+    fn = next(n for n in cls.body
+              if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+              and "self._flush_alerts()" in ast.unparse(n))
+    lines = ast.unparse(fn).splitlines()
+
+    def at(fragment):
+        return next(i for i, line in enumerate(lines) if fragment in line)
+
+    assert at("self.tts.speak(f'{greeting}{unread_notice}')") < at("self._flush_alerts()")
+    assert at("self._flush_alerts()") < at("self.orb.set_state('listening')")

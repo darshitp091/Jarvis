@@ -3404,13 +3404,7 @@ class JARVIS:
                         
                     # Play wakeup response immediately so user knows it's listening
                     self.orb.set_state("speaking")
-                    
-                    alerts_to_speak = []
-                    with self.alert_lock:
-                        if self.alert_queue:
-                            alerts_to_speak = list(self.alert_queue)
-                            self.alert_queue.clear()
-                            
+
                     greeting, is_night = self.profile_mgr.get_time_of_day_greeting()
                     if is_night:
                         def apply_night_mode():
@@ -3429,7 +3423,12 @@ class JARVIS:
                             unread_notice = f" Waise sir, aapke {count} naye WhatsApp messages aaye hain."
 
                     self.tts.speak(f"{greeting}{unread_notice}")
-                        
+
+                    # Anything that fell due while JARVIS was asleep, locked or
+                    # already talking was queued instead of spoken. Say it now,
+                    # after the greeting, while the orb is still "speaking".
+                    self._flush_alerts()
+
                     self.is_asleep = False
                     self.last_command_time = time.time()
                 
