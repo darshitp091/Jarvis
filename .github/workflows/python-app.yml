@@ -30,12 +30,33 @@ jobs:
     - name: Install Core Dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install flake8 pyyaml loguru requests ollama
+        # The ruff floor repeats requirements-test.txt's; this job installs a
+        # short list rather than that file, because ruff is the only tool it
+        # needs from it and the rest (numpy, sounddevice, pytest) is the Linux
+        # job's business. Keep the two floors in step.
+        pip install "ruff>=0.12" pyyaml loguru requests ollama
 
-    - name: Lint for Critical Syntax Errors
-      run: |
-        # stop the build if there are Python syntax errors or undefined names
-        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics --exclude=jarvis_env,venv,.git,scratch
+    - name: Lint
+      # Was: flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+      #      --exclude=jarvis_env,venv,.git,scratch
+      #
+      # Swapped for ruff because the flake8 gate did not do the one job it was
+      # written for. `--select=E9,F63,F7,F82` covers F823 by prefix, and against
+      # main.py before commit 661ff99 flake8 reported 0 while ruff reported
+      # `main.py:2351:62: F823` -- a real UnboundLocalError, live in the
+      # application, sitting under a gate that existed to catch exactly that.
+      #
+      # No flags here on purpose. Rule set, exclusions, target version and line
+      # length all come from [tool.ruff] in pyproject.toml, so this command
+      # means the same thing on a developer's machine as it does here. A gate
+      # whose configuration lives in a YAML string is a gate nobody can
+      # reproduce locally, and that is how the flake8 blind spot survived.
+      #
+      # The enforced set is wider than flake8's was (E4,E7,E9,F,B against
+      # syntax-errors-and-undefined-names) and still passes with no code
+      # changes. pyproject.toml carries the ignore list, each rule with its
+      # measured violation count, and the ratchet instructions.
+      run: ruff check . --output-format=full
 
     - name: Verify Core Imports & Intent Routing Engine
       run: |

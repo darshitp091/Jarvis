@@ -253,7 +253,8 @@ def test_empty_text_is_a_noop(engine, monkeypatch):
 
 def test_sweep_removes_stale_but_keeps_fresh(engine, tmp_path, monkeypatch):
     """A kill mid-playback skips per-call cleanup; the sweep is the backstop."""
-    import os, time as _t
+    import os
+    import time as _t
     monkeypatch.setattr(engine, "_temp_dir", lambda: str(tmp_path))
 
     stale = tmp_path / "edge_old.mp3"

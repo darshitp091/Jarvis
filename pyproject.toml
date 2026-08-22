@@ -59,3 +59,84 @@ where = ["src"]
 # bootstrap, not through an install, and it is the entry point SETUP.md
 # documents. The console script comes back when main.py is decomposed and a
 # real jarvis.__main__ exists to point at.
+
+[tool.ruff]
+# Every setting here is pinned rather than left to ruff's default, because the
+# default is not a fixed thing: ruff's own docs say the default select is
+# `E4,E7,E9,F`, and `ruff check` on this repo with no config emitted BLE001,
+# I001, S110 and RUF010 -- none of which are in that set, and with no config
+# file anywhere on the machine to explain it. If CI and a developer's checkout
+# can disagree about what the linter even checks, the gate is theatre. So the
+# rule set lives here, in the repo, and `ruff check .` means the same thing
+# everywhere.
+target-version = "py310"   # matches requires-python; do not let ruff infer it
+line-length = 100
+
+# Not the test venv, not a vendored env, not scratch work. Mirrors the
+# --exclude list the CI lint step used when it ran flake8.
+extend-exclude = ["jarvis_env", "venv", "scratch", ".superpowers"]
+
+[tool.ruff.lint]
+# The enforced set. This is deliberately wider than the flake8 gate it replaced
+# (`--select=E9,F63,F7,F82`, i.e. syntax errors and undefined names) and yet
+# still passes with zero code changes -- measured, not hoped. `B` is
+# flake8-bugbear, which ruff implements natively; it is the part that earns its
+# place, catching mutable default arguments (B006), assert-on-a-tuple (B004),
+# and useless expressions (B018), all of which currently measure zero and are
+# now held there.
+select = ["E4", "E7", "E9", "F", "B"]
+
+# THE BACKLOG, AND THE RATCHET.
+#
+# These are not "rules we disagree with" -- they are rules this codebase does
+# not pass yet. Each carries the count measured at the commit that added this
+# block, so the next person can tell progress from drift. Tightening is a
+# one-line edit: fix a rule's violations, delete its line, and the gate holds
+# the improvement permanently. That is the whole mechanism; there is nothing
+# else to remember.
+#
+# Deleting a line without fixing the violations turns CI red, which is the
+# point. Adding a line is how a rule regresses, so an added line should have
+# a reason next to it.
+ignore = [
+    # Style backlog. Large, mechanical, and entangled with main.py's size --
+    # these mostly go away when main.py is decomposed, so fixing them by hand
+    # first would be work thrown away twice.
+    "E702",  # 99 -- multiple statements on one line (semicolon)
+    "E402",  # 73 -- import not at top of file; main.py bootstraps sys.path first
+    "E701",  # 47 -- multiple statements on one line (colon)
+    "F401",  #  52 -- unused import. NOT auto-fixable here: some are re-exports
+             #        and some guard optional dependencies, so a blind --fix
+             #        would delete working behaviour.
+    "F541",  # 32 -- f-string with no placeholders
+    "F841",  # 13 -- assigned and never used
+    "E741",  #  6 -- ambiguous name (l/I/O)
+    "B007",  # 14 -- unused loop control variable
+
+    # Real defects, deferred with a reason. Each needs its own commit and its
+    # own verification; none is a lint cleanup.
+    "F811",  #  4 -- redefined while unused. Three are duplicate methods in
+             #       src/jarvis/skills/os_control.py: get_screen_size
+             #       (321, again at 558), toggle_desktop_icons (255, again at
+             #       880), pick_screen_color (286, again at 920). The second
+             #       definition silently wins; the first is dead code that
+             #       still reads as live. Next ratchet step.
+    "B023",  #  2 -- main.py:2883 and :2889. `def run_lab` closes over `task`,
+             #       assigned at 2870 inside `for attempt in range(...)` at
+             #       2425 -- a loop whose body is 1,379 lines, which is why
+             #       nobody noticed it was a loop. Classic late binding: the
+             #       thread reads `task` when it runs, not when it was created.
+             #       Fixing it means touching a threaded retry path that no
+             #       test covers, so it waits for a test.
+    "B905",  #  3 -- zip() without strict=. src/jarvis/skills/network_mapper.py:73
+             #       and two in tests/test_command_dispatch.py. strict=True is
+             #       the right answer in all three, but it turns a silent
+             #       truncation into an exception -- a behaviour change, not a
+             #       formatting one.
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests reach into module internals on purpose; that is what a
+# characterization test is for.
+"tests/*" = ["E501"]
+
