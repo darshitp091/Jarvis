@@ -76,7 +76,7 @@ logger.remove()
 logger.add("jarvis.log", level="INFO", rotation="10 MB", encoding="utf-8")
 from PyQt6.QtWidgets import QApplication; _p("DBG: PyQt6 ok")
 from jarvis.core import llm_client
-from jarvis.skills import outgoing_reply
+from jarvis.skills import diagnostics, outgoing_reply
 llm_client.patch_ollama()
 
 from jarvis.core.audio_engine import AudioEngine
@@ -1163,35 +1163,7 @@ class JARVIS:
                                                phone=self.phone)
 
     def _execute_stark_diagnostics(self) -> str:
-        """Runs system hardware checks and formats them into a witty, sarcastic Hinglish MCU diagnostic briefing."""
-        logger.info("Executing Stark diagnostic sweep...")
-        try:
-            import psutil
-            cpu = psutil.cpu_percent()
-            ram = psutil.virtual_memory().percent
-            battery = psutil.sensors_battery()
-            bat_percent = battery.percent if battery else 100
-            power_plugged = battery.power_plugged if battery else True
-        except ImportError:
-            cpu, ram, bat_percent, power_plugged = 12.5, 45.2, 85, True
-
-        gpu_info = ""
-        try:
-            import GPUtil
-            gpus = GPUtil.getGPUs()
-            if gpus:
-                gpu_info = f"GPU load {gpus[0].load*100:.1f}% hai aur temperature {gpus[0].temperature}°C."
-        except Exception:
-            pass
-
-        bat_status = "charging par hai" if power_plugged else "battery par chal raha hai"
-        response = (
-            f"Sir, diagnostics sweep complete ho gaya hai. [laugh] Main arc reactor—sorry, "
-            f"aapke laptop ki battery check kar chuki hu, ye abhi {bat_percent}% par hai aur {bat_status}. "
-            f"CPU utilization {cpu}% hai aur memory load {ram}% par chal raha hai. "
-            f"{gpu_info} Overall, coding system bilkul active aur nominal hai, sir!"
-        )
-        return response
+        return diagnostics.stark_diagnostics()
 
     def _generate_response(self, text: str, domain: str = "general") -> str:
         memories = self.brain.format_memories_for_prompt(text)
