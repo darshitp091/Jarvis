@@ -1,14 +1,20 @@
 import os
-import sys
 import yaml
 import requests
 import json
 import re
 from loguru import logger
-import ollama
 
-# Store original ollama.chat reference
-_original_chat = ollama.chat
+# The original `ollama.chat`, captured by patch_ollama() rather than at import
+# time. Importing ollama here made this module unimportable without a local
+# Ollama binding installed -- which meant nothing in it could be tested, in an
+# environment that deliberately does not install one. The two lines that need
+# ollama are both inside patch_ollama(); nothing else here touches it.
+#
+# `cloudflare_chat_wrapper` becomes reachable only by being installed as
+# `ollama.chat`, so patch_ollama() has always run before it is called and this
+# is set by then. A test calling the wrapper directly sets it itself.
+_original_chat = None
 
 def _is_json(text: str) -> bool:
     try:
@@ -77,7 +83,6 @@ def cloudflare_chat_wrapper(model, messages, format=None, options=None, **kwargs
                     
                     # If JSON format was requested, clean and validate it
                     if format == "json":
-                        import re
                         cleaned_content = _clean_json_response(content)
                         # If the output is not valid JSON, we attempt to locate the JSON block
                         if not _is_json(cleaned_content):
@@ -107,5 +112,12 @@ def cloudflare_chat_wrapper(model, messages, format=None, options=None, **kwargs
 
 def patch_ollama():
     """Apply the Cloudflare redirect patch to the ollama module."""
+    global _original_chat
+    import ollama
+    # Only the first call captures. Without the guard a second call would
+    # capture the wrapper as its own original and recurse forever; capturing at
+    # import time used to make double-patching harmless, and this keeps it so.
+    if _original_chat is None:
+        _original_chat = ollama.chat
     ollama.chat = cloudflare_chat_wrapper
     logger.info("ollama.chat monkey-patched with Cloudflare Workers AI redirect wrapper.")
