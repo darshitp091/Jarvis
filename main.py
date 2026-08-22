@@ -85,9 +85,9 @@ from jarvis.core.wake_word import WakeWordDetector
 from jarvis.core.intent_router import IntentRouter
 from jarvis.core.brain import JarvisBrain
 from jarvis.core.vision_engine import CameraEngine
-# Imported as a module rather than by name: the eight methods below that
+# Imported as a module rather than by name: the ten methods below that
 # delegate here read as delegations at a glance, which is the point.
-from jarvis.core import task_narration, text_normalize
+from jarvis.core import alerts, task_narration, text_normalize
 from jarvis.ui.orb import JarvisOrb; _p("DBG: orb ok")
 from jarvis.skills.screen_vision import ScreenVision; _p("DBG: screen_vision ok")
 from jarvis.skills.os_control import OSControl; _p("DBG: os_control ok")
@@ -949,20 +949,13 @@ class JARVIS:
                 time.sleep(0.5)
 
     def _flush_alerts(self):
-        if not self.is_authenticated:
-            return
-        
-        alerts_to_speak = []
-        with self.alert_lock:
-            if self.alert_queue:
-                alerts_to_speak = list(self.alert_queue)
-                self.alert_queue.clear()
-                
-        for alert in alerts_to_speak:
-            logger.info(f"Flushing alert: {alert}")
-            self.orb.set_state("speaking")
-            self.tts.speak(alert)
-        self.orb.set_state("idle")
+        return alerts.flush_alerts(
+            is_authenticated=self.is_authenticated,
+            alert_lock=self.alert_lock,
+            alert_queue=self.alert_queue,
+            orb=self.orb,
+            tts=self.tts,
+        )
 
     def _startup_voice(self):
         if not self.is_authenticated:
@@ -1297,42 +1290,24 @@ class JARVIS:
 
         if len(cleaned_cmds) > 1:
             logger.info(f"Chained commands detected: {cleaned_cmds}")
-            
+
             # Generate the human-like plan announcement
             descs = [self._get_friendly_task_desc(c, is_hinglish) for c in cleaned_cmds]
-            if is_hinglish:
-                if len(cleaned_cmds) == 2:
-                    plan_intro = f"Ji sir, pehle main {descs[0]}, aur phir {descs[1]}."
-                elif len(cleaned_cmds) == 3:
-                    plan_intro = f"Abhi karti hu, sir. Pehle main {descs[0]}, uske baad {descs[1]}, aur finally {descs[2]}."
-                else:
-                    plan_intro = f"Bilkul sir, mere paas {len(cleaned_cmds)} tasks ki list hai: pehle main {descs[0]} aur phir baki sab karti hu."
-            else:
-                if len(cleaned_cmds) == 2:
-                    plan_intro = f"Right away, sir. First, I will {descs[0]}, and then I will {descs[1]}."
-                elif len(cleaned_cmds) == 3:
-                    plan_intro = f"Right away, sir. First, I will {descs[0]}, next, I will {descs[1]}, and finally, I will {descs[2]}."
-                else:
-                    plan_intro = f"Right away, sir. I have a chain of {len(cleaned_cmds)} tasks to execute: first, I will {descs[0]}, and then proceed with the rest."
-                
+            plan_intro = task_narration.plan_announcement(descs, is_hinglish)
+
             self.orb.set_state("speaking")
             self.tts.speak(plan_intro)
             self.orb.set_state("idle")
-            
+
             for idx, cmd_clean in enumerate(cleaned_cmds):
                 logger.info(f"Executing chained command {idx+1}/{len(cleaned_cmds)}: '{cmd_clean}'")
-                
+
                 # Speak transitional phrase between tasks only for non-immediate actions
-                is_immediate_action = any(phrase in cmd_clean.lower() for phrase in ["play", "volume", "music", "song", "mute", "unmute", "lock", "sentry", "secure"])
-                if idx > 0 and not is_immediate_action:
-                    if is_hinglish:
-                        transition = f"Chaliye sir, ab main {descs[idx]}."
-                    else:
-                        transition = f"Now, I am going to {descs[idx]}, sir."
+                if idx > 0 and not task_narration.is_immediate_action(cmd_clean):
                     self.orb.set_state("speaking")
-                    self.tts.speak(transition)
+                    self.tts.speak(task_narration.task_transition(descs[idx], is_hinglish))
                     self.orb.set_state("idle")
-                
+
                 # Execute command with is_chained=True
                 self._process_single_command(cmd_clean, speak_filler=False, is_chained=True)
                 time.sleep(1.0)
@@ -3429,13 +3404,7 @@ class JARVIS:
                         
                     # Play wakeup response immediately so user knows it's listening
                     self.orb.set_state("speaking")
-                    
-                    alerts_to_speak = []
-                    with self.alert_lock:
-                        if self.alert_queue:
-                            alerts_to_speak = list(self.alert_queue)
-                            self.alert_queue.clear()
-                            
+
                     greeting, is_night = self.profile_mgr.get_time_of_day_greeting()
                     if is_night:
                         def apply_night_mode():
@@ -3454,7 +3423,12 @@ class JARVIS:
                             unread_notice = f" Waise sir, aapke {count} naye WhatsApp messages aaye hain."
 
                     self.tts.speak(f"{greeting}{unread_notice}")
-                        
+
+                    # Anything that fell due while JARVIS was asleep, locked or
+                    # already talking was queued instead of spoken. Say it now,
+                    # after the greeting, while the orb is still "speaking".
+                    self._flush_alerts()
+
                     self.is_asleep = False
                     self.last_command_time = time.time()
                 

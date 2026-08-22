@@ -302,6 +302,154 @@ def test_the_body_carries_nothing_that_does_nothing():
     assert not [n for n in ast.walk(fn) if isinstance(n, (ast.Import, ast.ImportFrom))]
 
 
+# --- the sentence built around those clauses ---------------------------------
+#
+# `plan_announcement` is spoken once, before any of the chain runs, so every
+# string here is something the user hears described as about to happen.
+
+TWO = ["open the notepad", "lock the screen"]
+THREE = TWO + ["check system resources"]
+
+
+def test_two_commands_are_both_named():
+    assert task_narration.plan_announcement(TWO) == \
+        "Right away, sir. First, I will open the notepad, and then I will lock the screen."
+    assert task_narration.plan_announcement(TWO, True) == \
+        "Ji sir, pehle main open the notepad, aur phir lock the screen."
+
+
+def test_three_commands_are_all_named():
+    assert task_narration.plan_announcement(THREE) == (
+        "Right away, sir. First, I will open the notepad, next, I will lock the "
+        "screen, and finally, I will check system resources.")
+    assert task_narration.plan_announcement(THREE, True) == (
+        "Abhi karti hu, sir. Pehle main open the notepad, uske baad lock the "
+        "screen, aur finally check system resources.")
+
+
+@pytest.mark.parametrize("n", [4, 5, 6])
+def test_beyond_three_only_the_first_is_named_and_the_rest_are_a_number(n):
+    """`descs[1:]` is never spoken. The count stands in for all of them."""
+    descs = [f"do thing {i}" for i in range(n)]
+    english = task_narration.plan_announcement(descs)
+    hinglish = task_narration.plan_announcement(descs, True)
+    assert english == (f"Right away, sir. I have a chain of {n} tasks to execute: "
+                       "first, I will do thing 0, and then proceed with the rest.")
+    assert hinglish == (f"Bilkul sir, mere paas {n} tasks ki list hai: pehle main "
+                        "do thing 0 aur phir baki sab karti hu.")
+    for later in descs[1:]:
+        assert later not in english
+        assert later not in hinglish
+
+
+def test_one_command_falls_into_the_many_branch_and_says_so_wrongly():
+    """There is no branch for one, because `process_command` never asks for one.
+
+    It only calls this after splitting an utterance into more than one command.
+    So the `else` has never had to be right for a single task -- and it is not:
+    it announces a chain of one and promises to proceed with a rest that does
+    not exist. Anything that starts calling this unconditionally gets that.
+    """
+    assert task_narration.plan_announcement(["lock the screen"]) == (
+        "Right away, sir. I have a chain of 1 tasks to execute: first, I will "
+        "lock the screen, and then proceed with the rest.")
+    assert task_narration.plan_announcement(["lock the screen"], True) == (
+        "Bilkul sir, mere paas 1 tasks ki list hai: pehle main lock the screen "
+        "aur phir baki sab karti hu.")
+
+
+def test_no_commands_at_all_raises():
+    with pytest.raises(IndexError):
+        task_narration.plan_announcement([])
+
+
+def test_the_transition_between_two_commands():
+    assert task_narration.task_transition("lock the screen") == \
+        "Now, I am going to lock the screen, sir."
+    assert task_narration.task_transition("lock the screen", True) == \
+        "Chaliye sir, ab main lock the screen."
+
+
+def test_the_clause_and_the_sentence_fit_together():
+    """The two halves used to live in different files. This is the seam.
+
+    It also shows what the five-word echo does once it is inside a sentence: a
+    question comes back as its own description, and the sentence wraps it as
+    though it were an imperative.
+    """
+    descs = [say("message him on whatsapp"), say("what is the time")]
+    assert task_narration.plan_announcement(descs) == (
+        "Right away, sir. First, I will open WhatsApp and draft a message, and "
+        "then I will what is the time.")
+
+
+# --- whether a transition is spoken at all -----------------------------------
+
+@pytest.mark.parametrize("command", [
+    "play the next track", "turn the volume up", "start the music",
+    "put on a song", "mute it", "lock the screen", "sentry mode on",
+    "secure the machine",
+])
+def test_an_urgent_command_is_not_narrated_first(command):
+    assert task_narration.is_immediate_action(command) is True
+
+
+@pytest.mark.parametrize("command", [
+    "open the notepad", "check system resources", "draft a message to him",
+    "build me a presentation", "search for the invoice", "",
+])
+def test_everything_else_gets_its_transition(command):
+    assert task_narration.is_immediate_action(command) is False
+
+
+def test_the_test_is_case_insensitive():
+    assert task_narration.is_immediate_action("LOCK THE SCREEN") is True
+
+
+@pytest.mark.parametrize("command,matched", [
+    ("display the clock", "play"),      # and "lock", twice over
+    ("unblock port 8080", "lock"),
+    ("check my commute times", "mute"),
+    ("replay the meeting notes", "play"),
+    ("unlock the door", "lock"),
+])
+def test_a_word_that_merely_contains_one_loses_its_transition(command, matched):
+    """Substring containment, not word matching.
+
+    None of these are urgent, and every one of them is treated as urgent, so the
+    spoken transition before it is skipped. "display the clock" is caught twice.
+    """
+    assert matched in command.lower()
+    assert task_narration.is_immediate_action(command) is True
+
+
+def test_unmute_is_an_unreachable_entry_in_the_list():
+    """"mute" is listed before it and matches every string "unmute" does."""
+    assert task_narration.is_immediate_action("unmute the mic") is True
+    both = [p for p in ("mute", "unmute") if p in "unmute the mic"]
+    assert both == ["mute", "unmute"], "both match; the second can never decide"
+
+
+def test_a_chain_of_urgent_commands_announces_one_and_silently_does_the_rest():
+    """The two defects composed, which is how a user meets them.
+
+    Four commands, so only the first is named. Every command after it is urgent,
+    so none of them gets a transition either. The user is told about one task
+    and four run.
+    """
+    cmds = ["open the notepad", "play something", "lock the screen", "mute it"]
+    descs = [f"desc for {c}" for c in cmds]
+    spoken = [task_narration.plan_announcement(descs)]
+    for idx, cmd in enumerate(cmds):
+        if idx > 0 and not task_narration.is_immediate_action(cmd):
+            spoken.append(task_narration.task_transition(descs[idx]))
+    assert len(spoken) == 1, "a transition was spoken after all"
+    assert "chain of 4 tasks" in spoken[0]
+    assert "desc for open the notepad" in spoken[0]
+    for later in descs[1:]:
+        assert later not in spoken[0]
+
+
 # --- the delegation in main.py ----------------------------------------------
 #
 # main.py imports PyQt6 at module level, which the environment CI runs in does
@@ -350,3 +498,43 @@ def test_the_injected_state_is_keyword_only():
     assert kwonly == ["active_presentation_topic", "get_phonetic_candidates", "router"]
     assert [a.arg for a in _jarvis_method("_get_friendly_task_desc").args.args] == \
         ["self", "text", "is_hinglish"]
+
+
+def _calls_in(name):
+    """Every call in a JARVIS method, as `callee(args)` source strings."""
+    return [ast.unparse(n) for n in ast.walk(_jarvis_method(name))
+            if isinstance(n, ast.Call)]
+
+
+def test_process_command_asks_this_module_for_all_three():
+    calls = _calls_in("process_command")
+    assert "task_narration.plan_announcement(descs, is_hinglish)" in calls
+    assert "task_narration.is_immediate_action(cmd_clean)" in calls
+    assert "task_narration.task_transition(descs[idx], is_hinglish)" in calls
+
+
+def test_process_command_no_longer_phrases_anything_itself():
+    """The sentences left main.py; nothing should grow a second copy there.
+
+    Checked as source text rather than by call graph, because a duplicate would
+    most likely appear as a literal f-string the way the original did.
+
+    Each fragment has to be unique to these sentences. "Right away, sir" is not
+    and so is not listed: main.py speaks exactly that as a standalone
+    acknowledgement when it resolves an ambiguous command, which has nothing to
+    do with announcing a chain.
+    """
+    with io.open(MAIN_PY, encoding="utf-8") as fh:
+        main_src = fh.read()
+    for fragment in ("First, I will", "I have a chain of", "Now, I am going to",
+                     "pehle main", "uske baad", "tasks ki list hai", "Chaliye sir"):
+        assert fragment not in main_src, f"{fragment!r} is being phrased in main.py again"
+
+
+def test_the_orb_and_the_speaking_stayed_in_main():
+    """The move took the phrasing and left the side effects behind."""
+    calls = _calls_in("process_command")
+    assert calls.count("self.orb.set_state('speaking')") == 2
+    assert calls.count("self.orb.set_state('idle')") == 2
+    assert "self.tts.speak(plan_intro)" in calls
+    assert "self.tts.speak(task_narration.task_transition(descs[idx], is_hinglish))" in calls
