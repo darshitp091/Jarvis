@@ -252,57 +252,6 @@ class OSControl:
         pyautogui.scroll(clicks * 100) # Multiply by 100 for Windows scrolling impact
         return f"Scrolled {direction}."
 
-    def toggle_desktop_icons(self, show: bool = True) -> str:
-        """Toggles the visibility of desktop icons in Windows for a clean desktop."""
-        if platform.system() != "Windows":
-            return "Desktop icon visibility is currently supported only on Windows, sir."
-        try:
-            import win32gui
-            import win32con
-            hwnd = win32gui.FindWindow("Progman", "Program Manager")
-            shell_dll = win32gui.FindWindowEx(hwnd, 0, "SHELLDLL_DefView", None)
-            if not shell_dll:
-                candidates = []
-                win32gui.EnumWindows(
-                    lambda window, result: (result.append(win32gui.FindWindowEx(window, 0, "SHELLDLL_DefView", None)) or True),
-                    candidates,
-                )
-                shell_dll = next((window for window in candidates if window), 0)
-            if not shell_dll:
-                return "Could not locate the Windows desktop icon view, sir."
-            # WM_COMMAND 0x7402 toggles, so use the registry value to make the
-            # requested state deterministic before refreshing Explorer.
-            import winreg
-            key_path = r"Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced"
-            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_READ) as key:
-                hidden = winreg.QueryValueEx(key, "HideIcons")[0]
-            if bool(hidden) == bool(show):
-                win32gui.SendMessage(shell_dll, win32con.WM_COMMAND, 0x7402, 0)
-            state = "visible" if show else "hidden"
-            return f"Desktop shortcuts and icons configured to {state}, sir."
-        except Exception as e:
-            return f"Failed to toggle desktop icons: {str(e)}"
-
-    def pick_screen_color(self) -> str:
-        """Returns the hex color code of the pixel at the current mouse position."""
-        try:
-            x, y = pyautogui.position()
-            try:
-                rgb = tuple(pyautogui.pixel(x, y)[:3])
-            except Exception:
-                from PIL import ImageGrab
-                rgb = tuple(ImageGrab.grab(bbox=(x, y, x + 1, y + 1)).getpixel((0, 0))[:3])
-            hex_color = "#%02X%02X%02X" % rgb
-            try:
-                import pyperclip
-                pyperclip.copy(hex_color)
-                copied = " I have copied the hex code to your clipboard."
-            except Exception:
-                copied = " Clipboard access was unavailable."
-            return f"The color at ({x}, {y}) is {hex_color} (RGB: {rgb}).{copied}"
-        except Exception as e:
-            return f"Failed to sample screen color: {str(e)}"
-
     def search_files(self, query: str, path: str = "~") -> list[str]:
         expanded = os.path.expanduser(path)
         results = []
@@ -317,9 +266,6 @@ class OSControl:
             logger.error(f"File search error: {e}")
             
         return results
-
-    def get_screen_size(self) -> tuple:
-        return pyautogui.size()
 
     # --- Stark-Level Upgrades ---
 
@@ -878,7 +824,27 @@ class OSControl:
             return f"Failed to set wallpaper: {str(e)}"
 
     def toggle_desktop_icons(self, show: bool = True) -> str:
-        """Toggles desktop icons visibility in explorer registry."""
+        """Toggles desktop icons visibility in explorer registry.
+
+        A second implementation of this method used to sit ~570 lines above this
+        one. Python's class body runs top to bottom, so this one always won and
+        that one was dead from the day it was written -- it was deleted, not
+        merged, because deleting it changes nothing at runtime while merging it
+        would change behaviour no test covers.
+
+        Worth knowing what it did differently, because it may have been the one
+        that worked. It located the SHELLDLL_DefView window, read HideIcons with
+        KEY_READ to find the current state, and sent WM_COMMAND 0x7402 to
+        Explorer only when the current state differed from the requested one.
+        That command is the one Explorer visibly acts on.
+
+        This implementation writes HideIcons with KEY_SETVALUE and then
+        broadcasts WM_SETTINGCHANGE (0x001A) to HWND_BROADCAST. If the icons do
+        not actually appear or disappear until Explorer restarts, that broadcast
+        is the suspect: the registry value is correct but nothing tells the
+        desktop to re-read it. Unverified either way -- confirming it means
+        toggling a real desktop, so it wants a person watching, not a CI job.
+        """
         if platform.system() != "Windows":
             return "Desktop icon visibility is currently supported only on Windows, sir."
         try:

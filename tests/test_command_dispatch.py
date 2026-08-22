@@ -179,15 +179,21 @@ def test_no_function_uses_a_module_import_it_later_shadows():
 
     `_process_single_command` is ~1,660 lines long, which is what let this hide:
     the local `import os` sat 1,360 lines below the first use. Two sites were
-    broken. `os.path.abspath` at 2351 was inside `try/except Exception`, so
-    saving a code snippet opened VS Code, silently failed to open Explorer and
-    logged it as an auto-open failure. `os.path.basename` at 2973 was in
-    git_sentinel's break-detected path -- the whole point of the feature -- so
-    the only branch that worked was the one where nothing was wrong.
+    broken. Line numbers below are as of commit 661ff99, the fix, and drift as
+    main.py changes -- the test finds the sites itself and needs none of them.
 
-    The CI flake8 gate does not catch this: `--select=E9,F63,F7,F82` covers F823
-    by prefix and reports 0 here. `ruff --select F823` finds line 2351 but not
-    2973, so neither tool alone is a substitute for this check.
+    `os.path.abspath` at 2351 was inside `try/except Exception`, so saving a code
+    snippet opened VS Code, silently failed to open Explorer and logged it as an
+    auto-open failure -- the reported cause was never the real one.
+    `os.path.basename` at 2973 was in git_sentinel's break-detected path -- the
+    whole point of the feature -- so the only branch that worked was the one
+    where nothing was wrong.
+
+    Neither linter catches both, which is why this test exists rather than a
+    selector. The flake8 gate this repo used until 0ba0bcd reported 0 with
+    `--select=E9,F63,F7,F82`, which covers F823 by prefix. ruff, which replaced
+    it, reports F823 at 2351 and misses 2973. A tool that finds half a defect
+    class does not close it.
 
     Restricted to names that are also imported at module level, which is the
     shape that produces a silent failure -- the code reads as correct and the

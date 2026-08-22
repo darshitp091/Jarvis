@@ -115,15 +115,9 @@ ignore = [
 
     # Real defects, deferred with a reason. Each needs its own commit and its
     # own verification; none is a lint cleanup.
-    "F811",  #  4 -- redefined while unused. Three are duplicate methods in
-             #       src/jarvis/skills/os_control.py: get_screen_size
-             #       (321, again at 558), toggle_desktop_icons (255, again at
-             #       880), pick_screen_color (286, again at 920). The second
-             #       definition silently wins; the first is dead code that
-             #       still reads as live. Next ratchet step.
-    "B023",  #  2 -- main.py:2883 and :2889. `def run_lab` closes over `task`,
-             #       assigned at 2870 inside `for attempt in range(...)` at
-             #       2425 -- a loop whose body is 1,379 lines, which is why
+    "B023",  #  2 -- main.py:2882 and :2888. `def run_lab` closes over `task`,
+             #       assigned at 2869 inside `for attempt in range(...)` at
+             #       2424 -- a loop whose body is 1,379 lines, which is why
              #       nobody noticed it was a loop. Classic late binding: the
              #       thread reads `task` when it runs, not when it was created.
              #       Fixing it means touching a threaded retry path that no

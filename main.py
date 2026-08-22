@@ -24,7 +24,6 @@ def _p(msg):
         pass
 
 from contextlib import contextmanager
-import threading
 _stderr_lock = threading.Lock()
 
 @contextmanager
