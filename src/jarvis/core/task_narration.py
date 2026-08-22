@@ -30,7 +30,6 @@ def friendly_task_desc(text: str, is_hinglish: bool = False, *,
                        router, active_presentation_topic,
                        get_phonetic_candidates) -> str:
     """Returns a human-like description of a command's intent."""
-    import re
     intent = router.route(text, active_presentation_topic)
     skill = intent.get("skill", "conversation")
     params = intent.get("params", {})
@@ -45,7 +44,6 @@ def friendly_task_desc(text: str, is_hinglish: bool = False, *,
                 intent = cand_intent
                 skill = cand_skill
                 params = intent.get("params", {})
-                domain = intent.get("domain", "general")
                 break
     if is_hinglish:
         if skill == "os_control":

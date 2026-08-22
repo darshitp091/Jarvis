@@ -282,23 +282,24 @@ def test_the_presentation_topic_reaches_the_router_with_every_candidate():
     assert router.calls == [("next slide", "Q3 results"), ("next slide", "Q3 results")]
 
 
-# --- dead lines the move carried across --------------------------------------
+# --- the two dead lines, now gone --------------------------------------------
 
-def test_the_body_still_carries_two_lines_that_do_nothing():
-    """Pinned, not required: both predate the move and go out next.
+def test_the_body_carries_nothing_that_does_nothing():
+    """Both lines predated the move and came across with it, verbatim.
 
-    `import re` has no user anywhere in the function, and `domain` is assigned
+    `import re` had no user anywhere in the function, and `domain` was assigned
     inside the phonetic loop and never read. Removing them changes the body, so
-    the AST equivalence gate that proved this move cannot also prove the
-    removal -- the tests above are what will prove it.
+    the AST equivalence gate that proved the move could not also prove the
+    removal -- every other test in this file is what proves it, unchanged from
+    the commit that moved the code.
     """
     source = io.open(task_narration.__file__, encoding="utf-8").read()
     fn = next(n for n in ast.parse(source).body
               if isinstance(n, ast.FunctionDef) and n.name == "friendly_task_desc")
     body = ast.unparse(fn)
-    assert "import re" in body and "re." not in body
-    assert "domain = intent.get('domain', 'general')" in body
-    assert body.count("domain") == 2, "one assignment, one string key, no readers"
+    assert "import" not in body, "the function imports something again"
+    assert "domain" not in body, "the unread domain assignment is back"
+    assert not [n for n in ast.walk(fn) if isinstance(n, (ast.Import, ast.ImportFrom))]
 
 
 # --- the delegation in main.py ----------------------------------------------
