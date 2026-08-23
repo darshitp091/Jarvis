@@ -11,12 +11,17 @@ sweep complete ho gaya hai" over four numbers nothing sampled. A machine with no
 battery gets 100% and "charging par hai" by the same route. Both are in the
 tests as pinned defects rather than fixed, because that is a separate commit.
 
-This is the fourth place in the tree that reads these same four vitals. The
-others are the `system_monitor` skill's own else-branch, still inline in main.py's
-dispatcher, and ProactiveMonitor._check_performance and ._check_hardware, which
-read them on a timer to alert on thresholds rather than to answer a question.
-Unifying them is not a move and so cannot be gated the way this commit is; the
-sites are named here so whoever does it can find all four.
+This file holds both halves of the `system_monitor` skill. The router picks
+between them by action: `stark_diagnostics` gets the four-vital narration below,
+anything else gets `system_vitals`, which reads two of the same numbers and says
+them plainly. They were split across two files until now, which is why the same
+`import psutil` appears twice.
+
+Two of the four places in the tree that read these vitals are therefore here. The
+other two are ProactiveMonitor._check_performance and ._check_hardware, which read
+them on a timer to alert on thresholds rather than to answer a question. Unifying
+all four is not a move and so cannot be gated the way `stark_diagnostics` was; the
+sites are named here so whoever does it can find them.
 """
 from loguru import logger
 
@@ -51,3 +56,26 @@ def stark_diagnostics() -> str:
         f"{gpu_info} Overall, coding system bilkul active aur nominal hai, sir!"
     )
     return response
+
+
+def system_vitals() -> str:
+    """CPU and RAM, said plainly, for any `system_monitor` action but the sweep.
+
+    Two differences from `stark_diagnostics` above, both worth knowing:
+
+    It reports the numbers it actually read, and when psutil is missing it says
+    so instead of inventing them. That makes this the honest one of the pair.
+
+    But `except ImportError` is all it catches, and psutil raises other things --
+    AccessDenied on a locked-down Windows box, or OSError when a counter is
+    unavailable. Those propagate out of here and out of the whole command
+    dispatch, so an unreadable sensor takes down the turn rather than the answer.
+    Pinned in the tests as it stands; widening it is a separate commit.
+    """
+    try:
+        import psutil
+        cpu = psutil.cpu_percent()
+        ram = psutil.virtual_memory().percent
+        return f"System resources are nominal. CPU is at {cpu} percent and RAM is at {ram} percent, sir."
+    except ImportError:
+        return "psutil is not installed. Run `pip install psutil` to monitor the system."

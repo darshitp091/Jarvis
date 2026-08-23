@@ -230,6 +230,92 @@ def test_the_laugh_marker_is_passed_through_to_whatever_speaks_it(hardware):
     assert "[laugh]" in diagnostics.stark_diagnostics()
 
 
+# --- the plain reading, for every other system_monitor action ----------------
+#
+# The same skill, the same two numbers, a different answer: this branch says what
+# it measured and admits when it measured nothing. It is the honest half of the
+# pair, which is what makes the ways it still misleads worth pinning.
+
+def test_the_numbers_it_reports_are_the_numbers_it_read(hardware):
+    hardware(psutil=Psutil(cpu=7.4, ram=62.1))
+    said = diagnostics.system_vitals()
+    assert said == ("System resources are nominal. CPU is at 7.4 percent and "
+                    "RAM is at 62.1 percent, sir.")
+
+
+def test_a_missing_psutil_is_admitted_rather_than_invented(hardware):
+    """The difference from `stark_diagnostics`, which substitutes 12.5 and 45.2
+    and narrates them as measurements. This one names the problem and the fix.
+    """
+    hardware(psutil=None)
+    said = diagnostics.system_vitals()
+    assert "not installed" in said
+    assert "pip install psutil" in said
+    assert "12.5" not in said and "45.2" not in said
+
+
+def test_the_reading_is_spoken_at_whatever_precision_psutil_gave_it(hardware):
+    """No rounding anywhere, and the f-string uses str(), so a float that cannot
+    be represented exactly is read out in full -- twenty-one characters of it.
+    """
+    hardware(psutil=Psutil(cpu=0.1 + 0.2, ram=99.99999999))
+    said = diagnostics.system_vitals()
+    assert "0.30000000000000004 percent" in said
+    assert "99.99999999 percent" in said
+
+
+def test_an_integral_reading_keeps_its_decimal_point(hardware):
+    hardware(psutil=Psutil(cpu=12.0, ram=45.0))
+    assert "at 12.0 percent" in diagnostics.system_vitals()
+
+
+def test_a_whole_number_reading_has_none_to_keep(hardware):
+    """psutil returns floats, so this is unreachable through it -- but the
+    sentence is built by str() and would say "3" as readily as "3.0".
+    """
+    hardware(psutil=Psutil(cpu=3, ram=40))
+    assert "at 3 percent" in diagnostics.system_vitals()
+
+
+def test_a_saturated_machine_is_still_called_nominal(hardware):
+    """The same closing claim `stark_diagnostics` makes, and just as unearned:
+    "nominal" is a constant in the sentence, not a conclusion from the numbers.
+    """
+    hardware(psutil=Psutil(cpu=100, ram=100))
+    assert "resources are nominal" in diagnostics.system_vitals()
+
+
+@pytest.mark.parametrize("failure", [
+    PermissionError("access is denied"),
+    OSError("performance counter unavailable"),
+    RuntimeError("the sensor is gone"),
+])
+@pytest.mark.parametrize("call", ["cpu_percent", "virtual_memory"])
+def test_a_psutil_that_answers_with_anything_but_importerror_escapes(hardware, call,
+                                                                    failure):
+    """`except ImportError` is the whole net, and psutil raises other things --
+    AccessDenied on a locked-down box, OSError when a counter is unavailable.
+
+    Those come out of here and out of the command dispatch above it, so an
+    unreadable sensor loses the whole turn rather than one answer. Pinned as it
+    stands; widening the except is a separate commit.
+    """
+    hardware(psutil=Psutil(error={call: failure}))
+    with pytest.raises(type(failure)):
+        diagnostics.system_vitals()
+
+
+def test_an_importerror_from_a_psutil_that_is_present_is_reported_as_absent(hardware):
+    """The narrow except catching too much rather than too little.
+
+    A psutil that imports but raises ImportError from inside -- a half-installed
+    binary wheel, a missing DLL on Windows -- produces "psutil is not installed",
+    which is the one thing that is definitely false.
+    """
+    hardware(psutil=Psutil(error={"cpu_percent": ImportError("DLL load failed")}))
+    assert "not installed" in diagnostics.system_vitals()
+
+
 # --- the delegation in main.py ----------------------------------------------
 #
 # main.py cannot be imported here -- it constructs PyQt6 objects, which the
@@ -263,3 +349,51 @@ def test_the_moved_function_takes_nothing():
     import inspect
     assert not inspect.signature(diagnostics.stark_diagnostics).parameters
     assert [a.arg for a in _jarvis_method("_execute_stark_diagnostics").args.args] == ["self"]
+
+
+def _the_system_monitor_branch():
+    """The one `if action == 'stark_diagnostics'` node in main.py's dispatcher.
+
+    `system_vitals` has no shim of its own -- the other half of the skill is
+    reached straight from the router, so the delegation to check is the branch
+    rather than a method. There is exactly one such node, which is what makes
+    this locatable at all: "stark_diagnostics" appears four times in main.py, but
+    only once as the subject of a comparison.
+    """
+    with io.open(MAIN_PY, encoding="utf-8") as fh:
+        tree = ast.parse(fh.read())
+    found = [n for n in ast.walk(tree)
+             if isinstance(n, ast.If) and ast.unparse(n.test) == "action == 'stark_diagnostics'"]
+    assert len(found) == 1, "%d branches test the action" % len(found)
+    return found[0]
+
+
+def test_both_halves_of_the_skill_are_delegated():
+    node = _the_system_monitor_branch()
+    assert [ast.unparse(s) for s in node.body] == [
+        "response = self._execute_stark_diagnostics()"]
+    assert [ast.unparse(s) for s in node.orelse] == [
+        "response = diagnostics.system_vitals()"]
+
+
+def test_main_no_longer_reads_the_vitals_itself():
+    """The last psutil read in main.py went out with this move.
+
+    Two more remain in the tree -- ProactiveMonitor._check_performance and
+    ._check_hardware -- but they are not in this file, so an occurrence here
+    means the fragment came back.
+    """
+    with io.open(MAIN_PY, encoding="utf-8") as fh:
+        source = fh.read()
+    assert "cpu_percent" not in source
+    assert "virtual_memory" not in source
+
+
+@pytest.mark.parametrize("fragment", [
+    "System resources are nominal",
+    "psutil is not installed",
+    "pip install psutil",
+])
+def test_main_no_longer_says_any_of_it(fragment):
+    with io.open(MAIN_PY, encoding="utf-8") as fh:
+        assert fragment not in fh.read()

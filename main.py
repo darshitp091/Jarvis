@@ -87,7 +87,7 @@ from jarvis.core.brain import JarvisBrain
 from jarvis.core.vision_engine import CameraEngine
 # Imported as a module rather than by name: the ten methods below that
 # delegate here read as delegations at a glance, which is the point.
-from jarvis.core import alerts, task_narration, text_normalize
+from jarvis.core import alerts, chat_memory, task_narration, text_normalize
 from jarvis.ui.orb import JarvisOrb; _p("DBG: orb ok")
 from jarvis.skills.screen_vision import ScreenVision; _p("DBG: screen_vision ok")
 from jarvis.skills.os_control import OSControl; _p("DBG: os_control ok")
@@ -1212,39 +1212,8 @@ class JARVIS:
             return "I am currently unable to process your request, sir."
 
     def _compress_chat_history(self):
-        """Summarizes the oldest 10 messages and keeps only the latest 10 messages in memory."""
-        try:
-            to_summarize = self.chat_history[:10]
-            history_str = "\n".join(f"{m['role'].capitalize()}: {m['content']}" for m in to_summarize)
-            
-            prompt = (
-                f"Summarize the following recent dialogue history briefly in 2-3 sentences. "
-                f"Keep key details, facts, or decisions mentioned:\n\n{history_str}"
-            )
-            
-            response = ollama.chat(
-                model=self.models["main_brain"],
-                messages=[{"role": "user", "content": prompt}]
-            )
-            summary = response["message"]["content"].strip()
-            
-            if self.chat_history_summary:
-                combined_prompt = (
-                    f"Combine these two summaries of dialogue history into one cohesive, brief summary "
-                    f"(maximum 4 sentences):\nSummary 1: {self.chat_history_summary}\nSummary 2: {summary}"
-                )
-                comb_res = ollama.chat(
-                    model=self.models["main_brain"],
-                    messages=[{"role": "user", "content": combined_prompt}]
-                )
-                self.chat_history_summary = comb_res["message"]["content"].strip()
-            else:
-                self.chat_history_summary = summary
-                
-            self.chat_history = self.chat_history[10:]
-            logger.info(f"Dialogue history compressed. New summary: {self.chat_history_summary}")
-        except Exception as e:
-            logger.error(f"Error compressing dialogue history: {e}")
+        self.chat_history, self.chat_history_summary = chat_memory.compress_chat_history(
+            self.chat_history, self.chat_history_summary, models=self.models)
 
     def clean_to_plain_text(self, text: str) -> str:
         return text_normalize.clean_to_plain_text(text)
@@ -2348,13 +2317,7 @@ class JARVIS:
                     if action == "stark_diagnostics":
                         response = self._execute_stark_diagnostics()
                     else:
-                        try:
-                            import psutil
-                            cpu = psutil.cpu_percent()
-                            ram = psutil.virtual_memory().percent
-                            response = f"System resources are nominal. CPU is at {cpu} percent and RAM is at {ram} percent, sir."
-                        except ImportError:
-                            response = "psutil is not installed. Run `pip install psutil` to monitor the system."
+                        response = diagnostics.system_vitals()
                 
                 elif skill == "app_control":
                     action = params.get("action", "")
