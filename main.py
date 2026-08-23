@@ -2317,13 +2317,7 @@ class JARVIS:
                     if action == "stark_diagnostics":
                         response = self._execute_stark_diagnostics()
                     else:
-                        try:
-                            import psutil
-                            cpu = psutil.cpu_percent()
-                            ram = psutil.virtual_memory().percent
-                            response = f"System resources are nominal. CPU is at {cpu} percent and RAM is at {ram} percent, sir."
-                        except ImportError:
-                            response = "psutil is not installed. Run `pip install psutil` to monitor the system."
+                        response = diagnostics.system_vitals()
                 
                 elif skill == "app_control":
                     action = params.get("action", "")
