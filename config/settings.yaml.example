@@ -111,9 +111,11 @@ bynara:
   api_key: ""
   base_url: "https://router.bynara.id/v1"
   # Every reply, skill and domain answer after STT comes from this model.
-  text_model: "mistral-large"
+  # ox-alpha-bynara: the free-tier id that answers at conversational speed and
+  # also reads images. mistral-large works but is ~25s/turn, too slow for voice.
+  text_model: "ox-alpha-bynara"
   # Screen vision. Sent whenever a call carries images; must be a Vision model.
-  vision_model: "ce-alpha-bynara"
+  vision_model: "ox-alpha-bynara"
   # Set false to keep text remote but never send a screenshot off this machine.
   vision_enabled: true
 

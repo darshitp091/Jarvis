@@ -58,12 +58,17 @@ _original_chat = None
 _TEXT_TIMEOUT = 45
 _VISION_TIMEOUT = 90
 
-# Defaults for anything the config does not say. These are the ids from the
-# NaraRouter model list; they live here as fallbacks only, because the config is
-# where they are meant to be changed when the router's catalogue moves.
+# Defaults for anything the config does not say. Both roles are the same model
+# on purpose: measured against the live router on the free tier, ox-alpha-bynara
+# is the only id that answers at conversational speed (~11s) and it reads images
+# too, so it serves as both brain and eyes. mistral-large answers but takes ~25s
+# for a one-line reply, which a voice assistant cannot spend; every other
+# weight-1 id in the catalogue returns "insufficient credits" without a top-up.
+# They live here as fallbacks only -- the config is where they are meant to be
+# changed when the router's catalogue moves or the account gains credits.
 _BYNARA_BASE_URL = "https://router.bynara.id/v1"
-_BYNARA_TEXT_MODEL = "mistral-large"
-_BYNARA_VISION_MODEL = "ce-alpha-bynara"
+_BYNARA_TEXT_MODEL = "ox-alpha-bynara"
+_BYNARA_VISION_MODEL = "ox-alpha-bynara"
 _MISTRAL_BASE_URL = "https://api.mistral.ai/v1"
 
 def _is_json(text: str) -> bool:
