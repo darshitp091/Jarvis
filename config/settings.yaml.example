@@ -102,6 +102,21 @@ obsidian:
   vault_path: "C:\\Users\\<YourUser>\\Documents\\Obsidian Vault"
   daily_notes_folder: "Daily Notes"
 
+# Primary LLM provider: NaraRouter (router.bynara.id), OpenAI-compatible.
+# One key serves both text and vision. Leave api_key blank to read
+# BYNARA_API_KEY from the environment (.env) -- the preferred place for it,
+# since this file is where a live token once reached git history.
+bynara:
+  enabled: true
+  api_key: ""
+  base_url: "https://router.bynara.id/v1"
+  # Every reply, skill and domain answer after STT comes from this model.
+  text_model: "mistral-large"
+  # Screen vision. Sent whenever a call carries images; must be a Vision model.
+  vision_model: "ce-alpha-bynara"
+  # Set false to keep text remote but never send a screenshot off this machine.
+  vision_enabled: true
+
 mistral:
   api_key: ""
   models:

@@ -9,6 +9,14 @@ env/
 venv/
 ENV/
 
+# Secrets. `.env` holds real API keys (BYNARA_API_KEY, ...) loaded by
+# jarvis.core.env_loader before any provider reads a key. The patterns above
+# are directories (`env/`), not this file, so without the line below a real
+# `.env` would be tracked -- the same failure mode that put a live token in
+# git history via config/settings.yaml. `.env.example` is the committed template.
+.env
+!.env.example
+
 # Large Model Weights (Downloaded separately)
 # GitHub rejects any file over 100 MB. The fine-tuned Whisper checkpoint is
 # ~922 MB, so weights are never committed; see the README for how to obtain

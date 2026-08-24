@@ -8,6 +8,16 @@ os.environ["GLOG_minloglevel"] = "3"
 os.environ["ABSL_log_min_level"] = "3"
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 os.environ["CRAWL4AI_LOG_LEVEL"] = "ERROR"
+# .env before anything reads a key. Provider secrets are resolved
+# "settings.yaml, else environment"; this fills the environment half from a
+# git-ignored file, so a key never has to be written into settings.yaml. It runs
+# here rather than in __init__ because it must precede the settings.yaml read at
+# the top of JARVIS.__init__ and every module-level provider read below.
+# Anchored to this file's directory, not the cwd, for the same reason the
+# sys.path line above is: `python main.py` from another directory must still
+# find it. env_loader imports nothing but os, so this costs no import weight.
+from jarvis.core.env_loader import load_dotenv
+load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 import threading
 import traceback
 import yaml
