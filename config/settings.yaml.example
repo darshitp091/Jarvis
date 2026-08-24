@@ -117,6 +117,11 @@ bynara:
   # Set false to keep text remote but never send a screenshot off this machine.
   vision_enabled: true
 
+# Secondary LLM provider, reached only when bynara does not answer. Also
+# OpenAI-compatible, so the same code path serves it; it differs only in naming
+# a model per role instead of one id. `brain` is the text model and `vision` the
+# vision model as far as the cascade is concerned. Leave api_key blank to read
+# MISTRAL_API_KEY from the environment.
 mistral:
   api_key: ""
   models:
@@ -134,9 +139,3 @@ ofoxai:
 groww:
   api_key: ""
   api_secret: ""
-
-cloudflare:
-  enabled: false
-  account_id: ""
-  api_token: ""
-  model: "@cf/meta/llama-3.1-8b-instruct"
