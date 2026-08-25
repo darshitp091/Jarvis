@@ -1,54 +1,38 @@
 import os
 import yaml
-import requests
 import json
 from loguru import logger
 
+from jarvis.core.llm_client import query_llm
+
 class ResearchProdigy:
     """Advanced autonomous deep research explorer that crawls academic sources and compiles synthesis reports."""
-    
+
     def __init__(self, web_research_engine=None, config_path: str = "config/settings.yaml"):
         self.web = web_research_engine
         self.config_path = config_path
 
-    def _get_groq_config(self) -> tuple[str, str]:
-        api_key = os.environ.get("GROQ_API_KEY", "")
-        model = "llama-3.3-70b-versatile"
-        if not api_key and os.path.exists(self.config_path):
+    def _ask_llm(self, system_prompt: str, user_prompt: str) -> str:
+        """One turn through the shared cascade: NaraRouter, then Mistral, then local.
+
+        This built its own request to api.groq.com until the provider migration,
+        which meant a second provider list to keep in step with the real one and
+        no fallback at all when that one provider was down. Groq is now the
+        speech-to-text provider only.
+        """
+        config = {}
+        if os.path.exists(self.config_path):
             try:
                 with open(self.config_path, "r", encoding="utf-8") as f:
-                    config = yaml.safe_load(f)
-                    groq_cfg = config.get("groq", {})
-                    api_key = groq_cfg.get("api_key", "")
-                    model = groq_cfg.get("model", "llama-3.3-70b-versatile")
+                    config = yaml.safe_load(f) or {}
             except Exception as e:
-                logger.error(f"Failed to read settings.yaml for Groq config: {e}")
-        return api_key, model
-
-    def _call_groq(self, system_prompt: str, user_prompt: str) -> str:
-        api_key, model = self._get_groq_config()
-        if not api_key:
-            return "ERROR: Groq API key is not configured, sir."
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json"
-        }
-        payload = {
-            "model": model,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
-            "temperature": 0.25
-        }
-        try:
-            r = requests.post("https://api.groq.com/openai/v1/chat/completions", json=payload, headers=headers, timeout=30)
-            if r.status_code == 200:
-                return r.json()["choices"][0]["message"]["content"]
-            else:
-                return f"ERROR: Groq API returned status {r.status_code}: {r.text}"
-        except Exception as e:
-            return f"ERROR: HTTP request failed: {str(e)}"
+                logger.error(f"Failed to read {self.config_path}: {e}")
+        return query_llm(
+            [{"role": "user", "content": user_prompt}],
+            system_prompt=system_prompt,
+            config=config,
+            models=config.get("models", {}),
+        )
 
     def execute_deep_research(self, topic: str) -> str:
         """Runs a multi-stage deep crawl and academic review, synthesizing a formal report."""
@@ -60,7 +44,7 @@ class ResearchProdigy:
             "one for general web search, and one specifically tailored for academic literature (arXiv/semantic-scholar style). "
             "Output ONLY valid JSON: {\"general_query\": \"...\", \"academic_query\": \"...\"}"
         )
-        plan_res = self._call_groq(sys_prompt_plan, f"Topic: {topic}")
+        plan_res = self._ask_llm(sys_prompt_plan, f"Topic: {topic}")
         
         general_query = topic
         academic_query = topic + " academic literature"
@@ -110,5 +94,5 @@ class ResearchProdigy:
             f"Please write the formal synthesis report."
         )
         
-        report = self._call_groq(sys_prompt_synth, user_prompt_synth)
+        report = self._ask_llm(sys_prompt_synth, user_prompt_synth)
         return report

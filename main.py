@@ -183,11 +183,6 @@ class JARVIS:
         with open("./config/prompts.yaml") as f:
             self.prompts = yaml.safe_load(f)
             
-        # Set Groq API Key in environment variables for subprocesses
-        groq_cfg = self.config.get("groq", {})
-        if groq_cfg and groq_cfg.get("api_key"):
-            os.environ["GROQ_API_KEY"] = groq_cfg.get("api_key")
-
         self.models = self.config["models"]
 
         # Ensure Ollama background server is active before starting

@@ -88,6 +88,9 @@ spotify:
   redirect_uri: "http://127.0.0.1:8888/callback"
   api_enabled: false
 
+# Speech-to-text only. Whisper on Groq is what `audio.engine: groq` transcribes
+# with; no reply, skill or domain answer is generated here. `model` is read by
+# nothing and kept only so an older settings.yaml stays loadable.
 groq:
   api_key: ""
   model: "llama-3.3-70b-versatile"
