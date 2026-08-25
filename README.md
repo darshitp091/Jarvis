@@ -73,10 +73,10 @@ Ollama · webcam + microphone · ~15 GB free space
 | 🖐️ **Vision Sensor** | MediaPipe & OpenCV | Local (30 FPS Webcam Feed) |
 | 👁️ **Proactive Monitor** | ScreenVision + Tesseract OCR | Background Loop (Always-On) |
 | ⏰ **Reminders & Calendar** | SQLite scheduler + Hinglish time parser | Local, survives restarts |
-| ☁️ **Serverless Router** | Cloudflare Workers (Llama 3.1 8B) | Active / Connected |
+| ☁️ **Serverless Router** | NaraRouter (ox-alpha-bynara) | Active / Connected |
 | 📂 **Workspace Database** | SQLite3 & Obsidian API | Local Vault Synchronized |
 | 📊 **Presentation Engine** | python-pptx + Bing Image Scraper | Online Research + Layout |
-| ✅ **Test Suite** | pytest (154 headless tests) | No mic, camera, or API keys needed |
+| ✅ **Test Suite** | pytest (744 headless tests) | No mic, camera, or API keys needed |
 
 ---
 
@@ -296,15 +296,14 @@ graph TD
     Route --> Dev[Development Domain] --> Codestral[Mistral: codestral]
     Route --> Pres[Productivity Skill] --> ResearchCrawl[Web Research + Bing Images]
     ResearchCrawl --> PptxEngine[Premium PPTX Layout Engine]
-    Route --> Vis[Screen Vision Skill] --> Cloudflare[Cloudflare Workers: Llama 3.1 8B]
-    Route --> Gen[General Domain] --> Conv{Conversational Cues?}
-    Conv -- Yes --> Cloudflare
-    Conv -- No --> MistralLarge[Mistral: mistral-large]
+    Route --> Vis[Screen Vision Skill] --> VisGate{bynara.vision_enabled?}
+    VisGate -- No --> Ollama
+    VisGate -- Yes --> Bynara
+    Route --> Gen[General Domain] --> Bynara["NaraRouter: ox-alpha-bynara<br/>(primary, text + vision)"]
 
     %% Fallback Tree
-    Cloudflare -- Error --> Groq[Groq: llama-3.3-70b]
-    MistralLarge -- Error --> Groq
-    Groq -- Connection Failure --> Ollama[Local Ollama Fallback: Qwen2.5]
+    Bynara -- No answer --> MistralSecondary["Mistral: mistral-large / ministral-8b"]
+    MistralSecondary -- No answer --> Ollama[Local Ollama Fallback: Qwen2.5 / Moondream]
     Ollama --> Exec
     Exec --> TTS[Edge / Kokoro TTS Output]
 
@@ -335,14 +334,14 @@ graph TD
 | **Spatial Computer Vision** | OpenCV, MediaPipe | Face tracking, eye-gaze tracking, and hand landmarks |
 | **Proactive Monitor** | `mss`, Tesseract OCR | Always-on background screen capture & OCR suggestion engine |
 | **Presentation Generator** | python-pptx, Bing Scraper, PIL | Online-researched, image-enriched professional PPTX creation |
-| **Main LLM Brain** | Cloudflare Workers AI | Llama-3.1-8B-Instruct (sub-second low latency general router) |
-| **Specialist APIs** | Mistral AI, OfoxAI, Groq | Mistral Large, Codestral (Coding & Development) |
+| **Main LLM Brain** | NaraRouter (router.bynara.id) | ox-alpha-bynara — every reply, skill and domain answer, plus screen vision |
+| **Secondary LLM** | Mistral AI | Mistral Large, Codestral, Ministral (reached when the primary does not answer) |
 | **Local Model Sandbox** | Ollama | Qwen2.5-Coder-7B, Moondream2 (Offline fallback) |
 | **Whisper Fine-Tuning** | HuggingFace Transformers, Adafactor | Local fine-tune of Whisper-small on Hinglish dataset |
 | **Mobile Integration** | Android Debug Bridge (ADB) | Offline physical device control |
 | **Agent Swarm** | `concurrent.futures` ThreadPoolExecutor | 57 specialist agents behind a single message broker |
 | **Scheduling & Calendar** | SQLite3 (WAL mode), `zoneinfo` | Persistent reminders, alarms, events, and ICS interchange |
-| **Testing** | pytest | 154 headless tests, no hardware or API keys required |
+| **Testing** | pytest | 744 headless tests, no hardware or API keys required |
 | **Data & Diagnostics** | Matplotlib, SQLite3 | Local trend charting and telemetry KPI databases |
 
 ---
@@ -379,13 +378,14 @@ graph TD
    ```powershell
    pip install -r requirements.txt
    ```
-4. **Create your config file** — *do not skip this, it is the most common
+4. **Create your config files** — *do not skip this, it is the most common
    cause of a startup crash:*
    ```powershell
    copy config\settings.yaml.example config\settings.yaml
+   copy .env.example .env
    ```
-   API keys inside are optional. Leave them blank and those specific features
-   stay switched off; everything else still works.
+   API keys go in `.env`, and all of them are optional. Leave one blank and that
+   specific feature stays switched off; everything else still works.
 5. **Verify before launching:**
    ```powershell
    python doctor.py
@@ -420,24 +420,33 @@ graph TD
 
 ### Configuration
 
-`config/settings.yaml` holds real credentials and is **gitignored**, exactly like a `.env` file. The repository tracks `config/settings.yaml.example` as the template. Never commit the real file.
+Configuration is split in two, and the split matters:
 
-1. **Create your config from the template:**
+| File | Holds | Tracked? |
+| :--- | :--- | :--- |
+| `.env` | **every credential** | No — gitignored. Template: `.env.example` |
+| `config/settings.yaml` | model ids, thresholds, toggles | No — gitignored. Template: `config/settings.yaml.example` |
+
+Keys are resolved **environment first**, with `settings.yaml` read only as a
+courtesy to configs written before the keys moved. So a value in `.env` wins,
+and no credential ever has to be written into a YAML file again —
+`config/settings.yaml` is the file that once carried a live token into git
+history, which is exactly why it no longer outranks anything.
+
+1. **Create both files from their templates:**
    ```powershell
+   Copy-Item .env.example .env
    Copy-Item config\settings.yaml.example config\settings.yaml
    ```
-2. Open `config/settings.yaml` and fill in your API credentials:
-   ```yaml
-   groq:
-     api_key: "YOUR_GROQ_API_KEY"
-   mistral:
-     api_key: "YOUR_MISTRAL_API_KEY"
-   cloudflare:
-     enabled: true
-     account_id: "YOUR_CLOUDFLARE_ACCOUNT_ID"
-     api_token: "YOUR_CLOUDFLARE_API_TOKEN"
+2. Open `.env` and fill in the keys you actually have:
+   ```ini
+   BYNARA_API_KEY=            # primary: every reply, skill answer and screen vision
+   MISTRAL_API_KEY=           # secondary, reached when the primary does not answer
+   GROQ_API_KEY=              # speech-to-text only (Whisper); no text generation
    ```
    > JARVIS runs fully offline with these left blank, falling back to local Ollama models.
+   > Set `bynara.vision_enabled: false` in `settings.yaml` to keep text remote while no
+   > screenshot ever leaves the machine — screen vision then uses the local vision model instead.
 3. Configure your Obsidian vault path:
    ```yaml
    obsidian:
@@ -455,7 +464,7 @@ graph TD
    ```
    > The `calendar.timezone` value converts spoken wall-clock times into the UTC timestamps stored in SQLite. If it does not match your actual local timezone, reminders will fire at the wrong hour.
 
-5. **If you add a new setting**, add it to `config/settings.yaml.example` too (with a placeholder, never a real key) so the template stays complete.
+5. **If you add a new setting**, add it to `config/settings.yaml.example` too (with a placeholder, never a real key) so the template stays complete. **If you add a new credential**, it belongs in `.env` and `.env.example` — leave the value blank in the template, and resolve it through `jarvis.core.env_loader.resolve_key` so it inherits the environment-first precedence instead of inventing its own.
 
 ---
 
@@ -540,7 +549,7 @@ Jarvis/
 │   ├── youtube_music.py         # YouTube audio streaming via MPV
 │   └── screen_vision.py         # LLM-powered screen analysis skill
 ├── domains/                     # Domain expert prompt routers (7 files)
-├── tests/                       # 154 headless tests (no hardware needed)
+├── tests/                       # 744 headless tests (no hardware needed)
 │   ├── test_agents.py           # Broker, reminders, calendar, dispatch guards
 │   ├── test_services.py         # DB, scheduler recurrence & misfire, calendar
 │   └── test_timeparse.py        # Hinglish/English time phrase parsing
@@ -567,7 +576,7 @@ Jarvis/
 - `[x]` **Phase 2:** Webcam Hand Gesture Tracking (EMA cursor, drag-and-drop, air-writing)
 - `[x]` **Phase 3:** Stark Transparent HUD widgets (Snipper, Screen Ruler, Screen Recorder)
 - `[x]` **Phase 4:** Mobile ADB physical controller
-- `[x]` **Phase 5:** Cloudflare Workers AI Llama 3.1 8B integration (sub-second query routing)
+- `[x]` **Phase 5:** Serverless LLM router integration (sub-second query routing) — originally Cloudflare Workers AI, since superseded by NaraRouter
 - `[x]` **Phase 6:** Conversational Note-Vault (Obsidian structured writing)
 - `[x]` **Phase 7:** Self-Healing exceptions sandbox engine
 - `[x]` **Phase 8:** Multilingual auto-STT & Hinglish Chained command splitter

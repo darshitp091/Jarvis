@@ -1,3 +1,16 @@
+# JARVIS settings -- copy to `config/settings.yaml` and edit.
+#
+# NO CREDENTIALS BELONG IN THIS FILE. Every `api_key`, `client_id`,
+# `client_secret` and `api_secret` below is left blank on purpose and each one
+# names the `.env` variable that actually feeds it. `.env` is git-ignored;
+# settings.yaml is not tracked either, but it is the file that once carried a
+# live token into git history, so keys are read environment-first: a variable
+# set in `.env` wins over anything written here. See `.env.example` for the
+# full list.
+#
+# Everything else in this file -- model ids, thresholds, feature toggles -- is
+# ordinary configuration and belongs here.
+
 jarvis:
   name: JARVIS
   wake_word: hey jarvis
@@ -26,8 +39,8 @@ tts:
   default_voice: hinglish         # Options: english, hinglish (Edge backend only)
   fish_audio:
     # Fish Audio S2.1 Pro via OpenRouter: far more expressive/human than Edge.
-    # Leave api_key blank to read OPENROUTER_API_KEY from the environment.
-    # With no key at all, JARVIS silently stays on Edge TTS.
+    # Key: OPENROUTER_API_KEY in .env. With no key at all, JARVIS silently
+    # stays on Edge TTS.
     model: "fish-audio/s2.1-pro-free:free"
     api_key: ""
     timeout: 30
@@ -83,16 +96,22 @@ calendar:
 # JARVIS falls back to local Ollama models when these are absent.
 # ---------------------------------------------------------------------------
 spotify:
+  # Keys: SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET in .env.
   client_id: ""
   client_secret: ""
   redirect_uri: "http://127.0.0.1:8888/callback"
   api_enabled: false
 
+# Speech-to-text only. Whisper on Groq is what `audio.engine: groq` transcribes
+# with; no reply, skill or domain answer is generated here. `model` is read by
+# nothing and kept only so an older settings.yaml stays loadable.
 groq:
+  # Key: GROQ_API_KEY in .env.
   api_key: ""
   model: "llama-3.3-70b-versatile"
 
 sarvam:
+  # Key: SARVAM_API_KEY in .env.
   api_key: ""
   enabled: false
   language: "hi-IN"
@@ -102,6 +121,25 @@ obsidian:
   vault_path: "C:\\Users\\<YourUser>\\Documents\\Obsidian Vault"
   daily_notes_folder: "Daily Notes"
 
+# Primary LLM provider: NaraRouter (router.bynara.id), OpenAI-compatible.
+# One key serves both text and vision. Key: BYNARA_API_KEY in .env.
+bynara:
+  enabled: true
+  api_key: ""
+  base_url: "https://router.bynara.id/v1"
+  # Every reply, skill and domain answer after STT comes from this model.
+  # ox-alpha-bynara: the free-tier id that answers at conversational speed and
+  # also reads images. mistral-large works but is ~25s/turn, too slow for voice.
+  text_model: "ox-alpha-bynara"
+  # Screen vision. Sent whenever a call carries images; must be a Vision model.
+  vision_model: "ox-alpha-bynara"
+  # Set false to keep text remote but never send a screenshot off this machine.
+  vision_enabled: true
+
+# Secondary LLM provider, reached only when bynara does not answer. Also
+# OpenAI-compatible, so the same code path serves it; it differs only in naming
+# a model per role instead of one id. `brain` is the text model and `vision` the
+# vision model as far as the cascade is concerned. Key: MISTRAL_API_KEY in .env.
 mistral:
   api_key: ""
   models:
@@ -111,17 +149,8 @@ mistral:
     reasoning: "magistral-medium-2509"
     summary: "open-mistral-nemo"
 
-ofoxai:
-  api_key: ""
-  model: "z-ai/glm-4.7-flash:free"
-
 # Read-only market data. JARVIS never places orders.
 groww:
+  # Keys: GROWW_API_KEY and GROWW_API_SECRET in .env.
   api_key: ""
   api_secret: ""
-
-cloudflare:
-  enabled: false
-  account_id: ""
-  api_token: ""
-  model: "@cf/meta/llama-3.1-8b-instruct"

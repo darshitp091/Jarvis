@@ -4,7 +4,6 @@ Wraps GIMP CLI (Script-Fu batch), Inkscape CLI, and Pillow fallback
 for voice-controlled image editing and vector design operations.
 """
 import os
-import re
 import subprocess
 import shutil
 from pathlib import Path
@@ -130,7 +129,7 @@ class ImageEditor:
 
     def _pillow_available(self) -> bool:
         try:
-            import PIL
+            import PIL  # noqa: F401 -- the import is the test; see the except below
             return True
         except ImportError:
             return False
@@ -324,8 +323,6 @@ class ImageEditor:
         # Best: rembg (AI-based, if installed)
         try:
             from rembg import remove
-            from PIL import Image
-            import io
             with open(inp, "rb") as f:
                 data = f.read()
             result = remove(data)
@@ -442,7 +439,7 @@ class ImageEditor:
         lines.append(f"  [VEC] Inkscape: {'OK - ' + self.inkscape_exe if self.inkscape_exe else 'NOT INSTALLED'}")
         lines.append(f"  [PKG] Pillow: {'Available' if self._pillow_available() else 'Not installed'}")
         try:
-            import rembg
+            import rembg  # noqa: F401 -- the import is the test; see the except below
             lines.append("  [AI] rembg (AI bg removal): Available")
         except ImportError:
             lines.append("  [AI] rembg (AI bg removal): Not installed (optional - pip install rembg)")

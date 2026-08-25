@@ -2,7 +2,7 @@ import sys
 import os
 from PyQt6.QtWidgets import QApplication, QWidget, QLabel, QVBoxLayout
 from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QFont, QColor
+from PyQt6.QtGui import QFont
 
 # Add root folder to sys.path to resolve imports cleanly
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))

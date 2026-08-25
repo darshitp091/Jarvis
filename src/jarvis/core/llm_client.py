@@ -4,22 +4,29 @@ Everything JARVIS says comes through this module, by two routes that were writte
 separately and only became visible to each other when `query_llm` moved here out
 of `main.py`:
 
-* `query_llm` is the four-provider cascade a caller asks for by name: Mistral
-  (streaming), OfoxAI (streaming, only when named), Groq, then local Ollama.
-  Each step logs its failure and falls to the next; the last one returns a fixed
-  apology rather than raising.
-* `cloudflare_chat_wrapper` is installed as `ollama.chat` by `patch_ollama()`, so
-  it intercepts every Ollama call in the process -- including step 4 of that
-  cascade. It routes to Cloudflare Workers AI when settings.yaml is configured
-  for it, and falls back to the real ollama binding when it is not, or when the
-  remote call fails.
+* `bynara_chat_wrapper` is installed as `ollama.chat` by `patch_ollama()`, so it
+  intercepts every Ollama call in the process. It routes to NaraRouter
+  (router.bynara.id) first, then Mistral, and only when both are unconfigured or
+  fail does it hand the call back to the real ollama binding on this machine.
+  Both remote legs speak the OpenAI dialect, so one `_openai_chat` helper serves
+  both -- the base URL, the key and the model name are all that differ.
+* `query_llm` is the named-provider cascade a caller asks for by name. Its own
+  last step calls `ollama.chat`, which is this wrapper -- so "falling back to the
+  local brain" from query_llm re-enters the same bynara -> mistral -> local path.
 
-So "falling back to the local brain" may in fact reach Cloudflare, and only if
-*that* fails does a model on this machine answer. Five possible responders behind
-one function call, and the config file that picks between them is re-read on
-every single request.
+Vision rides the same seam. The call sites that show JARVIS the screen pass a
+screenshot as base64 in an `images` list inside the message dict; the wrapper
+detects that and routes the call to bynara's vision model rather than its text
+model. `vision_enabled: false` keeps text remote while forcing any call that
+carries a screenshot to stay on this machine.
 
-Nothing at module level imports ollama: the two lines that need it are inside
+The provider that used to sit here was Cloudflare Workers AI, reached through its
+own non-OpenAI endpoint. It was removed: a live Cloudflare token had already
+reached git history through settings.yaml, and NaraRouter serves both text and
+vision from one key. That key is resolved "settings.yaml, else BYNARA_API_KEY" so
+it can live in a git-ignored .env instead of the config file.
+
+Nothing at module level imports ollama: the lines that need it are inside
 `patch_ollama()` and inside `query_llm`'s fallback. That keeps this module
 importable -- and therefore testable -- in an environment without a local Ollama
 binding, which is the environment CI runs in.
@@ -32,16 +39,39 @@ import json
 import re
 from loguru import logger
 
+from jarvis.core.env_loader import resolve_key
+
 # The original `ollama.chat`, captured by patch_ollama() rather than at import
 # time. Importing ollama here made this module unimportable without a local
 # Ollama binding installed -- which meant nothing in it could be tested, in an
 # environment that deliberately does not install one. The two lines that need
 # ollama are both inside patch_ollama(); nothing else here touches it.
 #
-# `cloudflare_chat_wrapper` becomes reachable only by being installed as
+# `bynara_chat_wrapper` becomes reachable only by being installed as
 # `ollama.chat`, so patch_ollama() has always run before it is called and this
 # is set by then. A test calling the wrapper directly sets it itself.
 _original_chat = None
+
+# How long a remote provider gets before the call is demoted to the next one.
+# There is a local model behind both, so a stalled router must never hang the
+# assistant -- but bynara is the *primary* now rather than a bonus path, so the
+# budget is wide enough that a normal answer is not cut off and demoted. A vision
+# call ships a screenshot and reasons over it, so it gets longer than a sentence.
+_TEXT_TIMEOUT = 45
+_VISION_TIMEOUT = 90
+
+# Defaults for anything the config does not say. Both roles are the same model
+# on purpose: measured against the live router on the free tier, ox-alpha-bynara
+# is the only id that answers at conversational speed (~11s) and it reads images
+# too, so it serves as both brain and eyes. mistral-large answers but takes ~25s
+# for a one-line reply, which a voice assistant cannot spend; every other
+# weight-1 id in the catalogue returns "insufficient credits" without a top-up.
+# They live here as fallbacks only -- the config is where they are meant to be
+# changed when the router's catalogue moves or the account gains credits.
+_BYNARA_BASE_URL = "https://router.bynara.id/v1"
+_BYNARA_TEXT_MODEL = "ox-alpha-bynara"
+_BYNARA_VISION_MODEL = "ox-alpha-bynara"
+_MISTRAL_BASE_URL = "https://api.mistral.ai/v1"
 
 def _is_json(text: str) -> bool:
     try:
@@ -60,85 +90,267 @@ def _clean_json_response(text: str) -> str:
         text = re.sub(r"\n```$", "", text)
     return text.strip()
 
-def cloudflare_chat_wrapper(model, messages, format=None, options=None, **kwargs):
-    """Monkey-patched ollama.chat that transparently routes to Cloudflare Workers AI if configured."""
-    # 1. Load settings dynamically to allow runtime configuration changes
+def _coerce_json(content):
+    """Reduce a model reply to the bare JSON object the caller will parse.
+
+    Kept from the Cloudflare wrapper unchanged, because the downstream contract is
+    unchanged: callers that pass format="json" -- the intent router among them --
+    call json.loads on this content. A model that fences its JSON in markdown or
+    narrates around it would otherwise break every one of them.
+    """
+    if isinstance(content, (dict, list)):
+        content = json.dumps(content)
+    cleaned = _clean_json_response(content)
+    if not _is_json(cleaned):
+        match = re.search(r"\{.*\}", cleaned, re.DOTALL)
+        if match:
+            cleaned = match.group(0)
+    return cleaned
+
+
+def _load_settings():
+    """config/settings.yaml as a dict, or {} if it is missing or unreadable.
+
+    Re-read on every call, deliberately: switching provider or turning vision off
+    takes effect without restarting JARVIS. The cost is one file read per LLM call.
+
+    Returning {} rather than raising is what keeps a broken config from taking the
+    process down, since this runs inside every LLM call there is.
+    """
     config_path = "config/settings.yaml"
-    settings = {}
-    if os.path.exists(config_path):
-        try:
-            with open(config_path, "r", encoding="utf-8") as f:
-                settings = yaml.safe_load(f) or {}
-        except Exception as e:
-            logger.warning(f"llm_client: Failed to read settings.yaml: {e}")
+    if not os.path.exists(config_path):
+        return {}
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            return yaml.safe_load(f) or {}
+    except Exception as e:
+        logger.warning(f"llm_client: Failed to read settings.yaml: {e}")
+        return {}
 
-    cf_conf = settings.get("cloudflare", {})
-    account_id = cf_conf.get("account_id")
-    api_token = cf_conf.get("api_token")
 
-    # If Cloudflare is enabled and configured, run remote inference
-    if account_id and api_token and cf_conf.get("enabled", True):
-        # Map models to Cloudflare equivalents
-        # Default: Llama 3.1 8B Instruct (great Hinglish, fast, free neuron class)
-        cf_model = cf_conf.get("model", "@cf/meta/llama-3.1-8b-instruct")
-        
-        url = f"https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/run/{cf_model}"
-        headers = {
-            "Authorization": f"Bearer {api_token}",
-            "Content-Type": "application/json"
-        }
-        
-        # Build payload
-        payload = {
-            "messages": messages
-        }
-        
-        # Llama 3.1 8B handles temperature in options
-        if options and "temperature" in options:
-            payload["temperature"] = options["temperature"]
+def _section(settings, name):
+    """One provider block, defaulting to {} when it is absent *or* None.
 
-        try:
-            logger.debug(f"Cloudflare Workers AI: Routing request to {cf_model}...")
-            response = requests.post(url, headers=headers, json=payload, timeout=12)
-            
-            if response.status_code == 200:
-                res_data = response.json()
-                if res_data.get("success"):
-                    content = res_data["result"]["response"]
-                    if isinstance(content, (dict, list)):
-                        content = json.dumps(content)
-                    
-                    # If JSON format was requested, clean and validate it
-                    if format == "json":
-                        cleaned_content = _clean_json_response(content)
-                        # If the output is not valid JSON, we attempt to locate the JSON block
-                        if not _is_json(cleaned_content):
-                            match = re.search(r"\{.*\}", cleaned_content, re.DOTALL)
-                            if match:
-                                cleaned_content = match.group(0)
-                        content = cleaned_content
+    `settings.get(name, {})` is not enough and the difference was a real defect: a
+    section whose keys are all commented out parses to None, not {}, and the
+    default only applies when the key is missing entirely. Since this module is
+    every LLM call in the process, one commented-out config key used to take the
+    whole assistant down with an AttributeError naming neither the provider nor
+    the config file.
+    """
+    return settings.get(name) or {}
 
-                    logger.debug("Cloudflare Workers AI: Request successful.")
-                    return {
-                        "message": {
-                            "role": "assistant",
-                            "content": content
-                        }
-                    }
-                else:
-                    logger.warning(f"Cloudflare Workers AI returned success=False: {res_data}")
-            else:
-                logger.warning(f"Cloudflare Workers AI API returned status {response.status_code}: {response.text}")
-                
-        except Exception as e:
-            logger.error(f"Cloudflare Workers AI request failed: {e}. Falling back to local Ollama...")
 
-    # Fallback to local Ollama model
+def _resolve_key(conf, env_var):
+    """API key from ``.env``, else the config block it used to live in.
+
+    Delegates to the one shared resolver so this module -- which is every LLM
+    call in the process -- cannot drift from the other key-reading sites on
+    which of the two locations wins. `.env` is the git-ignored one, so `.env`
+    wins; settings.yaml is read only as a courtesy to configs written before
+    the keys moved out of it.
+    """
+    return resolve_key(conf, env_var)
+
+
+def _has_images(messages):
+    """Whether this call is a vision call.
+
+    An image reaches this seam as base64 in an `images` list beside `content`,
+    which is how ollama carries one. That makes the vision decision a property of
+    the messages rather than something the caller has to declare, and is why
+    routing vision to a different model needed no change at any of the call sites.
+    """
+    return any(msg.get("images") for msg in messages)
+
+
+def _to_openai_messages(messages):
+    """ollama-shaped messages -> OpenAI chat format.
+
+    This wrapper stands in for `ollama.chat`, so its input is ollama-shaped:
+    `content` is a plain string and any screenshot is raw base64 in an `images`
+    list. OpenAI-compatible endpoints instead want the image inside `content`, as
+    an `image_url` part holding a data URL. A text-only message keeps its string
+    content, which both dialects accept.
+
+    The mime type is declared png because that is what the screen-capture sites
+    produce; endpoints sniff the actual bytes, so a jpeg still works.
+    """
+    converted = []
+    for msg in messages:
+        role = msg.get("role", "user")
+        content = msg.get("content", "")
+        images = msg.get("images") or []
+        if not images:
+            converted.append({"role": role, "content": content})
+            continue
+        parts = []
+        if content:
+            parts.append({"type": "text", "text": content})
+        for image in images:
+            # Already a data URL from a caller that built one itself: don't
+            # prefix it twice.
+            url = (image if str(image).startswith("data:")
+                   else f"data:image/png;base64,{image}")
+            parts.append({"type": "image_url", "image_url": {"url": url}})
+        converted.append({"role": role, "content": parts})
+    return converted
+
+
+def _openai_chat(base_url, api_key, model, messages, options, timeout, label):
+    """One non-streaming OpenAI-compatible /chat/completions call.
+
+    Returns the assistant's content, or None if this provider did not answer --
+    which is the signal to try the next one. Every failure is a None rather than
+    an exception because "did not answer" is the normal case here, not an error:
+    the cascade exists precisely because providers fail.
+
+    An empty or whitespace-only reply counts as not answering. It is technically a
+    200, but it gives the user silence, and the next provider can do better.
+    """
+    url = base_url.rstrip("/") + "/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    payload = {"model": model, "messages": messages}
+    # Only temperature crosses over. The other ollama options (num_predict,
+    # top_p, stop) have no single OpenAI equivalent, so they are dropped rather
+    # than guessed at -- silently, which is a known wart kept from the Cloudflare
+    # wrapper rather than a new one.
+    if options and "temperature" in options:
+        payload["temperature"] = options["temperature"]
+
+    try:
+        logger.debug(f"{label}: routing request to {model}...")
+        response = requests.post(url, headers=headers, json=payload, timeout=timeout)
+    except Exception as e:
+        logger.error(f"{label} request failed: {e}")
+        return None
+
+    if response.status_code != 200:
+        logger.warning(
+            f"{label} returned status {response.status_code}: {response.text}")
+        return None
+
+    try:
+        content = response.json()["choices"][0]["message"]["content"]
+    except Exception as e:
+        logger.warning(f"{label} returned a body this code cannot read: {e}")
+        return None
+
+    if content is None:
+        logger.warning(f"{label} returned a null content field.")
+        return None
+    if not isinstance(content, str):
+        content = json.dumps(content)
+    if not content.strip():
+        logger.warning(f"{label} returned an empty reply.")
+        return None
+
+    logger.debug(f"{label}: request successful.")
+    return content
+
+
+def _try_bynara(settings, messages, wants_vision, options):
+    """The primary provider. Content, or None if off, unconfigured, or failed.
+
+    A call carrying a screenshot goes to the vision model rather than the text
+    model; `enabled: false` turns the provider off entirely and hands the call to
+    the secondary.
+    """
+    conf = _section(settings, "bynara")
+    if not conf.get("enabled", True):
+        return None
+    api_key = _resolve_key(conf, "BYNARA_API_KEY")
+    if not api_key:
+        return None
+
+    if wants_vision:
+        model = conf.get("vision_model", _BYNARA_VISION_MODEL)
+        timeout = _VISION_TIMEOUT
+    else:
+        model = conf.get("text_model", _BYNARA_TEXT_MODEL)
+        timeout = _TEXT_TIMEOUT
+
+    return _openai_chat(conf.get("base_url", _BYNARA_BASE_URL), api_key, model,
+                        messages, options, timeout, "Bynara")
+
+
+def _try_mistral(settings, messages, wants_vision, options):
+    """The secondary provider, reached only when bynara did not answer.
+
+    Mistral names its models per role in the config rather than offering one id,
+    so the vision role is picked here the same way the text role is.
+    """
+    conf = _section(settings, "mistral")
+    api_key = _resolve_key(conf, "MISTRAL_API_KEY")
+    if not api_key:
+        return None
+
+    named = conf.get("models") or {}
+    if wants_vision:
+        model = named.get("vision", "ministral-8b-2512")
+        timeout = _VISION_TIMEOUT
+    else:
+        model = named.get("brain", "mistral-large-2512")
+        timeout = _TEXT_TIMEOUT
+
+    return _openai_chat(_MISTRAL_BASE_URL, api_key, model, messages, options,
+                        timeout, "Mistral")
+
+
+def _vision_allowed(settings):
+    """May a screenshot leave this machine at all?
+
+    The flag sits in the bynara block because that is the provider it arrived
+    with, but what it promises is about the screenshot rather than the vendor:
+    switching it off must not simply reroute the image to the secondary's cloud.
+    Both cascades read it through here so they cannot drift apart on a question
+    about what leaves the machine.
+    """
+    return _section(settings, "bynara").get("vision_enabled", True)
+
+
+def bynara_chat_wrapper(model, messages, format=None, options=None, **kwargs):
+    """Monkey-patched `ollama.chat`: NaraRouter, then Mistral, then local Ollama.
+
+    Installed process-wide by patch_ollama(), so every ollama.chat call in JARVIS
+    arrives here -- which is what makes this one function the whole provider
+    migration. `model` is the caller's *local* model name; it is used only if the
+    call gets as far as the local binding, because the remote model comes from the
+    config instead.
+
+    Always returns ollama's response shape, `{"message": {"role": ..., "content":
+    ...}}`. That shape is the real contract, more binding than the signature:
+    every call site in the tree reads `response["message"]["content"]`.
+    """
+    settings = _load_settings()
+    wants_vision = _has_images(messages)
+
+    # A screenshot is not the same class of data as a sentence. With vision
+    # switched off, a call that needs vision goes straight to the local model --
+    # which can see the image -- and is not offered to the secondary either, since
+    # that is equally off this machine. Text-only calls are unaffected.
+    if wants_vision and not _vision_allowed(settings):
+        logger.debug("Vision is disabled: this screenshot stays on this machine.")
+    else:
+        remote_messages = _to_openai_messages(messages)
+        content = _try_bynara(settings, remote_messages, wants_vision, options)
+        if content is None:
+            content = _try_mistral(settings, remote_messages, wants_vision, options)
+        if content is not None:
+            if format == "json":
+                content = _coerce_json(content)
+            return {"message": {"role": "assistant", "content": content}}
+
+    # Fallback to the local Ollama model. The original messages go through, not
+    # the converted ones: the local binding wants the ollama shape it was handed.
     logger.debug(f"Ollama Local: Routing query to local model {model}...")
     return _original_chat(model=model, messages=messages, format=format, options=options, **kwargs)
 
 def patch_ollama():
-    """Apply the Cloudflare redirect patch to the ollama module."""
+    """Install the bynara redirect as `ollama.chat`, capturing the real one once."""
     global _original_chat
     import ollama
     # Only the first call captures. Without the guard a second call would
@@ -146,34 +358,108 @@ def patch_ollama():
     # import time used to make double-patching harmless, and this keeps it so.
     if _original_chat is None:
         _original_chat = ollama.chat
-    ollama.chat = cloudflare_chat_wrapper
-    logger.info("ollama.chat monkey-patched with Cloudflare Workers AI redirect wrapper.")
+    ollama.chat = bynara_chat_wrapper
+    logger.info("ollama.chat monkey-patched with the bynara -> mistral -> local redirect.")
 
 
 # ---------------------------------------------------------------------------
 # The provider cascade, moved verbatim out of JARVIS.query_llm.
 #
-# It belongs beside cloudflare_chat_wrapper rather than in the orchestrator, and
-# putting the two in one file makes a relationship visible that was invisible
-# while they lived apart: step 4 below calls `ollama.chat`, which patch_ollama()
-# has replaced with the wrapper above. So "falling back to the local brain" may
-# reach Cloudflare instead, and if that fails the wrapper falls back to the real
-# ollama binding. Two layers of fallback, previously in two different files.
+# It belongs beside bynara_chat_wrapper rather than in the orchestrator, and
+# putting the two in one file makes the relationship between them explicit.
+# They are two cascades over the same three providers, reached by callers that
+# speak two different message dialects: the wrapper stands in for `ollama.chat`
+# and so takes ollama-shaped messages, while these callers pass OpenAI-shaped
+# ones. That is the only reason both exist. This one runs bynara -> mistral
+# itself and then calls the *real* ollama binding, so the two do not nest.
 # ---------------------------------------------------------------------------
 
-def query_llm(messages: list, system_prompt: str = None, provider: str = "mistral", model: str = None, *,
+def _local_chat():
+    """The real `ollama.chat`, never the wrapper installed over it.
+
+    query_llm runs its own bynara -> mistral cascade before reaching this leg, so
+    the leg has to be the genuine local binding. Going through the patched
+    `ollama.chat` instead would retry the two remote providers that just declined,
+    and -- worse -- would send a `provider="local"` call to the cloud, which is
+    the defect this replaces. `_original_chat` holds the real one once
+    patch_ollama has run; before that, `ollama.chat` is still itself.
+    """
+    import ollama
+    return _original_chat or ollama.chat
+
+
+def _has_image_parts(messages) -> bool:
+    """Is this an OpenAI-shaped vision call?
+
+    query_llm's callers speak the OpenAI dialect directly -- `content` is a list
+    of parts and a screenshot arrives as an `image_url` part (see
+    screen_vision.py). That is a different shape from the ollama one
+    `_has_images` looks for, which is why this is a second detector rather than a
+    reuse of that one.
+    """
+    for msg in messages:
+        content = msg.get("content")
+        if isinstance(content, list):
+            for part in content:
+                if isinstance(part, dict) and part.get("type") == "image_url":
+                    return True
+    return False
+
+
+def query_llm(messages: list, system_prompt: str = None, provider: str = "bynara", model: str = None, *,
               config: dict, models: dict) -> str:
-    """Queries the active LLM provider (mistral, ofoxai, groq, or local Ollama fallback)."""
+    """Queries the LLM cascade: NaraRouter, then Mistral, then the local Ollama brain.
+
+    `provider` selects the *entry point*, not the only provider tried. The default
+    and every unrecognised value start at bynara and fall through the whole
+    cascade; `provider="local"` is the one value that skips both remote legs, so
+    a caller asking for the local brain now actually gets it.
+
+    Messages arrive here already OpenAI-shaped -- `content` may be a list of text
+    and `image_url` parts -- which is exactly what the remote legs want, so they
+    are forwarded without conversion. Only the local leg needs them rewritten
+    into ollama's `images` form.
+
+    A call carrying a screenshot skips both remote legs when
+    `bynara.vision_enabled` is false, whatever `provider` says.
+    """
     query_messages = []
     if system_prompt:
         query_messages.append({"role": "system", "content": system_prompt})
     query_messages.extend(messages)
 
-    # 1. Mistral AI Provider
-    if provider == "mistral":
+    wants_vision = _has_image_parts(query_messages)
+
+    # A screenshot with vision switched off stays on this machine, exactly as it
+    # does in the wrapper. Without this, the flag was honoured on the ollama.chat
+    # path and silently ignored on this one -- and this is the path screen_vision
+    # takes, so the one setting that promises no screenshot leaves the machine was
+    # broken for the only skill that sends one.
+    remote_ok = provider != "local" and (not wants_vision or _vision_allowed(config))
+
+    # 1. NaraRouter (bynara), the primary. Skipped only when the caller explicitly
+    # asked for the local brain. `model` is deliberately ignored here: it names a
+    # Mistral or Ollama model at almost every call site, and the bynara model is a
+    # config value chosen per role (text vs vision) instead.
+    if remote_ok:
+        content = _try_bynara(config, query_messages, wants_vision, None)
+        if content is not None:
+            return content
+
+    # 2. Mistral, the secondary. One path for every entry point: the secondary
+    # should not behave differently depending on which name the caller used to
+    # get here. Streaming is kept because it prints the reply as it arrives.
+    if remote_ok:
         mistral_cfg = config.get("mistral", {})
         api_key = mistral_cfg.get("api_key", "")
-        target_model = model or mistral_cfg.get("models", {}).get("brain", "mistral-large-2512")
+        # Mistral names a model per role, so a screenshot must not be sent to the
+        # text model. An explicit `model` argument still wins, because that is how
+        # a caller names a specific Mistral model.
+        named = mistral_cfg.get("models", {})
+        if wants_vision:
+            target_model = model or named.get("vision", "ministral-8b-2512")
+        else:
+            target_model = model or named.get("brain", "mistral-large-2512")
 
         if api_key and not api_key.startswith("YOUR_"):
             import requests
@@ -219,105 +505,19 @@ def query_llm(messages: list, system_prompt: str = None, provider: str = "mistra
             except Exception as e:
                 logger.error(f"Mistral API connection failed: {e}")
 
-    # 2. OfoxAI Provider
-    elif provider == "ofoxai":
-        ofox_cfg = config.get("ofoxai", {})
-        api_key = ofox_cfg.get("api_key", "")
-        target_model = model or ofox_cfg.get("model", "z-ai/glm-4.7-flash:free")
-
-        if api_key and not api_key.startswith("YOUR_"):
-            try:
-                logger.info(f"Querying OfoxAI API using model '{target_model}'...")
-                from openai import OpenAI
-                client = OpenAI(
-                    base_url="https://api.ofox.ai/v1",
-                    api_key=api_key
-                )
-                ofox_messages = []
-                if system_prompt:
-                    ofox_messages.append({"role": "system", "content": system_prompt})
-
-                for msg in messages:
-                    content = msg["content"]
-                    if isinstance(content, list):
-                        text_content = ""
-                        for part in content:
-                            if part.get("type") == "text":
-                                text_content += part.get("text", "")
-                        ofox_messages.append({"role": msg["role"], "content": text_content})
-                    else:
-                        ofox_messages.append(msg)
-
-                response_stream = client.chat.completions.create(
-                    model=target_model,
-                    messages=ofox_messages,
-                    temperature=0.1,
-                    max_tokens=300,
-                    stream=True,
-                    timeout=25
-                )
-                reply_parts = []
-                print("JARVIS: ", end="", flush=True)
-                for chunk in response_stream:
-                    if chunk.choices and chunk.choices[0].delta.content:
-                        text_chunk = chunk.choices[0].delta.content
-                        print(text_chunk, end="", flush=True)
-                        reply_parts.append(text_chunk)
-                print()
-                reply = "".join(reply_parts)
-                logger.info("Successfully received streamed response from OfoxAI.")
-                return reply
-            except Exception as e:
-                logger.error(f"OfoxAI API connection failed: {e}")
-
-    # 3. Groq API Provider Fallback
-    groq_cfg = config.get("groq", {})
-    groq_api_key = groq_cfg.get("api_key", "")
-    groq_model = groq_cfg.get("model", "llama-3.3-70b-versatile")
-
-    if groq_api_key and not groq_api_key.startswith("YOUR_"):
-        import requests
-        url = "https://api.groq.com/openai/v1/chat/completions"
-        headers = {
-            "Authorization": f"Bearer {groq_api_key}",
-            "Content-Type": "application/json"
-        }
-        # Flatten/convert messages if multimodal
-        groq_messages = []
-        for msg in query_messages:
-            content = msg["content"]
-            if isinstance(content, list):
-                text_content = ""
-                for part in content:
-                    if part.get("type") == "text":
-                        text_content += part.get("text", "")
-                groq_messages.append({"role": msg["role"], "content": text_content})
-            else:
-                groq_messages.append(msg)
-
-        data = {
-            "model": groq_model,
-            "messages": groq_messages,
-            "temperature": 0.3
-        }
-        try:
-            logger.info(f"Querying Groq API using model '{groq_model}'...")
-            response = requests.post(url, headers=headers, json=data, timeout=25)
-            if response.status_code == 200:
-                result = response.json()
-                reply = result["choices"][0]["message"]["content"]
-                logger.info("Successfully received response from Groq.")
-                return reply
-            else:
-                logger.error(f"Groq API returned error status {response.status_code}: {response.text}")
-        except Exception as e:
-            logger.error(f"Groq API connection failed: {e}")
-
-    # 4. Local Ollama Fallback (with base64 image extraction)
+    # 3. Local Ollama brain, the fallback.
     try:
         logger.info("Falling back to local Ollama brain...")
-        import ollama
-        model_name = models.get("main_brain", "yasserrmd/Human-Like-Qwen2.5-1.5B-Instruct:latest")
+        # `model` names the local brain at the provider="local" call sites, which
+        # passed it and were then ignored while the request went to the cloud. With
+        # no model named, a screenshot needs the local model that can actually see
+        # one -- the text brain would describe nothing.
+        if model:
+            model_name = model
+        elif wants_vision:
+            model_name = models.get("vision", "moondream:latest")
+        else:
+            model_name = models.get("main_brain", "yasserrmd/Human-Like-Qwen2.5-1.5B-Instruct:latest")
 
         ollama_messages = []
         for msg in query_messages:
@@ -342,7 +542,7 @@ def query_llm(messages: list, system_prompt: str = None, provider: str = "mistra
                 ollama_msg["images"] = images
             ollama_messages.append(ollama_msg)
 
-        response = ollama.chat(
+        response = _local_chat()(
             model=model_name,
             messages=ollama_messages
         )
@@ -356,8 +556,8 @@ def query_llm(messages: list, system_prompt: str = None, provider: str = "mistra
 # Ollama process supervision, moved verbatim out of JARVIS._ensure_ollama_server.
 #
 # It lives here because this is the module that ends up talking to Ollama, twice
-# over: query_llm's step 4 calls ollama.chat, and cloudflare_chat_wrapper falls
-# back to the real binding when Cloudflare is unconfigured or fails. Both of
+# over: query_llm's last step calls ollama.chat, and bynara_chat_wrapper falls
+# back to the real binding when neither remote provider answers. Both of
 # those assume a server on port 11434 that nothing in this module was starting
 # -- main.py called this at boot and the connection between the two facts was
 # not written down anywhere. Now it is: this is the function that makes the

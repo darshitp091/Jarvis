@@ -1,7 +1,7 @@
 import sys
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QProgressBar, QApplication, QFrame
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QFont, QColor
+from PyQt6.QtGui import QFont
 
 class VitalsDashboardWidget(QWidget):
     # Signals for thread-safe UI updates

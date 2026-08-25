@@ -2,9 +2,10 @@ import os
 import yaml
 import yfinance as yf
 import pandas as pd
-import numpy as np
 import ollama
 from loguru import logger
+
+from jarvis.core.env_loader import resolve_field, resolve_key
 
 # Symbol maps for fuzzy resolution
 SYMBOL_MAP = {
@@ -54,14 +55,16 @@ class MarketAnalyzer:
         self.groww_client = None
 
         try:
+            settings = {}
             if os.path.exists(config_path):
                 with open(config_path) as f:
-                    settings = yaml.safe_load(f)
+                    settings = yaml.safe_load(f) or {}
                     self.model = settings.get("models", {}).get("main_brain", "qwen2.5")
-                    
-                    groww_settings = settings.get("groww", {})
-                    self.groww_api_key = groww_settings.get("api_key")
-                    self.groww_api_secret = groww_settings.get("api_secret")
+
+            # Outside the block: .env alone has to be enough, with no settings.yaml.
+            groww_settings = settings.get("groww", {})
+            self.groww_api_key = resolve_key(groww_settings, "GROWW_API_KEY")
+            self.groww_api_secret = resolve_field(groww_settings, "api_secret", "GROWW_API_SECRET")
 
             # Initialize Groww API Client (Read-Only mode)
             if self.groww_api_key and "YOUR_GROWW" not in self.groww_api_key:

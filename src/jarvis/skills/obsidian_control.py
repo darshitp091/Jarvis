@@ -56,7 +56,7 @@ class ObsidianControl:
             user_prompt += f"\nRequested Title (use if appropriate): '{requested_title}'"
             
         try:
-            # Query LLM (will redirect to Cloudflare)
+            # Query the LLM cascade: bynara, then Mistral, then the local brain
             response = ollama.chat(
                 model="qwen2.5-coder:7b",
                 messages=[

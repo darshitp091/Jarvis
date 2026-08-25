@@ -1,4 +1,3 @@
-import os
 import urllib.parse
 import webbrowser
 from loguru import logger

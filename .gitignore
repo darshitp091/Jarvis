@@ -9,6 +9,14 @@ env/
 venv/
 ENV/
 
+# Secrets. `.env` holds real API keys (BYNARA_API_KEY, ...) loaded by
+# jarvis.core.env_loader before any provider reads a key. The patterns above
+# are directories (`env/`), not this file, so without the line below a real
+# `.env` would be tracked -- the same failure mode that put a live token in
+# git history via config/settings.yaml. `.env.example` is the committed template.
+.env
+!.env.example
+
 # Large Model Weights (Downloaded separately)
 # GitHub rejects any file over 100 MB. The fine-tuned Whisper checkpoint is
 # ~922 MB, so weights are never committed; see the README for how to obtain
@@ -74,6 +82,13 @@ config/voice_profile.json
 # so the comment must live on its own line for this rule to actually match.
 config/settings.yaml
 config/settings.yaml.bak
+
+# Backups of the two files above. A `.bak` made while migrating keys into `.env`
+# holds the same live secrets as its original, but `.env` and
+# `config/settings.yaml` are matched by exact name -- so `.env.bak` was visible
+# to git as an untracked file and one `git add -A` would have committed it. The
+# glob covers every future backup instead of naming them one at a time.
+*.bak
 
 # Local user directories and media
 models/

@@ -5,9 +5,6 @@ Handles:
 2. Autonomous 'Add to Cart' & 'Buy Now' checkout workflows.
 3. E-commerce price tracking and deal recommendations.
 """
-import os
-import re
-import time
 import urllib.parse
 import webbrowser
 from loguru import logger

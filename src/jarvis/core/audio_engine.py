@@ -7,6 +7,8 @@ import os
 import time
 from contextlib import contextmanager
 
+from jarvis.core.env_loader import resolve_key
+
 @contextmanager
 def silence_stderr():
     """Silences OS-level stderr completely (e.g. C/C++ library absl warnings)."""
@@ -100,14 +102,19 @@ class AudioEngine:
             config_path = "config/settings.yaml"
             if not os.path.exists(config_path):
                 config_path = os.path.join(os.path.dirname(__file__), "..", config_path)
+            settings = {}
             if os.path.exists(config_path):
                 with open(config_path, "r") as f:
                     settings = yaml.safe_load(f) or {}
-                    self.sarvam_config = settings.get("sarvam", {})
                     self.engine = settings.get("audio", {}).get("engine", "groq")
-                    self.groq_api_key = settings.get("groq", {}).get("api_key", "")
                     if silence_sec is None:
                         self.silence_sec = float(settings.get("audio", {}).get("silence_threshold", 1.5))
+            # Resolved outside the block above on purpose: a key must still be
+            # found when there is no settings.yaml at all, which is the normal
+            # state now that .env is where keys belong.
+            self.sarvam_config = dict(settings.get("sarvam", {}))
+            self.sarvam_config["api_key"] = resolve_key(self.sarvam_config, "SARVAM_API_KEY")
+            self.groq_api_key = resolve_key(settings.get("groq", {}), "GROQ_API_KEY")
         except Exception as config_err:
             logger.warning(f"AudioEngine: Failed to load settings.yaml: {config_err}")
 

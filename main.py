@@ -8,6 +8,16 @@ os.environ["GLOG_minloglevel"] = "3"
 os.environ["ABSL_log_min_level"] = "3"
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 os.environ["CRAWL4AI_LOG_LEVEL"] = "ERROR"
+# .env before anything reads a key. Provider secrets are resolved
+# "settings.yaml, else environment"; this fills the environment half from a
+# git-ignored file, so a key never has to be written into settings.yaml. It runs
+# here rather than in __init__ because it must precede the settings.yaml read at
+# the top of JARVIS.__init__ and every module-level provider read below.
+# Anchored to this file's directory, not the cwd, for the same reason the
+# sys.path line above is: `python main.py` from another directory must still
+# find it. env_loader imports nothing but os, so this costs no import weight.
+from jarvis.core.env_loader import load_dotenv
+load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 import threading
 import traceback
 import yaml
@@ -134,10 +144,10 @@ from jarvis.skills.app_control import AppControl
 from jarvis.core.profile_manager import ProfileManager
 from jarvis.skills.obsidian_control import ObsidianControl; _p("DBG: obsidian ok")
 from jarvis.skills.shopping_assistant import ShoppingAssistant; _p("DBG: shopping_assistant ok")
-from jarvis.services.db import Database, utc_now; _p("DBG: services.db ok")
+from jarvis.services.db import Database; _p("DBG: services.db ok")
 from jarvis.services.scheduler import Scheduler; _p("DBG: scheduler ok")
 from jarvis.services.calendar_service import CalendarService; _p("DBG: calendar_service ok")
-from jarvis.services import timeparse; _p("DBG: timeparse ok")
+from jarvis.services import timeparse; _p("DBG: timeparse ok")  # noqa: F401 -- a startup checkpoint, not a use
 
 # Files the hot-reload watcher can act on, mapped to
 # (module name, JARVIS attribute, class name).
@@ -173,11 +183,6 @@ class JARVIS:
         with open("./config/prompts.yaml") as f:
             self.prompts = yaml.safe_load(f)
             
-        # Set Groq API Key in environment variables for subprocesses
-        groq_cfg = self.config.get("groq", {})
-        if groq_cfg and groq_cfg.get("api_key"):
-            os.environ["GROQ_API_KEY"] = groq_cfg.get("api_key")
-
         self.models = self.config["models"]
 
         # Ensure Ollama background server is active before starting
@@ -966,7 +971,7 @@ class JARVIS:
         else:
             logger.info("JARVIS initialized silently on startup. Standing by for wake word.")
 
-    def query_llm(self, messages: list, system_prompt: str = None, provider: str = "mistral", model: str = None) -> str:
+    def query_llm(self, messages: list, system_prompt: str = None, provider: str = "bynara", model: str = None) -> str:
         return llm_client.query_llm(messages, system_prompt, provider, model,
                                     config=self.config, models=self.models)
 
@@ -1189,14 +1194,16 @@ class JARVIS:
         try:
             self.chat_history.append({"role": "user", "content": text})
             
-            # Conversational/multilingual check to use free OfoxAI GLM-4.7-Flash (excellent Hinglish)
+            # Conversational/multilingual check. Hinglish goes to the primary
+            # provider with no forced model, so the configured bynara text model
+            # answers it (it handles Hinglish well); OfoxAI's GLM used to sit here.
             has_devanagari = any('\u0900' <= c <= '\u097F' for c in text)
             hindi_cues = ["karo", "karna", "dikhao", "de", "kar", "bhej", "kholo", "chalao", "batao", "sunao", "hai", "hoon", "tha", "thi", "yaar", "sir", "kaise", "kya", "tum", "main", "aap", "pehle", "kuch", "bhajao", "bajado", "gaana", "gana", "song", "play"]
             has_hindi_cues = has_devanagari or any(w in text.lower() for w in hindi_cues)
             
             is_conversational = domain == "general" or has_hindi_cues or any(w in text.lower() for w in ["hello", "hi ", "hey", "weather", "volume", "music", "time"])
             if is_conversational:
-                reply_text = self.query_llm(self.chat_history, system_prompt=system, provider="ofoxai", model="z-ai/glm-4.7-flash:free")
+                reply_text = self.query_llm(self.chat_history, system_prompt=system, provider="bynara")
             else:
                 reply_text = self.query_llm(self.chat_history, system_prompt=system, provider="mistral", model="mistral-large-2512")
             

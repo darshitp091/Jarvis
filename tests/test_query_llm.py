@@ -1,20 +1,21 @@
-"""Tests for jarvis.core.llm_client.query_llm -- the four-provider cascade.
+"""Tests for jarvis.core.llm_client.query_llm -- the provider cascade.
 
 188 lines that lived in `main.py` as `JARVIS.query_llm` and so could not be
 tested: main.py imports PyQt6, ollama and pyautogui at module level. It is the
-function every spoken answer passes through, and it silently changes provider
-four times before giving up.
+function every spoken answer passes through, and it changes provider silently
+before giving up.
 
-The cascade, in the order the code tries it: Mistral (streaming), OfoxAI
-(streaming, only if `provider="ofoxai"` was asked for), Groq (always tried if
-neither returned), then local Ollama. Each step logs its failure and falls to the
-next; the last one returns a fixed apology.
+The cascade, in the order the code tries it: NaraRouter (bynara), then Mistral
+(streaming), then the local Ollama brain. Each step logs its failure and falls to
+the next; the last one returns a fixed apology. `provider` names the entry point
+rather than the only provider tried, and `provider="local"` is the one value that
+skips both remote legs.
 
 Nothing here touches the network. `requests.post` is patched as an attribute of
 the shared module object rather than by rebinding a name, because the function
 does its own `import requests` inside the body -- a local rebinding would not be
-seen. `openai` and `ollama` are injected into sys.modules as stand-ins, which
-also keeps them off the test environment's dependency list.
+seen. `ollama` is injected into sys.modules as a stand-in, which also keeps it off
+the test environment's dependency list.
 """
 
 import ast
@@ -33,9 +34,8 @@ MESSAGES = [{"role": "user", "content": "kitna time hua hai"}]
 # A config with no usable provider: every branch is skipped and control reaches
 # the Ollama fallback. Tests that want one provider live enable just that one.
 NO_PROVIDERS = {
+    "bynara": {"api_key": ""},
     "mistral": {"api_key": "YOUR_MISTRAL_KEY"},
-    "ofoxai": {"api_key": ""},
-    "groq": {"api_key": "YOUR_GROQ_KEY"},
 }
 MODELS = {"main_brain": "test-brain:latest"}
 
@@ -72,6 +72,19 @@ def sse(*contents):
     frames = ['data: {"choices": [{"delta": {"content": %s}}]}' % json.dumps(c)
               for c in contents]
     return frames + ["data: [DONE]"]
+
+
+@pytest.fixture(autouse=True)
+def no_ambient_keys(monkeypatch):
+    """No provider is live here unless a test's config says so.
+
+    Every key in these configs is fake, but a blank one falls back to the
+    environment -- so a real key exported in the shell, or one left behind by
+    another test file, would silently promote a provider the test meant to skip
+    and steal the leg being asserted on.
+    """
+    for name in ("BYNARA_API_KEY", "MISTRAL_API_KEY", "GROQ_API_KEY"):
+        monkeypatch.delenv(name, raising=False)
 
 
 @pytest.fixture
@@ -118,12 +131,13 @@ def query(**kwargs):
     return llm_client.query_llm(**kwargs)
 
 
-# -- Mistral, the first provider tried -----------------------------------
-
+# -- Mistral, the secondary -----------------------------------------------
+#
+# These configs name no bynara key, so the primary is skipped and Mistral is the
+# first leg to make a request.
 
 MISTRAL_ON = {"mistral": {"api_key": "real-key",
-                          "models": {"brain": "mistral-small-2503"}},
-              "groq": {"api_key": ""}}
+                          "models": {"brain": "mistral-small-2503"}}}
 
 
 def test_a_streamed_mistral_reply_is_joined_in_order(http, ollama):
@@ -205,7 +219,7 @@ def test_an_explicit_model_argument_beats_the_configured_one(http, ollama):
 
 
 def test_with_no_model_configured_a_default_is_used(http, ollama):
-    query(config={"mistral": {"api_key": "k"}, "groq": {"api_key": ""}})
+    query(config={"mistral": {"api_key": "k"}})
     assert http.calls[0]["json"]["model"] == "mistral-large-2512"
 
 
@@ -222,7 +236,7 @@ def test_with_no_model_configured_a_default_is_used(http, ollama):
 def test_an_unusable_mistral_key_skips_the_provider_entirely(http, ollama, mistral):
     """The `YOUR_` prefix check is what makes a fresh settings.yaml.example work
     without editing: the placeholder keys are recognised, not attempted."""
-    query(config={"mistral": mistral, "groq": {"api_key": ""}})
+    query(config={"mistral": mistral})
     assert http.calls == [], "no HTTP call should have been made"
     assert len(ollama.calls) == 1
 
@@ -262,225 +276,6 @@ def test_an_empty_stream_is_returned_as_success(http, ollama):
     http.response = FakeStream(["data: [DONE]"])
     assert query(config=MISTRAL_ON) == ""
     assert ollama.calls == []
-
-
-# -- OfoxAI, tried only when it is asked for by name ---------------------
-
-
-OFOX_ON = {"ofoxai": {"api_key": "ofox-key", "model": "z-ai/glm-4.7-flash:free"},
-           "groq": {"api_key": ""}}
-
-
-class FakeDelta:
-    def __init__(self, content):
-        self.content = content
-
-
-class FakeChoice:
-    def __init__(self, content):
-        self.delta = FakeDelta(content)
-
-
-class FakeChunk:
-    def __init__(self, content):
-        self.choices = [FakeChoice(content)] if content is not None else []
-
-
-@pytest.fixture
-def openai(monkeypatch):
-    """A stand-in `openai` module: the real one need not be installed."""
-    module = types.ModuleType("openai")
-    module.calls = []
-
-    class Completions:
-        def create(self, **kwargs):
-            module.calls.append(kwargs)
-            if isinstance(module.response, Exception):
-                raise module.response
-            return iter(module.response)
-
-    class Chat:
-        completions = Completions()
-
-    class OpenAI:
-        def __init__(self, base_url=None, api_key=None):
-            module.clients.append({"base_url": base_url, "api_key": api_key})
-            self.chat = Chat()
-
-    module.OpenAI = OpenAI
-    module.clients = []
-    module.response = [FakeChunk("from "), FakeChunk("ofox")]
-    monkeypatch.setitem(sys.modules, "openai", module)
-    return module
-
-
-def test_an_ofoxai_reply_is_streamed_and_joined(openai, http, ollama):
-    assert query(config=OFOX_ON, provider="ofoxai") == "from ofox"
-    assert http.calls == [] and ollama.calls == []
-
-
-def test_the_ofoxai_client_is_pointed_at_ofox_with_its_own_key(openai, http, ollama):
-    query(config=OFOX_ON, provider="ofoxai")
-    assert openai.clients == [{"base_url": "https://api.ofox.ai/v1",
-                               "api_key": "ofox-key"}]
-
-
-def test_the_ofoxai_request_carries_its_own_limits(openai, http, ollama):
-    query(config=OFOX_ON, provider="ofoxai")
-    call = openai.calls[0]
-    assert call["model"] == "z-ai/glm-4.7-flash:free"
-    assert call["temperature"] == 0.1
-    assert call["max_tokens"] == 300
-    assert call["stream"] is True
-    assert call["timeout"] == 25
-
-
-def test_ofoxai_gets_the_system_prompt_too(openai, http, ollama):
-    query(config=OFOX_ON, provider="ofoxai", system_prompt="You are JARVIS.")
-    assert openai.calls[0]["messages"][0] == {"role": "system",
-                                              "content": "You are JARVIS."}
-
-
-def test_ofoxai_flattens_a_multimodal_message_to_its_text(openai, http, ollama):
-    """This provider is text-only, so an image message has to be reduced rather
-    than rejected -- a screenshot question still gets an answer, just a blind one."""
-    query(config=OFOX_ON, provider="ofoxai", messages=[{
-        "role": "user",
-        "content": [{"type": "text", "text": "what is this? "},
-                    {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}},
-                    {"type": "text", "text": "be brief"}],
-    }])
-    assert openai.calls[0]["messages"] == [
-        {"role": "user", "content": "what is this? be brief"}]
-
-
-def test_an_ofoxai_failure_falls_through(openai, http, ollama):
-    openai.response = RuntimeError("no route to host")
-    assert query(config=OFOX_ON, provider="ofoxai") == "from ollama"
-
-
-def test_ofoxai_is_not_tried_unless_it_is_the_named_provider(openai, http, ollama):
-    """The cascade is not symmetrical: Groq and Ollama are always tried, but
-    OfoxAI sits behind an `elif` on the provider name, so a Mistral outage never
-    reaches it. Pinned as the shape of the design, not as a defect -- OfoxAI is
-    configured per-call, and silently spending someone's quota on a provider they
-    did not name would be worse."""
-    assert query(config={**MISTRAL_ON, **OFOX_ON}) != "from ofox"
-    assert openai.calls == []
-
-
-def test_an_unusable_ofoxai_key_skips_it(openai, http, ollama):
-    query(config={"ofoxai": {"api_key": "YOUR_OFOX_KEY"}, "groq": {"api_key": ""}},
-          provider="ofoxai")
-    assert openai.calls == []
-    assert len(ollama.calls) == 1
-
-
-# -- Groq, always tried when nothing above it returned -------------------
-
-
-GROQ_ON = {"groq": {"api_key": "groq-key"}}
-
-
-def _groq_reply(text):
-    return FakeJson({"choices": [{"message": {"content": text}}]})
-
-
-def test_groq_returns_its_content(http, ollama):
-    http.response = _groq_reply("from groq")
-    assert query(config=GROQ_ON) == "from groq"
-    assert ollama.calls == []
-
-
-def test_the_groq_request_is_not_streamed(http, ollama):
-    """The only provider of the four answered in one piece, so nothing prints
-    while it is thinking."""
-    http.response = _groq_reply("x")
-    query(config=GROQ_ON)
-    call = http.calls[0]
-    assert call["url"] == "https://api.groq.com/openai/v1/chat/completions"
-    assert call["headers"]["Authorization"] == "Bearer groq-key"
-    assert call["json"]["model"] == "llama-3.3-70b-versatile"
-    assert call["json"]["temperature"] == 0.3
-    assert "stream" not in call["json"]
-    assert call["stream"] is False
-    assert call["timeout"] == 25
-
-
-def test_nothing_is_printed_while_groq_answers(http, ollama, capsys):
-    http.response = _groq_reply("x")
-    query(config=GROQ_ON)
-    assert capsys.readouterr().out == ""
-
-
-def test_a_configured_groq_model_is_used(http, ollama):
-    http.response = _groq_reply("x")
-    query(config={"groq": {"api_key": "k", "model": "llama-3.1-8b-instant"}})
-    assert http.calls[0]["json"]["model"] == "llama-3.1-8b-instant"
-
-
-def test_the_model_argument_does_not_reach_groq(http, ollama):
-    """Pinned, not fixed. `model=` overrides Mistral's and OfoxAI's choice but is
-    ignored here -- so asking for a specific model and getting silently answered
-    by a different one is possible whenever the cascade falls this far. The
-    parameter is documented for the provider it is passed with, and threading it
-    into a fallback provider's namespace would mean sending a Mistral model name
-    to Groq, which fails differently."""
-    http.response = _groq_reply("x")
-    query(config=GROQ_ON, model="mistral-large-2512")
-    assert http.calls[0]["json"]["model"] == "llama-3.3-70b-versatile"
-
-
-def test_groq_receives_the_system_prompt(http, ollama):
-    http.response = _groq_reply("x")
-    query(config=GROQ_ON, system_prompt="You are JARVIS.")
-    assert http.calls[0]["json"]["messages"][0] == {"role": "system",
-                                                   "content": "You are JARVIS."}
-
-
-def test_groq_flattens_a_multimodal_message_to_its_text(http, ollama):
-    http.response = _groq_reply("x")
-    query(config=GROQ_ON, messages=[{
-        "role": "user",
-        "content": [{"type": "text", "text": "what is "},
-                    {"type": "image_url", "image_url": {"url": "data:image/png;base64,ZZ"}},
-                    {"type": "text", "text": "this"}],
-    }])
-    assert http.calls[0]["json"]["messages"] == [
-        {"role": "user", "content": "what is this"}]
-
-
-@pytest.mark.parametrize("status", [500, 401, 429])
-def test_a_groq_http_error_falls_through_to_ollama(http, ollama, status):
-    http.response = FakeJson(status_code=status, text="nope")
-    assert query(config=GROQ_ON) == "from ollama"
-
-
-def test_an_unparseable_groq_body_falls_through(http, ollama):
-    http.response = FakeJson(payload=None)
-    assert query(config=GROQ_ON) == "from ollama"
-
-
-def test_a_groq_reply_missing_its_content_falls_through(http, ollama):
-    http.response = FakeJson({"choices": []})
-    assert query(config=GROQ_ON) == "from ollama"
-
-
-@pytest.mark.parametrize("groq", [{"api_key": ""}, {"api_key": "YOUR_KEY"}, {}],
-                         ids=["empty", "placeholder", "absent"])
-def test_an_unusable_groq_key_skips_to_ollama(http, ollama, groq):
-    query(config={"groq": groq})
-    assert http.calls == []
-    assert len(ollama.calls) == 1
-
-
-def test_groq_is_reached_even_for_an_unrecognised_provider_name(http, ollama):
-    """`if provider == "mistral" ... elif provider == "ofoxai"` and then Groq
-    unconditionally, so a typo in the provider name is not an error -- it lands
-    on Groq. Worth pinning: a misspelled provider fails silently rather than
-    loudly, which is the behaviour a caller has to know about."""
-    http.response = _groq_reply("from groq")
-    assert query(config=GROQ_ON, provider="mistrall") == "from groq"
 
 
 # -- local Ollama, the floor of the cascade ------------------------------
@@ -557,21 +352,157 @@ def test_a_reply_missing_its_message_key_is_also_caught(http, ollama):
     assert query() == "I am currently unable to process your request, sir."
 
 
-def test_the_fallback_goes_through_the_patched_chat(http, ollama, monkeypatch):
-    """The relationship the move made visible: this "local" fallback calls
-    `ollama.chat`, which patch_ollama() replaces with cloudflare_chat_wrapper. So
-    step 4 of the cascade can reach Cloudflare, and only if *that* fails does the
-    real local model answer. Two layers of fallback that used to sit in two
-    different files."""
-    reached = []
+def test_the_local_leg_bypasses_the_patched_chat(http, ollama, monkeypatch):
+    """The local leg must call the *real* ollama binding, not the wrapper that
+    patch_ollama() installs over `ollama.chat`.
+
+    This is what makes provider="local" mean local. Going through the wrapper
+    would re-try bynara and mistral -- the two providers this cascade has already
+    asked and been declined by -- and would send a caller who explicitly wanted
+    the local brain out to the cloud instead. That was the defect."""
+    real = []
+
+    def really_local(model=None, messages=None, **kwargs):
+        real.append(model)
+        return {"message": {"content": "from the real binding"}}
 
     def wrapper(model=None, messages=None, **kwargs):
-        reached.append(model)
-        return {"message": {"content": "via the wrapper"}}
+        raise AssertionError("the local leg went through the patched wrapper")
 
+    monkeypatch.setattr(llm_client, "_original_chat", really_local)
     monkeypatch.setattr(sys.modules["ollama"], "chat", wrapper)
-    assert query() == "via the wrapper"
-    assert reached == ["test-brain:latest"]
+
+    assert query() == "from the real binding"
+    assert real == ["test-brain:latest"]
+
+
+# -- the cascade's order and entry points --------------------------------
+#
+# query_llm's callers speak the OpenAI dialect, so these exercise the bynara leg
+# through that shape rather than ollama's `images` one.
+
+BYNARA_ON = {"bynara": {"api_key": "bynara-key", "text_model": "ox-alpha-bynara",
+                        "vision_model": "ox-vision"},
+             "mistral": {"api_key": "real-key"}}
+
+
+def _bynara_reply(text):
+    return FakeJson({"choices": [{"message": {"content": text}}]})
+
+
+def test_bynara_answers_first_and_mistral_is_never_asked(http, ollama):
+    """The whole point of the migration: the primary provider goes first, and a
+    reply from it ends the cascade."""
+    http.response = _bynara_reply("from bynara")
+    assert query(config=BYNARA_ON) == "from bynara"
+    assert len(http.calls) == 1
+    assert "router.bynara.id" in http.calls[0]["url"]
+    assert ollama.calls == []
+
+
+def test_an_unrecognised_provider_name_starts_at_bynara(http, ollama):
+    """Replaces the old characterisation test, which pinned a typo landing on
+    Groq's cloud. A misspelled name now enters at the primary, which is the
+    harmless default rather than a silent detour to a deleted provider."""
+    http.response = _bynara_reply("from bynara")
+    assert query(config=BYNARA_ON, provider="mistrall") == "from bynara"
+    assert "router.bynara.id" in http.calls[0]["url"]
+
+
+def test_provider_local_skips_both_remote_legs(http, ollama):
+    """The defect this commit fixes. These call sites exist in main.py precisely
+    to degrade to the local brain, and they were reaching the cloud instead."""
+    http.response = _bynara_reply("should never be asked for")
+    assert query(config=BYNARA_ON, provider="local") == "from ollama"
+    assert http.calls == []
+    assert len(ollama.calls) == 1
+
+
+def test_the_model_argument_names_the_local_brain(http, ollama):
+    """provider="local" call sites pass the local model name and were ignored --
+    the request went to the cloud, where that name meant nothing."""
+    assert query(provider="local", model="qwen2.5-coder:7b") == "from ollama"
+    assert ollama.calls[0]["model"] == "qwen2.5-coder:7b"
+
+
+def test_an_image_part_selects_bynaras_vision_model(http, ollama):
+    """A screenshot arrives from screen_vision.py as an OpenAI `image_url` part,
+    not ollama's `images` list, so it needs its own detection to reach the vision
+    model rather than the text one."""
+    http.response = _bynara_reply("a login screen")
+    messages = [{"role": "user", "content": [
+        {"type": "text", "text": "what is this?"},
+        {"type": "image_url", "image_url": {"url": "data:image/png;base64,QUJD"}},
+    ]}]
+    assert query(config=BYNARA_ON, messages=messages) == "a login screen"
+    assert http.calls[0]["json"]["model"] == "ox-vision"
+
+
+def test_a_text_call_selects_bynaras_text_model(http, ollama):
+    http.response = _bynara_reply("hello")
+    assert query(config=BYNARA_ON) == "hello"
+    assert http.calls[0]["json"]["model"] == "ox-alpha-bynara"
+
+
+# -- vision_enabled: no screenshot leaves the machine --------------------------
+#
+# The flag was honoured on the ollama.chat path and ignored here, which is the
+# path screen_vision.py takes -- so the one setting that promises a screenshot
+# stays local was broken for the only skill that sends one.
+
+VISION_OFF = {"bynara": {"api_key": "bynara-key", "vision_model": "ox-vision",
+                         "vision_enabled": False},
+              "mistral": {"api_key": "real-key",
+                          "models": {"vision": "ministral-8b-2512"}}}
+
+SCREENSHOT = [{"role": "user", "content": [
+    {"type": "text", "text": "what is on my screen?"},
+    {"type": "image_url", "image_url": {"url": "data:image/png;base64,QUJD"}},
+]}]
+
+
+def test_vision_disabled_sends_the_screenshot_to_no_provider_at_all(http, ollama):
+    """Not even the secondary: its cloud is equally off this machine."""
+    http.response = _bynara_reply("should never be asked for")
+    assert query(config=VISION_OFF, messages=SCREENSHOT) == "from ollama"
+    assert http.calls == []
+    assert ollama.calls[0]["messages"][0]["images"] == ["QUJD"]
+
+
+def test_vision_disabled_still_lets_text_go_remote(http, ollama):
+    """The flag is about screenshots, not about switching the provider off."""
+    http.response = _bynara_reply("hello")
+    assert query(config=VISION_OFF) == "hello"
+    assert len(http.calls) == 1
+
+
+def test_a_local_screenshot_reaches_the_local_vision_model(http, ollama):
+    """The text brain cannot see an image, so naming no model must not land one
+    there. screen_vision.py now names none, leaving each leg its own choice."""
+    assert query(config=VISION_OFF, messages=SCREENSHOT,
+                 models={"main_brain": "text-only:latest",
+                         "vision": "moondream:latest"}) == "from ollama"
+    assert ollama.calls[0]["model"] == "moondream:latest"
+
+
+def test_mistrals_vision_model_is_used_when_bynara_declines(http, ollama):
+    """Mistral names a model per role, so a screenshot reaching the secondary must
+    not be addressed to its text model."""
+    http.response = FakeStream(sse("a login screen"))
+    config = {"bynara": {"api_key": ""},
+              "mistral": {"api_key": "real-key",
+                          "models": {"brain": "mistral-large-2512",
+                                     "vision": "ministral-8b-2512"}}}
+    assert query(config=config, messages=SCREENSHOT) == "a login screen"
+    assert http.calls[0]["json"]["model"] == "ministral-8b-2512"
+
+
+def test_no_deleted_provider_endpoint_survives_in_the_module():
+    """groq is STT-only now and ofoxai is gone; neither may be reachable as a
+    text provider from this module."""
+    src = inspect.getsource(llm_client)
+    assert "api.ofox.ai" not in src
+    assert "api.groq.com" not in src
 
 
 # -- main.py's side of the seam ------------------------------------------

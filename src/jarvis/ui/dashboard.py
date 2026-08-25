@@ -8,8 +8,8 @@ from PyQt6.QtWidgets import (
     QWidget, QLabel, QVBoxLayout, QHBoxLayout, 
     QProgressBar, QFrame, QApplication, QListWidget
 )
-from PyQt6.QtCore import Qt, QTimer, QPoint
-from PyQt6.QtGui import QFont, QColor, QImage, QPixmap
+from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtGui import QFont, QImage, QPixmap
 from loguru import logger
 
 # Add root folder to sys.path to resolve imports cleanly

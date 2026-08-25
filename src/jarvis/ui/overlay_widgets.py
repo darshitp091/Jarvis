@@ -4,7 +4,6 @@ from PyQt6.QtWidgets import QWidget, QApplication, QLabel, QRubberBand
 from PyQt6.QtCore import Qt, QPoint, QSize, QRect, pyqtSignal, QTimer
 from PyQt6.QtGui import QPainter, QColor, QPen, QGuiApplication
 import pyautogui
-from PIL import Image
 
 class EyeCareOverlay(QWidget):
     """Transparent overlay window colored amber at 15% opacity to act as a night-light filter."""
@@ -139,7 +138,6 @@ class SnippingOverlay(QWidget):
                 
                 # Copy to clipboard
                 try:
-                    import io
                     # PyQt6 clipboard image copy
                     from PyQt6.QtGui import QImage
                     image = QImage(save_path)
@@ -250,7 +248,7 @@ class IronManHUDOverlay(QWidget):
     def paintEvent(self, event):
         import numpy as np
         from PyQt6.QtGui import QPainterPath, QPolygonF, QRadialGradient, QFont
-        from PyQt6.QtCore import QPointF, QRectF
+        from PyQt6.QtCore import QPointF
         
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
