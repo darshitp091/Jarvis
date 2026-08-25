@@ -76,7 +76,7 @@ Ollama · webcam + microphone · ~15 GB free space
 | ☁️ **Serverless Router** | NaraRouter (ox-alpha-bynara) | Active / Connected |
 | 📂 **Workspace Database** | SQLite3 & Obsidian API | Local Vault Synchronized |
 | 📊 **Presentation Engine** | python-pptx + Bing Image Scraper | Online Research + Layout |
-| ✅ **Test Suite** | pytest (739 headless tests) | No mic, camera, or API keys needed |
+| ✅ **Test Suite** | pytest (744 headless tests) | No mic, camera, or API keys needed |
 
 ---
 
@@ -341,7 +341,7 @@ graph TD
 | **Mobile Integration** | Android Debug Bridge (ADB) | Offline physical device control |
 | **Agent Swarm** | `concurrent.futures` ThreadPoolExecutor | 57 specialist agents behind a single message broker |
 | **Scheduling & Calendar** | SQLite3 (WAL mode), `zoneinfo` | Persistent reminders, alarms, events, and ICS interchange |
-| **Testing** | pytest | 739 headless tests, no hardware or API keys required |
+| **Testing** | pytest | 744 headless tests, no hardware or API keys required |
 | **Data & Diagnostics** | Matplotlib, SQLite3 | Local trend charting and telemetry KPI databases |
 
 ---
@@ -378,13 +378,14 @@ graph TD
    ```powershell
    pip install -r requirements.txt
    ```
-4. **Create your config file** — *do not skip this, it is the most common
+4. **Create your config files** — *do not skip this, it is the most common
    cause of a startup crash:*
    ```powershell
    copy config\settings.yaml.example config\settings.yaml
+   copy .env.example .env
    ```
-   API keys inside are optional. Leave them blank and those specific features
-   stay switched off; everything else still works.
+   API keys go in `.env`, and all of them are optional. Leave one blank and that
+   specific feature stays switched off; everything else still works.
 5. **Verify before launching:**
    ```powershell
    python doctor.py
@@ -419,25 +420,33 @@ graph TD
 
 ### Configuration
 
-`config/settings.yaml` holds real credentials and is **gitignored**, exactly like a `.env` file. The repository tracks `config/settings.yaml.example` as the template. Never commit the real file.
+Configuration is split in two, and the split matters:
 
-1. **Create your config from the template:**
+| File | Holds | Tracked? |
+| :--- | :--- | :--- |
+| `.env` | **every credential** | No — gitignored. Template: `.env.example` |
+| `config/settings.yaml` | model ids, thresholds, toggles | No — gitignored. Template: `config/settings.yaml.example` |
+
+Keys are resolved **environment first**, with `settings.yaml` read only as a
+courtesy to configs written before the keys moved. So a value in `.env` wins,
+and no credential ever has to be written into a YAML file again —
+`config/settings.yaml` is the file that once carried a live token into git
+history, which is exactly why it no longer outranks anything.
+
+1. **Create both files from their templates:**
    ```powershell
+   Copy-Item .env.example .env
    Copy-Item config\settings.yaml.example config\settings.yaml
    ```
-2. Open `config/settings.yaml` and fill in your API credentials:
-   ```yaml
-   bynara:                    # primary: every reply, skill answer and screen vision
-     enabled: true
-     api_key: ""              # prefer BYNARA_API_KEY in .env, which is gitignored
-   mistral:                   # secondary, reached when the primary does not answer
-     api_key: "YOUR_MISTRAL_API_KEY"
-   groq:                      # speech-to-text only (Whisper); no text generation
-     api_key: "YOUR_GROQ_API_KEY"
+2. Open `.env` and fill in the keys you actually have:
+   ```ini
+   BYNARA_API_KEY=            # primary: every reply, skill answer and screen vision
+   MISTRAL_API_KEY=           # secondary, reached when the primary does not answer
+   GROQ_API_KEY=              # speech-to-text only (Whisper); no text generation
    ```
    > JARVIS runs fully offline with these left blank, falling back to local Ollama models.
-   > Set `bynara.vision_enabled: false` to keep text remote while no screenshot ever
-   > leaves the machine — screen vision then uses the local vision model instead.
+   > Set `bynara.vision_enabled: false` in `settings.yaml` to keep text remote while no
+   > screenshot ever leaves the machine — screen vision then uses the local vision model instead.
 3. Configure your Obsidian vault path:
    ```yaml
    obsidian:
@@ -455,7 +464,7 @@ graph TD
    ```
    > The `calendar.timezone` value converts spoken wall-clock times into the UTC timestamps stored in SQLite. If it does not match your actual local timezone, reminders will fire at the wrong hour.
 
-5. **If you add a new setting**, add it to `config/settings.yaml.example` too (with a placeholder, never a real key) so the template stays complete.
+5. **If you add a new setting**, add it to `config/settings.yaml.example` too (with a placeholder, never a real key) so the template stays complete. **If you add a new credential**, it belongs in `.env` and `.env.example` — leave the value blank in the template, and resolve it through `jarvis.core.env_loader.resolve_key` so it inherits the environment-first precedence instead of inventing its own.
 
 ---
 
@@ -540,7 +549,7 @@ Jarvis/
 │   ├── youtube_music.py         # YouTube audio streaming via MPV
 │   └── screen_vision.py         # LLM-powered screen analysis skill
 ├── domains/                     # Domain expert prompt routers (7 files)
-├── tests/                       # 739 headless tests (no hardware needed)
+├── tests/                       # 744 headless tests (no hardware needed)
 │   ├── test_agents.py           # Broker, reminders, calendar, dispatch guards
 │   ├── test_services.py         # DB, scheduler recurrence & misfire, calendar
 │   └── test_timeparse.py        # Hinglish/English time phrase parsing
