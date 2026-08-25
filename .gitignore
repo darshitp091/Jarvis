@@ -83,6 +83,13 @@ config/voice_profile.json
 config/settings.yaml
 config/settings.yaml.bak
 
+# Backups of the two files above. A `.bak` made while migrating keys into `.env`
+# holds the same live secrets as its original, but `.env` and
+# `config/settings.yaml` are matched by exact name -- so `.env.bak` was visible
+# to git as an untracked file and one `git add -A` would have committed it. The
+# glob covers every future backup instead of naming them one at a time.
+*.bak
+
 # Local user directories and media
 models/
 obsidian_vault/

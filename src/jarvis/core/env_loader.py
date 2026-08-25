@@ -2,10 +2,10 @@
 
 This exists so a secret can live in ``.env`` -- git-ignored -- instead of in
 ``config/settings.yaml``, which leaked a live token into git history across four
-commits before it was ignored. Every provider key added from here on is resolved
-"settings.yaml, else environment", the idiom ``tts_engine._resolve_fish_key``
-already uses for ``OPENROUTER_API_KEY``; this loader is what makes the
-environment half of that sentence populated from a file the user can edit.
+commits before it was ignored. Every provider key is resolved "environment, else
+settings.yaml" by the two helpers below, and every key-reading site in the repo
+delegates to them so none can drift on that order. The environment half of that
+sentence is populated from a file the user can edit by this loader.
 
 Deliberately not ``python-dotenv``: that package is not in ``requirements.txt``
 or ``pyproject.toml`` and is absent from the minimal test venv, so depending on
@@ -53,3 +53,35 @@ def load_dotenv(path: str = ".env") -> int:
             os.environ[key] = value
             added += 1
     return added
+
+
+def resolve_key(conf: dict, env_var: str) -> str:
+    """A secret from ``.env``, else the config block it used to live in.
+
+    The environment wins here, which is the opposite of how this repo's older
+    ``_resolve_key`` helpers worked. Reversing it is the point: ``.env`` is
+    git-ignored and ``config/settings.yaml`` is the file that carried a live
+    token into git history, so the safe location has to be the one that takes
+    precedence. Reading settings.yaml at all is only a courtesy to configs
+    written before the keys moved.
+
+    A ``YOUR_...`` placeholder counts as no key rather than as a key, so an
+    untouched example config reads as "not configured" instead of sending a
+    literal placeholder to a provider.
+    """
+    key = (os.environ.get(env_var) or "").strip()
+    if not key:
+        key = ((conf or {}).get("api_key") or "").strip()
+    return "" if key.startswith("YOUR_") else key
+
+
+def resolve_field(conf: dict, field: str, env_var: str) -> str:
+    """``resolve_key`` for a secret whose config field is not ``api_key``.
+
+    Spotify's pair and Groww's ``api_secret`` need this; the logic is otherwise
+    identical and deliberately shared so no site drifts on precedence.
+    """
+    key = (os.environ.get(env_var) or "").strip()
+    if not key:
+        key = ((conf or {}).get(field) or "").strip()
+    return "" if key.startswith("YOUR_") else key

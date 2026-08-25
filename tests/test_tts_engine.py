@@ -6,7 +6,6 @@ response, including its raw-PCM content type.
 """
 
 import sys
-import types
 import numpy as np
 import pytest
 
@@ -147,8 +146,16 @@ def test_empty_body_raises(engine, monkeypatch):
 
 # ----------------------------------------------------------------- key lookup
 
-def test_key_from_config_wins(engine, monkeypatch):
+def test_key_from_env_wins(engine, monkeypatch):
+    """Env beats config, the reverse of how this helper once worked: `.env` is
+    git-ignored and settings.yaml is the file that leaked a token into git."""
     monkeypatch.setenv("OPENROUTER_API_KEY", "env-key")
+    assert engine._resolve_fish_key() == "env-key"
+
+
+def test_key_falls_back_to_config(engine, monkeypatch):
+    """A settings.yaml written before the keys moved out of it still works."""
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     assert engine._resolve_fish_key() == "test-key"
 
 

@@ -7,6 +7,8 @@ import ctypes
 from loguru import logger
 from pywinauto import Desktop
 
+from jarvis.core.env_loader import resolve_field
+
 pyautogui.FAILSAFE = False
 
 # Ensure DPI Awareness on Windows to align PyAutoGUI coordinates correctly on scaled screens
@@ -39,26 +41,29 @@ class SpotifyControl:
 
         try:
             import yaml
+            config_data = {}
             if os.path.exists(config_path):
                 with open(config_path) as f:
-                    config_data = yaml.safe_load(f)
-                    spot_config = config_data.get("spotify", {})
-                    self.client_id = spot_config.get("client_id")
-                    self.client_secret = spot_config.get("client_secret")
-                    self.redirect_uri = spot_config.get("redirect_uri", "http://localhost:8888/callback")
-                    self.api_enabled = spot_config.get("api_enabled", True)
+                    config_data = yaml.safe_load(f) or {}
 
-                    if self.client_id and self.client_secret and self.api_enabled:
-                        if "your_client_id" not in self.client_id.lower() and "your_client_secret" not in self.client_secret.lower():
-                            self.use_api = True
-                            logger.info("Spotify API credentials loaded. Attempting cached auth...")
-                            # Try to restore from cache silently on startup
-                            self._sp = self._get_spotify_client(silent=True)
-                            if self._sp:
-                                logger.success("Spotify API authenticated from cached token.")
-                            else:
-                                logger.warning("No cached Spotify token found. Run one-time auth to enable API mode.")
-                                self.use_api = False
+            # Outside the block: .env alone has to be enough, with no settings.yaml.
+            spot_config = config_data.get("spotify", {})
+            self.client_id = resolve_field(spot_config, "client_id", "SPOTIFY_CLIENT_ID")
+            self.client_secret = resolve_field(spot_config, "client_secret", "SPOTIFY_CLIENT_SECRET")
+            self.redirect_uri = spot_config.get("redirect_uri", "http://localhost:8888/callback")
+            self.api_enabled = spot_config.get("api_enabled", True)
+
+            if self.client_id and self.client_secret and self.api_enabled:
+                if "your_client_id" not in self.client_id.lower() and "your_client_secret" not in self.client_secret.lower():
+                    self.use_api = True
+                    logger.info("Spotify API credentials loaded. Attempting cached auth...")
+                    # Try to restore from cache silently on startup
+                    self._sp = self._get_spotify_client(silent=True)
+                    if self._sp:
+                        logger.success("Spotify API authenticated from cached token.")
+                    else:
+                        logger.warning("No cached Spotify token found. Run one-time auth to enable API mode.")
+                        self.use_api = False
         except Exception as e:
             logger.warning(f"SpotifyControl failed to load config: {e}")
 
@@ -475,7 +480,6 @@ class SpotifyControl:
         # Strategy: open spotify:search:<query> URI (reliable, no Ctrl+K timing issues),
         # wait for results to load, then double-click the first track card.
         logger.info(f"GUI fallback: spotify:search URI for '{clean_search_query}'")
-        import pyperclip
 
         try:
             # Open Spotify search page directly via URI scheme

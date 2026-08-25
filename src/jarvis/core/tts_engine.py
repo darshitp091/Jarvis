@@ -10,6 +10,8 @@ import soundfile as sf
 import subprocess
 from loguru import logger
 
+from jarvis.core.env_loader import resolve_key
+
 FILLER_PHRASES = [
     "On it, sir.",
     "Let me check that.",
@@ -177,11 +179,13 @@ class TTSEngine:
     # ------------------------------------------------------------- fish audio
 
     def _resolve_fish_key(self) -> str:
-        """API key from settings.yaml, else OPENROUTER_API_KEY env var."""
-        key = (self.fish_conf.get("api_key") or "").strip()
-        if not key:
-            key = (os.environ.get("OPENROUTER_API_KEY") or "").strip()
-        return key
+        """API key from OPENROUTER_API_KEY, else the settings.yaml block.
+
+        Delegates so this file cannot drift from the other key-reading sites on
+        which of the two locations wins. `.env` is the one that is git-ignored,
+        so `.env` is the one that wins.
+        """
+        return resolve_key(self.fish_conf, "OPENROUTER_API_KEY")
 
     def _synthesize_fish(self, text: str):
         """POST to OpenRouter and return ``(samples, sample_rate)``.

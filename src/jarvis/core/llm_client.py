@@ -39,6 +39,8 @@ import json
 import re
 from loguru import logger
 
+from jarvis.core.env_loader import resolve_key
+
 # The original `ollama.chat`, captured by patch_ollama() rather than at import
 # time. Importing ollama here made this module unimportable without a local
 # Ollama binding installed -- which meant nothing in it could be tested, in an
@@ -140,19 +142,15 @@ def _section(settings, name):
 
 
 def _resolve_key(conf, env_var):
-    """API key from the config block, else the environment.
+    """API key from ``.env``, else the config block it used to live in.
 
-    The repo idiom -- tts_engine._resolve_fish_key does the same for
-    OPENROUTER_API_KEY -- so a secret can live in a git-ignored .env, loaded at
-    boot by jarvis.core.env_loader, instead of in settings.yaml, which is the file
-    that once carried a live token into git history.
-
-    A "YOUR_..." placeholder left in the config counts as no key, not as a key.
+    Delegates to the one shared resolver so this module -- which is every LLM
+    call in the process -- cannot drift from the other key-reading sites on
+    which of the two locations wins. `.env` is the git-ignored one, so `.env`
+    wins; settings.yaml is read only as a courtesy to configs written before
+    the keys moved out of it.
     """
-    key = (conf.get("api_key") or "").strip()
-    if not key:
-        key = (os.environ.get(env_var) or "").strip()
-    return "" if key.startswith("YOUR_") else key
+    return resolve_key(conf, env_var)
 
 
 def _has_images(messages):
@@ -510,7 +508,6 @@ def query_llm(messages: list, system_prompt: str = None, provider: str = "bynara
     # 3. Local Ollama brain, the fallback.
     try:
         logger.info("Falling back to local Ollama brain...")
-        import ollama
         # `model` names the local brain at the provider="local" call sites, which
         # passed it and were then ignored while the request went to the cloud. With
         # no model named, a screenshot needs the local model that can actually see

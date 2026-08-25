@@ -266,10 +266,36 @@ def test_a_present_section_comes_back_whole():
 # -- _resolve_key --------------------------------------------------------
 
 
-def test_the_config_key_wins(monkeypatch):
+def test_the_env_key_wins(monkeypatch):
+    """Env beats config, which is the reverse of how this helper once worked.
+
+    Reversing it is the point: `.env` is git-ignored and settings.yaml is the
+    file that carried a live token into git history, so the safe location has
+    to be the one that takes precedence.
+    """
     monkeypatch.setenv("BYNARA_API_KEY", "from-env")
     assert llm_client._resolve_key({"api_key": "from-config"}, "BYNARA_API_KEY") == \
+        "from-env"
+
+
+def test_the_config_fills_in_when_the_environment_is_silent(monkeypatch):
+    """A settings.yaml written before the keys moved still works."""
+    monkeypatch.delenv("BYNARA_API_KEY", raising=False)
+    assert llm_client._resolve_key({"api_key": "from-config"}, "BYNARA_API_KEY") == \
         "from-config"
+
+
+@pytest.mark.parametrize("conf", [{}, {"api_key": ""}, {"api_key": "   "},
+                                  {"api_key": None}],
+                         ids=["absent", "empty", "whitespace", "null"])
+def test_a_silent_config_and_a_silent_environment_is_no_key(monkeypatch, conf):
+    """The four shapes a blank config field arrives in must all read as "no key".
+
+    A section whose key is commented out parses to None, not "" -- so `.strip()`
+    on the raw value would raise instead of falling through to the environment.
+    """
+    monkeypatch.delenv("BYNARA_API_KEY", raising=False)
+    assert llm_client._resolve_key(conf, "BYNARA_API_KEY") == ""
 
 
 @pytest.mark.parametrize("conf", [{}, {"api_key": ""}, {"api_key": "   "},
@@ -282,19 +308,16 @@ def test_the_environment_fills_in_when_the_config_is_silent(monkeypatch, conf):
     assert llm_client._resolve_key(conf, "BYNARA_API_KEY") == "from-env"
 
 
-def test_a_placeholder_key_is_not_a_key():
+def test_a_placeholder_key_is_not_a_key(monkeypatch):
     """`YOUR_API_KEY_HERE` left in a copied config must not be sent as a Bearer
     token -- it would earn a 401 and a slow fallback instead of an instant one."""
+    monkeypatch.delenv("BYNARA_API_KEY", raising=False)
     assert llm_client._resolve_key({"api_key": "YOUR_KEY_HERE"}, "BYNARA_API_KEY") == ""
 
 
 def test_surrounding_whitespace_is_stripped(monkeypatch):
     monkeypatch.setenv("BYNARA_API_KEY", "  padded  ")
     assert llm_client._resolve_key({}, "BYNARA_API_KEY") == "padded"
-
-
-def test_no_key_anywhere_is_an_empty_string():
-    assert llm_client._resolve_key({}, "BYNARA_API_KEY") == ""
 
 
 # -- _has_images ---------------------------------------------------------
