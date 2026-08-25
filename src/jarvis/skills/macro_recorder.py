@@ -10,7 +10,7 @@ from loguru import logger
 # Try importing pywin32 utilities for global hooks/mouse state
 try:
     import win32api
-    import win32con
+    import win32con  # noqa: F401 -- half of the pywin32 gate; the import is the test
     HAS_WIN32 = True
 except ImportError:
     HAS_WIN32 = False

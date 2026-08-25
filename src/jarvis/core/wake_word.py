@@ -330,9 +330,6 @@ class WakeWordDetector:
         import sounddevice as sd
         from faster_whisper import WhisperModel
         import numpy as np
-        import tempfile
-        import wave
-        import os
 
         if self.whisper_model is None:
             logger.info("Initializing GPU-based Whisper tiny.en model for custom wake word detection...")

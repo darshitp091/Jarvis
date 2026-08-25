@@ -115,7 +115,6 @@ class AppMapper:
 
 
 if __name__ == "__main__":
-    import time
     mapper = AppMapper()
     print("AppMapper loaded. Testing...")
     

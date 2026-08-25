@@ -1,7 +1,6 @@
-import sys
 import math
 from PyQt6.QtWidgets import QWidget, QApplication
-from PyQt6.QtCore import Qt, QPoint, QTimer, QPointF, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer, QPointF, pyqtSignal
 from PyQt6.QtGui import QPainter, QColor, QPen, QBrush
 
 class HologramSimWidget(QWidget):

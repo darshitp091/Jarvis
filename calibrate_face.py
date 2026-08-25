@@ -1,4 +1,3 @@
-import sys
 import time
 from loguru import logger
 from jarvis.core.vision_engine import CameraEngine

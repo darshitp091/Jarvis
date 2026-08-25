@@ -8,7 +8,6 @@ import email
 from email.mime.text import MIMEText
 from loguru import logger
 import sounddevice as sd
-import numpy as np
 import wave
 from faster_whisper import WhisperModel
 import pyautogui
@@ -740,11 +739,10 @@ class ProductivityPlanner:
         Creates a premium PowerPoint presentation by loading a pre-designed master template 
         and replacing its text and image placeholders, preserving all original fonts, alignments, and transitions.
         """
-        import shutil
 
         try:
             from pptx import Presentation
-            from pptx.util import Inches, Pt
+            from pptx.util import Pt
             
             # Map theme to user downloaded premium templates
             TEMPLATE_MAP = {
@@ -878,7 +876,6 @@ class ProductivityPlanner:
                         # Method 2: Overlay a new picture at the same position/size
                         if not replaced:
                             try:
-                                from pptx.util import Emu
                                 left, top, width, height = pic_shape.left, pic_shape.top, pic_shape.width, pic_shape.height
                                 slide.shapes.add_picture(image_path, left, top, width, height)
                                 replaced = True

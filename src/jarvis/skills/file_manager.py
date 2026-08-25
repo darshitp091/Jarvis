@@ -302,7 +302,6 @@ class FileManager:
 
     def find_and_open_target(self, target_name: str, specific_location: str = None) -> str:
         """Finds and opens a file or folder by simple spoken name without requiring absolute path."""
-        import time
         if not target_name:
             return "Please specify a folder or file name to open, sir."
 

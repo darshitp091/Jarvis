@@ -2,7 +2,6 @@ import sys
 from PyQt6.QtWidgets import QApplication, QWidget, QMenu
 from PyQt6.QtCore import Qt, QPoint, QTimer, pyqtSignal
 from PyQt6.QtGui import QPainter, QColor, QRadialGradient, QAction
-import math
 
 
 class JarvisOrb(QWidget):

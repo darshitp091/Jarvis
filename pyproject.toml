@@ -105,9 +105,6 @@ ignore = [
     "E702",  # 99 -- multiple statements on one line (semicolon)
     "E402",  # 73 -- import not at top of file; main.py bootstraps sys.path first
     "E701",  # 47 -- multiple statements on one line (colon)
-    "F401",  #  52 -- unused import. NOT auto-fixable here: some are re-exports
-             #        and some guard optional dependencies, so a blind --fix
-             #        would delete working behaviour.
     "F541",  # 32 -- f-string with no placeholders
     "F841",  # 13 -- assigned and never used
     "E741",  #  6 -- ambiguous name (l/I/O)
@@ -122,9 +119,10 @@ ignore = [
              #       thread reads `task` when it runs, not when it was created.
              #       Fixing it means touching a threaded retry path that no
              #       test covers, so it waits for a test.
-    "B905",  #  3 -- zip() without strict=. src/jarvis/skills/network_mapper.py:73
-             #       and two in tests/test_command_dispatch.py. strict=True is
-             #       the right answer in all three, but it turns a silent
+    "B905",  #  4 -- zip() without strict=. src/jarvis/skills/network_mapper.py:73,
+             #       two in tests/test_command_dispatch.py, and
+             #       tools/ast_equivalence.py:176. strict=True is the right
+             #       answer in all four, but it turns a silent
              #       truncation into an exception -- a behaviour change, not a
              #       formatting one.
 ]

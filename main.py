@@ -144,10 +144,10 @@ from jarvis.skills.app_control import AppControl
 from jarvis.core.profile_manager import ProfileManager
 from jarvis.skills.obsidian_control import ObsidianControl; _p("DBG: obsidian ok")
 from jarvis.skills.shopping_assistant import ShoppingAssistant; _p("DBG: shopping_assistant ok")
-from jarvis.services.db import Database, utc_now; _p("DBG: services.db ok")
+from jarvis.services.db import Database; _p("DBG: services.db ok")
 from jarvis.services.scheduler import Scheduler; _p("DBG: scheduler ok")
 from jarvis.services.calendar_service import CalendarService; _p("DBG: calendar_service ok")
-from jarvis.services import timeparse; _p("DBG: timeparse ok")
+from jarvis.services import timeparse; _p("DBG: timeparse ok")  # noqa: F401 -- a startup checkpoint, not a use
 
 # Files the hot-reload watcher can act on, mapped to
 # (module name, JARVIS attribute, class name).
