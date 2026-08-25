@@ -17,12 +17,24 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(
 from jarvis.core.env_loader import load_dotenv  # noqa: E402
 
 
+_TOUCHED = ("BYNARA_API_KEY", "SPARE_KEY", "QUOTED", "EXPORTED", "EMPTY_VALUE")
+
+
 @pytest.fixture
 def env(monkeypatch):
-    """A clean slate for the variables these tests set."""
-    for name in ("BYNARA_API_KEY", "SPARE_KEY", "QUOTED", "EXPORTED", "EMPTY_VALUE"):
+    """A clean slate for the variables these tests set, before and after.
+
+    The cleanup on the way out is not decoration. `load_dotenv` is the thing
+    under test, and it writes to `os.environ` itself -- monkeypatch never sees
+    those writes, and `delenv(raising=False)` on a name that was absent records
+    nothing to undo, so a key this file invents would otherwise outlive it and
+    be read as an ambient key by every test file that runs afterwards.
+    """
+    for name in _TOUCHED:
         monkeypatch.delenv(name, raising=False)
-    return monkeypatch
+    yield monkeypatch
+    for name in _TOUCHED:
+        os.environ.pop(name, None)
 
 
 @pytest.fixture

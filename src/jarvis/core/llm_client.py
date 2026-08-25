@@ -356,23 +356,80 @@ def patch_ollama():
 # The provider cascade, moved verbatim out of JARVIS.query_llm.
 #
 # It belongs beside bynara_chat_wrapper rather than in the orchestrator, and
-# putting the two in one file makes a relationship visible that was invisible
-# while they lived apart: this cascade's own last step calls `ollama.chat`,
-# which patch_ollama() has replaced with the wrapper above. So "falling back to
-# the local brain" from here re-enters bynara -> mistral -> real ollama. Two
-# layers of fallback, previously in two different files.
+# putting the two in one file makes the relationship between them explicit.
+# They are two cascades over the same three providers, reached by callers that
+# speak two different message dialects: the wrapper stands in for `ollama.chat`
+# and so takes ollama-shaped messages, while these callers pass OpenAI-shaped
+# ones. That is the only reason both exist. This one runs bynara -> mistral
+# itself and then calls the *real* ollama binding, so the two do not nest.
 # ---------------------------------------------------------------------------
 
-def query_llm(messages: list, system_prompt: str = None, provider: str = "mistral", model: str = None, *,
+def _local_chat():
+    """The real `ollama.chat`, never the wrapper installed over it.
+
+    query_llm runs its own bynara -> mistral cascade before reaching this leg, so
+    the leg has to be the genuine local binding. Going through the patched
+    `ollama.chat` instead would retry the two remote providers that just declined,
+    and -- worse -- would send a `provider="local"` call to the cloud, which is
+    the defect this replaces. `_original_chat` holds the real one once
+    patch_ollama has run; before that, `ollama.chat` is still itself.
+    """
+    import ollama
+    return _original_chat or ollama.chat
+
+
+def _has_image_parts(messages) -> bool:
+    """Is this an OpenAI-shaped vision call?
+
+    query_llm's callers speak the OpenAI dialect directly -- `content` is a list
+    of parts and a screenshot arrives as an `image_url` part (see
+    screen_vision.py). That is a different shape from the ollama one
+    `_has_images` looks for, which is why this is a second detector rather than a
+    reuse of that one.
+    """
+    for msg in messages:
+        content = msg.get("content")
+        if isinstance(content, list):
+            for part in content:
+                if isinstance(part, dict) and part.get("type") == "image_url":
+                    return True
+    return False
+
+
+def query_llm(messages: list, system_prompt: str = None, provider: str = "bynara", model: str = None, *,
               config: dict, models: dict) -> str:
-    """Queries the active LLM provider (mistral, ofoxai, groq, or local Ollama fallback)."""
+    """Queries the LLM cascade: NaraRouter, then Mistral, then the local Ollama brain.
+
+    `provider` selects the *entry point*, not the only provider tried. The default
+    and every unrecognised value start at bynara and fall through the whole
+    cascade; `provider="local"` is the one value that skips both remote legs, so
+    a caller asking for the local brain now actually gets it.
+
+    Messages arrive here already OpenAI-shaped -- `content` may be a list of text
+    and `image_url` parts -- which is exactly what the remote legs want, so they
+    are forwarded without conversion. Only the local leg needs them rewritten
+    into ollama's `images` form.
+    """
     query_messages = []
     if system_prompt:
         query_messages.append({"role": "system", "content": system_prompt})
     query_messages.extend(messages)
 
-    # 1. Mistral AI Provider
-    if provider == "mistral":
+    wants_vision = _has_image_parts(query_messages)
+
+    # 1. NaraRouter (bynara), the primary. Skipped only when the caller explicitly
+    # asked for the local brain. `model` is deliberately ignored here: it names a
+    # Mistral or Ollama model at almost every call site, and the bynara model is a
+    # config value chosen per role (text vs vision) instead.
+    if provider != "local":
+        content = _try_bynara(config, query_messages, wants_vision, None)
+        if content is not None:
+            return content
+
+    # 2. Mistral, the secondary. One path for every entry point: the secondary
+    # should not behave differently depending on which name the caller used to
+    # get here. Streaming is kept because it prints the reply as it arrives.
+    if provider != "local":
         mistral_cfg = config.get("mistral", {})
         api_key = mistral_cfg.get("api_key", "")
         target_model = model or mistral_cfg.get("models", {}).get("brain", "mistral-large-2512")
@@ -421,105 +478,13 @@ def query_llm(messages: list, system_prompt: str = None, provider: str = "mistra
             except Exception as e:
                 logger.error(f"Mistral API connection failed: {e}")
 
-    # 2. OfoxAI Provider
-    elif provider == "ofoxai":
-        ofox_cfg = config.get("ofoxai", {})
-        api_key = ofox_cfg.get("api_key", "")
-        target_model = model or ofox_cfg.get("model", "z-ai/glm-4.7-flash:free")
-
-        if api_key and not api_key.startswith("YOUR_"):
-            try:
-                logger.info(f"Querying OfoxAI API using model '{target_model}'...")
-                from openai import OpenAI
-                client = OpenAI(
-                    base_url="https://api.ofox.ai/v1",
-                    api_key=api_key
-                )
-                ofox_messages = []
-                if system_prompt:
-                    ofox_messages.append({"role": "system", "content": system_prompt})
-
-                for msg in messages:
-                    content = msg["content"]
-                    if isinstance(content, list):
-                        text_content = ""
-                        for part in content:
-                            if part.get("type") == "text":
-                                text_content += part.get("text", "")
-                        ofox_messages.append({"role": msg["role"], "content": text_content})
-                    else:
-                        ofox_messages.append(msg)
-
-                response_stream = client.chat.completions.create(
-                    model=target_model,
-                    messages=ofox_messages,
-                    temperature=0.1,
-                    max_tokens=300,
-                    stream=True,
-                    timeout=25
-                )
-                reply_parts = []
-                print("JARVIS: ", end="", flush=True)
-                for chunk in response_stream:
-                    if chunk.choices and chunk.choices[0].delta.content:
-                        text_chunk = chunk.choices[0].delta.content
-                        print(text_chunk, end="", flush=True)
-                        reply_parts.append(text_chunk)
-                print()
-                reply = "".join(reply_parts)
-                logger.info("Successfully received streamed response from OfoxAI.")
-                return reply
-            except Exception as e:
-                logger.error(f"OfoxAI API connection failed: {e}")
-
-    # 3. Groq API Provider Fallback
-    groq_cfg = config.get("groq", {})
-    groq_api_key = groq_cfg.get("api_key", "")
-    groq_model = groq_cfg.get("model", "llama-3.3-70b-versatile")
-
-    if groq_api_key and not groq_api_key.startswith("YOUR_"):
-        import requests
-        url = "https://api.groq.com/openai/v1/chat/completions"
-        headers = {
-            "Authorization": f"Bearer {groq_api_key}",
-            "Content-Type": "application/json"
-        }
-        # Flatten/convert messages if multimodal
-        groq_messages = []
-        for msg in query_messages:
-            content = msg["content"]
-            if isinstance(content, list):
-                text_content = ""
-                for part in content:
-                    if part.get("type") == "text":
-                        text_content += part.get("text", "")
-                groq_messages.append({"role": msg["role"], "content": text_content})
-            else:
-                groq_messages.append(msg)
-
-        data = {
-            "model": groq_model,
-            "messages": groq_messages,
-            "temperature": 0.3
-        }
-        try:
-            logger.info(f"Querying Groq API using model '{groq_model}'...")
-            response = requests.post(url, headers=headers, json=data, timeout=25)
-            if response.status_code == 200:
-                result = response.json()
-                reply = result["choices"][0]["message"]["content"]
-                logger.info("Successfully received response from Groq.")
-                return reply
-            else:
-                logger.error(f"Groq API returned error status {response.status_code}: {response.text}")
-        except Exception as e:
-            logger.error(f"Groq API connection failed: {e}")
-
-    # 4. Local Ollama Fallback (with base64 image extraction)
+    # 3. Local Ollama brain, the fallback.
     try:
         logger.info("Falling back to local Ollama brain...")
         import ollama
-        model_name = models.get("main_brain", "yasserrmd/Human-Like-Qwen2.5-1.5B-Instruct:latest")
+        # `model` names the local brain at the provider="local" call sites, which
+        # passed it and were then ignored while the request went to the cloud.
+        model_name = model or models.get("main_brain", "yasserrmd/Human-Like-Qwen2.5-1.5B-Instruct:latest")
 
         ollama_messages = []
         for msg in query_messages:
@@ -544,7 +509,7 @@ def query_llm(messages: list, system_prompt: str = None, provider: str = "mistra
                 ollama_msg["images"] = images
             ollama_messages.append(ollama_msg)
 
-        response = ollama.chat(
+        response = _local_chat()(
             model=model_name,
             messages=ollama_messages
         )

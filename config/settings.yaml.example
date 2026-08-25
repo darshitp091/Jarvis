@@ -133,10 +133,6 @@ mistral:
     reasoning: "magistral-medium-2509"
     summary: "open-mistral-nemo"
 
-ofoxai:
-  api_key: ""
-  model: "z-ai/glm-4.7-flash:free"
-
 # Read-only market data. JARVIS never places orders.
 groww:
   api_key: ""

@@ -976,7 +976,7 @@ class JARVIS:
         else:
             logger.info("JARVIS initialized silently on startup. Standing by for wake word.")
 
-    def query_llm(self, messages: list, system_prompt: str = None, provider: str = "mistral", model: str = None) -> str:
+    def query_llm(self, messages: list, system_prompt: str = None, provider: str = "bynara", model: str = None) -> str:
         return llm_client.query_llm(messages, system_prompt, provider, model,
                                     config=self.config, models=self.models)
 
@@ -1199,14 +1199,16 @@ class JARVIS:
         try:
             self.chat_history.append({"role": "user", "content": text})
             
-            # Conversational/multilingual check to use free OfoxAI GLM-4.7-Flash (excellent Hinglish)
+            # Conversational/multilingual check. Hinglish goes to the primary
+            # provider with no forced model, so the configured bynara text model
+            # answers it (it handles Hinglish well); OfoxAI's GLM used to sit here.
             has_devanagari = any('\u0900' <= c <= '\u097F' for c in text)
             hindi_cues = ["karo", "karna", "dikhao", "de", "kar", "bhej", "kholo", "chalao", "batao", "sunao", "hai", "hoon", "tha", "thi", "yaar", "sir", "kaise", "kya", "tum", "main", "aap", "pehle", "kuch", "bhajao", "bajado", "gaana", "gana", "song", "play"]
             has_hindi_cues = has_devanagari or any(w in text.lower() for w in hindi_cues)
             
             is_conversational = domain == "general" or has_hindi_cues or any(w in text.lower() for w in ["hello", "hi ", "hey", "weather", "volume", "music", "time"])
             if is_conversational:
-                reply_text = self.query_llm(self.chat_history, system_prompt=system, provider="ofoxai", model="z-ai/glm-4.7-flash:free")
+                reply_text = self.query_llm(self.chat_history, system_prompt=system, provider="bynara")
             else:
                 reply_text = self.query_llm(self.chat_history, system_prompt=system, provider="mistral", model="mistral-large-2512")
             
