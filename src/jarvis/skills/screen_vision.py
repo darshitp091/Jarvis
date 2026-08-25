@@ -91,7 +91,12 @@ class ScreenVision:
                         }
                     ]
                 }]
-                return self.jarvis.query_llm(messages, provider="mistral", model="ministral-8b-2512")
+                # No provider or model named on purpose: each leg of the cascade
+                # picks its own vision model -- bynara's vision_model, Mistral's
+                # models.vision, or the local models.vision -- and the cascade
+                # refuses to send the screenshot anywhere off this machine when
+                # bynara.vision_enabled is false.
+                return self.jarvis.query_llm(messages)
 
             response = ollama.chat(
                 model=self.model,

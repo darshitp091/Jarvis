@@ -302,6 +302,18 @@ def _try_mistral(settings, messages, wants_vision, options):
                         timeout, "Mistral")
 
 
+def _vision_allowed(settings):
+    """May a screenshot leave this machine at all?
+
+    The flag sits in the bynara block because that is the provider it arrived
+    with, but what it promises is about the screenshot rather than the vendor:
+    switching it off must not simply reroute the image to the secondary's cloud.
+    Both cascades read it through here so they cannot drift apart on a question
+    about what leaves the machine.
+    """
+    return _section(settings, "bynara").get("vision_enabled", True)
+
+
 def bynara_chat_wrapper(model, messages, format=None, options=None, **kwargs):
     """Monkey-patched `ollama.chat`: NaraRouter, then Mistral, then local Ollama.
 
@@ -322,7 +334,7 @@ def bynara_chat_wrapper(model, messages, format=None, options=None, **kwargs):
     # switched off, a call that needs vision goes straight to the local model --
     # which can see the image -- and is not offered to the secondary either, since
     # that is equally off this machine. Text-only calls are unaffected.
-    if wants_vision and not _section(settings, "bynara").get("vision_enabled", True):
+    if wants_vision and not _vision_allowed(settings):
         logger.debug("Vision is disabled: this screenshot stays on this machine.")
     else:
         remote_messages = _to_openai_messages(messages)
@@ -409,6 +421,9 @@ def query_llm(messages: list, system_prompt: str = None, provider: str = "bynara
     and `image_url` parts -- which is exactly what the remote legs want, so they
     are forwarded without conversion. Only the local leg needs them rewritten
     into ollama's `images` form.
+
+    A call carrying a screenshot skips both remote legs when
+    `bynara.vision_enabled` is false, whatever `provider` says.
     """
     query_messages = []
     if system_prompt:
@@ -417,11 +432,18 @@ def query_llm(messages: list, system_prompt: str = None, provider: str = "bynara
 
     wants_vision = _has_image_parts(query_messages)
 
+    # A screenshot with vision switched off stays on this machine, exactly as it
+    # does in the wrapper. Without this, the flag was honoured on the ollama.chat
+    # path and silently ignored on this one -- and this is the path screen_vision
+    # takes, so the one setting that promises no screenshot leaves the machine was
+    # broken for the only skill that sends one.
+    remote_ok = provider != "local" and (not wants_vision or _vision_allowed(config))
+
     # 1. NaraRouter (bynara), the primary. Skipped only when the caller explicitly
     # asked for the local brain. `model` is deliberately ignored here: it names a
     # Mistral or Ollama model at almost every call site, and the bynara model is a
     # config value chosen per role (text vs vision) instead.
-    if provider != "local":
+    if remote_ok:
         content = _try_bynara(config, query_messages, wants_vision, None)
         if content is not None:
             return content
@@ -429,10 +451,17 @@ def query_llm(messages: list, system_prompt: str = None, provider: str = "bynara
     # 2. Mistral, the secondary. One path for every entry point: the secondary
     # should not behave differently depending on which name the caller used to
     # get here. Streaming is kept because it prints the reply as it arrives.
-    if provider != "local":
+    if remote_ok:
         mistral_cfg = config.get("mistral", {})
         api_key = mistral_cfg.get("api_key", "")
-        target_model = model or mistral_cfg.get("models", {}).get("brain", "mistral-large-2512")
+        # Mistral names a model per role, so a screenshot must not be sent to the
+        # text model. An explicit `model` argument still wins, because that is how
+        # a caller names a specific Mistral model.
+        named = mistral_cfg.get("models", {})
+        if wants_vision:
+            target_model = model or named.get("vision", "ministral-8b-2512")
+        else:
+            target_model = model or named.get("brain", "mistral-large-2512")
 
         if api_key and not api_key.startswith("YOUR_"):
             import requests
@@ -483,8 +512,15 @@ def query_llm(messages: list, system_prompt: str = None, provider: str = "bynara
         logger.info("Falling back to local Ollama brain...")
         import ollama
         # `model` names the local brain at the provider="local" call sites, which
-        # passed it and were then ignored while the request went to the cloud.
-        model_name = model or models.get("main_brain", "yasserrmd/Human-Like-Qwen2.5-1.5B-Instruct:latest")
+        # passed it and were then ignored while the request went to the cloud. With
+        # no model named, a screenshot needs the local model that can actually see
+        # one -- the text brain would describe nothing.
+        if model:
+            model_name = model
+        elif wants_vision:
+            model_name = models.get("vision", "moondream:latest")
+        else:
+            model_name = models.get("main_brain", "yasserrmd/Human-Like-Qwen2.5-1.5B-Instruct:latest")
 
         ollama_messages = []
         for msg in query_messages:

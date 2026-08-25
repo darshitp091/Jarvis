@@ -443,6 +443,59 @@ def test_a_text_call_selects_bynaras_text_model(http, ollama):
     assert http.calls[0]["json"]["model"] == "ox-alpha-bynara"
 
 
+# -- vision_enabled: no screenshot leaves the machine --------------------------
+#
+# The flag was honoured on the ollama.chat path and ignored here, which is the
+# path screen_vision.py takes -- so the one setting that promises a screenshot
+# stays local was broken for the only skill that sends one.
+
+VISION_OFF = {"bynara": {"api_key": "bynara-key", "vision_model": "ox-vision",
+                         "vision_enabled": False},
+              "mistral": {"api_key": "real-key",
+                          "models": {"vision": "ministral-8b-2512"}}}
+
+SCREENSHOT = [{"role": "user", "content": [
+    {"type": "text", "text": "what is on my screen?"},
+    {"type": "image_url", "image_url": {"url": "data:image/png;base64,QUJD"}},
+]}]
+
+
+def test_vision_disabled_sends_the_screenshot_to_no_provider_at_all(http, ollama):
+    """Not even the secondary: its cloud is equally off this machine."""
+    http.response = _bynara_reply("should never be asked for")
+    assert query(config=VISION_OFF, messages=SCREENSHOT) == "from ollama"
+    assert http.calls == []
+    assert ollama.calls[0]["messages"][0]["images"] == ["QUJD"]
+
+
+def test_vision_disabled_still_lets_text_go_remote(http, ollama):
+    """The flag is about screenshots, not about switching the provider off."""
+    http.response = _bynara_reply("hello")
+    assert query(config=VISION_OFF) == "hello"
+    assert len(http.calls) == 1
+
+
+def test_a_local_screenshot_reaches_the_local_vision_model(http, ollama):
+    """The text brain cannot see an image, so naming no model must not land one
+    there. screen_vision.py now names none, leaving each leg its own choice."""
+    assert query(config=VISION_OFF, messages=SCREENSHOT,
+                 models={"main_brain": "text-only:latest",
+                         "vision": "moondream:latest"}) == "from ollama"
+    assert ollama.calls[0]["model"] == "moondream:latest"
+
+
+def test_mistrals_vision_model_is_used_when_bynara_declines(http, ollama):
+    """Mistral names a model per role, so a screenshot reaching the secondary must
+    not be addressed to its text model."""
+    http.response = FakeStream(sse("a login screen"))
+    config = {"bynara": {"api_key": ""},
+              "mistral": {"api_key": "real-key",
+                          "models": {"brain": "mistral-large-2512",
+                                     "vision": "ministral-8b-2512"}}}
+    assert query(config=config, messages=SCREENSHOT) == "a login screen"
+    assert http.calls[0]["json"]["model"] == "ministral-8b-2512"
+
+
 def test_no_deleted_provider_endpoint_survives_in_the_module():
     """groq is STT-only now and ofoxai is gone; neither may be reachable as a
     text provider from this module."""
