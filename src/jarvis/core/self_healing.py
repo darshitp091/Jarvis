@@ -51,7 +51,7 @@ class SelfHealingEngine:
             logger.error(f"Self-Healing: Failed to read file {filepath}: {read_err}")
             return False, f"I failed to read the broken script file: {filename}, sir."
 
-        # 3. Call LLM (Llama 3.1 8B via Cloudflare) to fix the file
+        # 3. Call the LLM cascade to fix the file
         import ollama
         
         sys_prompt = (

@@ -10,14 +10,19 @@ import yaml
 from loguru import logger
 
 class AutonomousCodingSandbox:
-    """Uses Groq's coding model and a local isolated sandbox to iteratively write, run, and self-heal Python code."""
+    """Writes, runs and self-heals Python in a local isolated sandbox.
+
+    Deliberately stays on Mistral's `models.code` rather than joining the main
+    cascade: this loop generates and repairs code, which a code-specialised model
+    does markedly better than a conversational one.
+    """
 
     def __init__(self, config_path: str = "config/settings.yaml"):
         self.config_path = config_path
         self.max_attempts = 5
 
-    def _get_groq_config(self) -> tuple[str, str]:
-        """Retrieves Mistral API key and model from environment or settings.yaml (replaces Groq)."""
+    def _get_llm_config(self) -> tuple[str, str]:
+        """The Mistral key and code model, from settings.yaml."""
         api_key = ""
         model = "devstral-2512"
         
@@ -33,9 +38,9 @@ class AutonomousCodingSandbox:
                 
         return api_key, model
 
-    def _call_groq(self, system_prompt: str, user_prompt: str) -> str:
-        """Hits Mistral's completions endpoint (replaces Groq)."""
-        api_key, model = self._get_groq_config()
+    def _ask_llm(self, system_prompt: str, user_prompt: str) -> str:
+        """Hits Mistral's completions endpoint."""
+        api_key, model = self._get_llm_config()
         if not api_key:
             return "ERROR: Mistral API key is not configured, sir. Please check settings.yaml."
 
@@ -63,9 +68,9 @@ class AutonomousCodingSandbox:
 
     def execute_task(self, task_description: str) -> str:
         """Runs the iterative write-execute-debug sandbox loop."""
-        api_key, _ = self._get_groq_config()
+        api_key, _ = self._get_llm_config()
         if not api_key:
-            return "I cannot initiate the coding sandbox, sir. The Groq API key has not been configured insettings.yaml or environment variables."
+            return "I cannot initiate the coding sandbox, sir. The Mistral API key has not been configured in settings.yaml."
 
         logger.info(f"Starting autonomous sandbox task: '{task_description}'")
         
@@ -79,8 +84,8 @@ class AutonomousCodingSandbox:
         code = ""
         
         for attempt in range(1, self.max_attempts + 1):
-            logger.info(f"Sandbox Attempt {attempt}/{self.max_attempts} - Prompting Groq...")
-            response = self._call_groq(system_prompt, user_prompt)
+            logger.info(f"Sandbox Attempt {attempt}/{self.max_attempts} - Prompting Mistral...")
+            response = self._ask_llm(system_prompt, user_prompt)
             
             if response.startswith("ERROR"):
                 return response
@@ -156,10 +161,10 @@ class CompilerRepairEngine:
         self.max_retries = 3
 
     def compile_and_repair(self, build_command: str) -> str:
-        """Executes a build command and loops to patch code syntax/compilation errors using Groq."""
-        api_key, _ = self.sandbox._get_groq_config()
+        """Executes a build command and loops to patch code syntax/compilation errors using Mistral."""
+        api_key, _ = self.sandbox._get_llm_config()
         if not api_key:
-            return "I cannot initiate the compiler repair loop, sir. The Groq API key is not configured."
+            return "I cannot initiate the compiler repair loop, sir. The Mistral API key is not configured."
 
         logger.info(f"Initiating build and compile-repair engine for command: '{build_command}'")
         
@@ -216,7 +221,7 @@ class CompilerRepairEngine:
             end_ctx = min(len(lines), line_number + 5)
             context_code = "".join(f"{i+1}: {lines[i]}" for i in range(start_ctx, end_ctx))
             
-            # 3. Request a code patch from Groq
+            # 3. Request a code patch from Mistral
             system_prompt = (
                 "You are JARVIS's Compiler Repair Agent. Your task is to provide the exact replacement code for a targeted range of lines. "
                 "Output ONLY the corrected code inside a ```python ... ``` or similar code block corresponding to the language of the file. "
@@ -232,7 +237,7 @@ class CompilerRepairEngine:
                 "Make sure it fits perfectly with the surrounding code and resolves the syntax/runtime error."
             )
             
-            patch_response = self.sandbox._call_groq(system_prompt, user_prompt)
+            patch_response = self.sandbox._ask_llm(system_prompt, user_prompt)
             if patch_response.startswith("ERROR"):
                 return patch_response
                 

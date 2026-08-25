@@ -483,9 +483,9 @@ class ProactiveMonitor:
                         error_msg = f"SyntaxError: {e.msg} at line {e.lineno}, column {e.offset}"
                         logger.warning(f"Proactive Sentinel: Syntax error detected in {path} -> {error_msg}")
                         
-                        # Generate self-healed version using Groq in memory
+                        # Generate self-healed version using Mistral in memory
                         if self.compiler_repair:
-                            logger.info(f"Proactive Sentinel: Triggering Groq repair for {path}")
+                            logger.info(f"Proactive Sentinel: Triggering Mistral repair for {path}")
                             system_prompt = (
                                 "You are JARVIS's Compiler Repair Agent. Your task is to correct syntax errors in a Python file. "
                                 "Output ONLY the entire corrected python code. Use a ```python ... ``` block. "
@@ -497,8 +497,8 @@ class ProactiveMonitor:
                                 f"Original Code:\n```python\n{content}\n```\n\n"
                                 "Please output the corrected version of the entire file."
                             )
-                            # Call Groq via the sandbox connection
-                            response = self.compiler_repair.sandbox._call_groq(system_prompt, user_prompt)
+                            # Call Mistral via the sandbox connection
+                            response = self.compiler_repair.sandbox._ask_llm(system_prompt, user_prompt)
                             
                             if response and not response.startswith("ERROR"):
                                 # Extract Python code

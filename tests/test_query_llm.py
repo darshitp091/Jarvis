@@ -1,20 +1,21 @@
-"""Tests for jarvis.core.llm_client.query_llm -- the four-provider cascade.
+"""Tests for jarvis.core.llm_client.query_llm -- the provider cascade.
 
 188 lines that lived in `main.py` as `JARVIS.query_llm` and so could not be
 tested: main.py imports PyQt6, ollama and pyautogui at module level. It is the
-function every spoken answer passes through, and it silently changes provider
-four times before giving up.
+function every spoken answer passes through, and it changes provider silently
+before giving up.
 
-The cascade, in the order the code tries it: Mistral (streaming), OfoxAI
-(streaming, only if `provider="ofoxai"` was asked for), Groq (always tried if
-neither returned), then local Ollama. Each step logs its failure and falls to the
-next; the last one returns a fixed apology.
+The cascade, in the order the code tries it: NaraRouter (bynara), then Mistral
+(streaming), then the local Ollama brain. Each step logs its failure and falls to
+the next; the last one returns a fixed apology. `provider` names the entry point
+rather than the only provider tried, and `provider="local"` is the one value that
+skips both remote legs.
 
 Nothing here touches the network. `requests.post` is patched as an attribute of
 the shared module object rather than by rebinding a name, because the function
 does its own `import requests` inside the body -- a local rebinding would not be
-seen. `openai` and `ollama` are injected into sys.modules as stand-ins, which
-also keeps them off the test environment's dependency list.
+seen. `ollama` is injected into sys.modules as a stand-in, which also keeps it off
+the test environment's dependency list.
 """
 
 import ast
@@ -33,9 +34,8 @@ MESSAGES = [{"role": "user", "content": "kitna time hua hai"}]
 # A config with no usable provider: every branch is skipped and control reaches
 # the Ollama fallback. Tests that want one provider live enable just that one.
 NO_PROVIDERS = {
+    "bynara": {"api_key": ""},
     "mistral": {"api_key": "YOUR_MISTRAL_KEY"},
-    "ofoxai": {"api_key": ""},
-    "groq": {"api_key": "YOUR_GROQ_KEY"},
 }
 MODELS = {"main_brain": "test-brain:latest"}
 
@@ -131,12 +131,13 @@ def query(**kwargs):
     return llm_client.query_llm(**kwargs)
 
 
-# -- Mistral, the first provider tried -----------------------------------
-
+# -- Mistral, the secondary -----------------------------------------------
+#
+# These configs name no bynara key, so the primary is skipped and Mistral is the
+# first leg to make a request.
 
 MISTRAL_ON = {"mistral": {"api_key": "real-key",
-                          "models": {"brain": "mistral-small-2503"}},
-              "groq": {"api_key": ""}}
+                          "models": {"brain": "mistral-small-2503"}}}
 
 
 def test_a_streamed_mistral_reply_is_joined_in_order(http, ollama):
@@ -218,7 +219,7 @@ def test_an_explicit_model_argument_beats_the_configured_one(http, ollama):
 
 
 def test_with_no_model_configured_a_default_is_used(http, ollama):
-    query(config={"mistral": {"api_key": "k"}, "groq": {"api_key": ""}})
+    query(config={"mistral": {"api_key": "k"}})
     assert http.calls[0]["json"]["model"] == "mistral-large-2512"
 
 
@@ -235,7 +236,7 @@ def test_with_no_model_configured_a_default_is_used(http, ollama):
 def test_an_unusable_mistral_key_skips_the_provider_entirely(http, ollama, mistral):
     """The `YOUR_` prefix check is what makes a fresh settings.yaml.example work
     without editing: the placeholder keys are recognised, not attempted."""
-    query(config={"mistral": mistral, "groq": {"api_key": ""}})
+    query(config={"mistral": mistral})
     assert http.calls == [], "no HTTP call should have been made"
     assert len(ollama.calls) == 1
 
